@@ -24,6 +24,7 @@ import platform
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import gymnasium as gym
 import torch
@@ -56,6 +57,8 @@ import franka_rl.tasks  # noqa: F401
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
+from franka_rl.utils.scenarios import ScenarioCatalog, ScenarioModifier
+
 RSL_RL_VERSION = "5.0.1"
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -75,6 +78,17 @@ parser.add_argument(
 )
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
+parser.add_argument(
+    "--scenario",
+    default="nominal",
+    help="Named nominal or random scenario from the scenario YAML catalog.",
+)
+parser.add_argument(
+    "--scenario-file",
+    type=Path,
+    default=None,
+    help="Optional scenario YAML file. Defaults to the packaged catalog.",
+)
 parser.add_argument(
     "--distributed", action="store_true", default=False, help="Run training with multiple GPUs or nodes."
 )
@@ -124,6 +138,15 @@ if version.parse(installed_version) < version.parse(RSL_RL_VERSION):
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     """Train with RSL-RL agent."""
+    scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
+    scenario = scenario_catalog.get(args_cli.scenario)
+    if scenario.type == "specified":
+        raise ValueError(
+            f"Specified scenario {scenario.name!r} is intended for robustness evaluation, not training. "
+            "Use a nominal or random scenario."
+        )
+    scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
+
     with launch_simulation(env_cfg, args_cli):
         # override configurations with non-hydra CLI arguments
         agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
@@ -150,6 +173,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "Distributed training is not supported when using CPU device. "
                 "Please use GPU device (e.g., --device cuda) for distributed training."
             )
+
+        scenario_metadata = scenario_modifier.apply(env_cfg)
+        print("[INFO] Training scenario:")
+        print_dict(scenario_metadata, nesting=4)
 
         # multi-gpu training configuration
         if args_cli.distributed:
@@ -240,6 +267,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # dump the configuration into log-directory
         dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)
         dump_yaml(os.path.join(log_dir, "params", "agent.yaml"), agent_cfg)
+        dump_yaml(os.path.join(log_dir, "params", "scenario.yaml"), scenario_metadata)
 
         # run training
         try:

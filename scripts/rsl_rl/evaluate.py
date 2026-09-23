@@ -3,27 +3,18 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Script to play a checkpoint if an RL agent from RSL-RL."""
-
-import warnings
-
-warnings.warn(
-    "scripts/reinforcement_learning/rsl_rl/play.py is deprecated. Use "
-    "`./isaaclab.sh play --rl_library rsl_rl --task <TASK>` instead. "
-    "Example: `./isaaclab.sh play --rl_library rsl_rl --task Isaac-Cartpole-v0`.",
-    DeprecationWarning,
-    stacklevel=1,
-)
+"""Evaluate an RSL-RL checkpoint and write reproducible result artifacts."""
 
 import argparse
 import contextlib
 import importlib.metadata as metadata
 import os
+import shutil
 import sys
-import time
+from datetime import datetime
+from pathlib import Path
 
 import gymnasium as gym
-import torch
 from packaging import version
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
@@ -36,8 +27,6 @@ from isaaclab.utils.string import list_intersection, string_to_callable
 from isaaclab_rl.rsl_rl import (
     RslRlBaseRunnerCfg,
     RslRlVecEnvWrapper,
-    export_policy_as_jit,
-    export_policy_as_onnx,
     handle_deprecated_rsl_rl_cfg,
 )
 from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
@@ -51,6 +40,8 @@ from isaaclab_tasks.utils import (
 )
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
+from isaaclab.managers import SceneEntityCfg, TerminationTermCfg
+
 # local imports
 import cli_args  # isort: skip
 
@@ -58,14 +49,45 @@ import franka_rl.tasks  # noqa: F401
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
+from franka_rl.tasks.manager_based.franka_rl import mdp
+from franka_rl.utils.policy_evaluator import (
+    EvaluationConfig,
+    PolicyEvaluator,
+)
+from franka_rl.utils.scenarios import ScenarioCatalog, ScenarioModifier
+
+DEFAULT_DATA_ROOT = Path("/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data")
+MIN_FREE_BYTES = 100 * 1024 * 1024
+
+
+def validate_data_root(data_root: Path) -> None:
+    """Fail rather than silently writing artifacts outside the mounted data volume."""
+    if not data_root.exists():
+        raise RuntimeError(
+            f"Franka RL data root does not exist: {data_root}. "
+            "Mount the data volume or set FRANKA_RL_DATA_ROOT to an existing directory."
+        )
+    if not data_root.is_dir():
+        raise RuntimeError(f"Franka RL data root is not a directory: {data_root}")
+    if not os.access(data_root, os.W_OK):
+        raise RuntimeError(f"Franka RL data root is not writable: {data_root}")
+
+    free_bytes = shutil.disk_usage(data_root).free
+    if free_bytes < MIN_FREE_BYTES:
+        raise RuntimeError(
+            f"Franka RL data root has only {free_bytes / 1024**2:.1f} MiB free; "
+            f"at least {MIN_FREE_BYTES / 1024**2:.0f} MiB is required."
+        )
+
 # -- argparse ----------------------------------------------------------------
-parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
+parser = argparse.ArgumentParser(description="Evaluate an RSL-RL checkpoint.")
+parser.add_argument("--video", action="store_true", default=False, help="Record a video during evaluation.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--num_episodes", type=int, default=5120, help="Number of episodes to evaluate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
@@ -78,6 +100,19 @@ parser.add_argument(
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument("--external_callback", default=None, help="Fully qualified path to an externally defined callback.")
+parser.add_argument("--success_threshold", type=float, default=0.03)
+parser.add_argument("--success_steps", type=int, default=5)
+parser.add_argument(
+    "--scenario",
+    default="nominal",
+    help="Named scenario from the scenario YAML catalog.",
+)
+parser.add_argument(
+    "--scenario-file",
+    type=Path,
+    default=None,
+    help="Optional scenario YAML file. Defaults to the packaged catalog.",
+)
 cli_args.add_rsl_rl_args(parser)
 add_launcher_args(parser)
 args_cli, remaining_args = setup_preset_cli(parser)
@@ -107,7 +142,17 @@ installed_version = metadata.version("rsl-rl-lib")
 
 @hydra_task_config(args_cli.task, args_cli.agent)
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
-    """Play with RSL-RL agent."""
+    """Evaluate an RSL-RL agent."""
+    scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
+    scenario = scenario_catalog.get(args_cli.scenario)
+    scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
+
+    data_root = Path(os.environ.get("FRANKA_RL_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser().resolve()
+    validate_data_root(data_root)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
+    output_dir = data_root / "evaluations" / f"{timestamp}_{args_cli.scenario}"
+
     with launch_simulation(env_cfg, args_cli):
         # grab task name for checkpoint path
         task_name = args_cli.task.split(":")[-1]
@@ -144,8 +189,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # set the log directory for the environment
         env_cfg.log_dir = log_dir
 
+        # success evaluation
+        env_cfg.terminations.reached_target = TerminationTermCfg(
+            func=mdp.SustainedPositionSuccess,
+            time_out=False,
+            params={
+                "command_name": "ee_pose",
+                "asset_cfg": SceneEntityCfg(
+                    "robot",
+                    body_names=["panda_hand"],
+                ),
+                "distance_threshold": args_cli.success_threshold,
+                "required_steps": args_cli.success_steps,
+            },
+        )
+
+        scenario_metadata = scenario_modifier.apply(env_cfg)
+        print("[INFO] Robustness scenario:")
+        print_dict(scenario_metadata, nesting=4)
+
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+        if scenario_modifier.records_episode_parameters:
+            # Resolve runtime joint names now so the artifact schema exactly
+            # matches the tensors sampled at each episode start.
+            scenario_modifier.capture(env.unwrapped)
+            domain_parameter_schema = scenario_modifier.parameter_schema
+            domain_parameter_reader = scenario_modifier.capture
+            scenario_metadata["runtime_validation"] = scenario_modifier.validate_runtime(env.unwrapped)
+        else:
+            domain_parameter_schema = {}
+            domain_parameter_reader = None
 
         # convert to single-agent instance if required by the RL algorithm
         if isinstance(env.unwrapped.cfg, DirectMARLEnvCfg):
@@ -156,12 +231,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # wrap for video recording
         if args_cli.video:
             video_kwargs = {
-                "video_folder": os.path.join(log_dir, "videos", "play"),
+                "video_folder": str(output_dir / "videos"),
                 "step_trigger": lambda step: step == 0,
                 "video_length": args_cli.video_length,
                 "disable_logger": True,
             }
-            print("[INFO] Recording videos during training.")
+            print("[INFO] Recording evaluation video.")
             print_dict(video_kwargs, nesting=4)
             env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
@@ -185,77 +260,45 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # obtain the trained policy for inference
         policy = runner.get_inference_policy(device=env.unwrapped.device)
 
-        # export the trained policy to JIT and ONNX formats
-        export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-
         if version.parse(installed_version) >= version.parse("4.0.0"):
-            # use the new export functions for rsl-rl >= 4.0.0
-            runner.export_policy_to_jit(path=export_model_dir, filename="policy.pt")
-            runner.export_policy_to_onnx(path=export_model_dir, filename="policy.onnx")
-            policy_nn = None  # Not needed for rsl-rl >= 4.0.0
+            reset_policy = policy.reset
         else:
             # extract the neural network for rsl-rl < 4.0.0
             if version.parse(installed_version) >= version.parse("2.3.0"):
                 policy_nn = runner.alg.policy
             else:
                 policy_nn = runner.alg.actor_critic
+            reset_policy = policy_nn.reset
 
-            # extract the normalizer
-            if hasattr(policy_nn, "actor_obs_normalizer"):
-                normalizer = policy_nn.actor_obs_normalizer
-            elif hasattr(policy_nn, "student_obs_normalizer"):
-                normalizer = policy_nn.student_obs_normalizer
-            else:
-                normalizer = None
+        # initialize evaluator
+        evaluation_cfg = EvaluationConfig(
+            scenario=scenario_metadata,
+            record_domain_parameters=scenario_modifier.records_episode_parameters,
+            domain_parameter_schema=domain_parameter_schema,
+            num_episodes=args_cli.num_episodes,
+            success_threshold=args_cli.success_threshold,
+            success_steps=args_cli.success_steps,
+            seed=env_cfg.seed,
+            output_dir=output_dir,
+            task_name=args_cli.task,
+            real_time=args_cli.real_time,
+            deterministic=args_cli.deterministic,
+        )
 
-            # export to JIT and ONNX
-            export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
-            export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+        evaluator = PolicyEvaluator(
+            env=env,
+            policy=policy,
+            config=evaluation_cfg,
+            checkpoint_path=resume_path,
+            reset_policy=reset_policy,
+            domain_parameter_reader=domain_parameter_reader,
+        )
 
-        dt = env.unwrapped.step_dt
-        sim = env.unwrapped.sim
-
-        # reset environment
-        obs = env.get_observations()
-        timestep = 0
         # simulate environment
         try:
-            while True:
-                # Stop stepping when the Kit window is closed.
-                if sim.visualizers:
-                    visualizer_running = any(
-                        visualizer.is_running() and not visualizer.is_closed
-                        for visualizer in sim.visualizers
-                    )
-                    if not visualizer_running:
-                        break
-
-                start_time = time.time()
-                # run everything in inference mode
-                with torch.inference_mode():
-                    # agent stepping
-                    actions = policy(obs)
-                    # env stepping
-                    obs, _, dones, _ = env.step(actions)
-                    # reset recurrent states for episodes that have terminated
-                    if version.parse(installed_version) >= version.parse("4.0.0"):
-                        policy.reset(dones)
-                    else:
-                        policy_nn.reset(dones)
-                if args_cli.video:
-                    timestep += 1
-                    if timestep == args_cli.video_length:
-                        break
-
-                sleep_time = dt - (time.time() - start_time)
-                if args_cli.real_time and sleep_time > 0:
-                    time.sleep(sleep_time)
-
-            # close the simulator
-            # env.close()
-        except KeyboardInterrupt:
-            pass
-
+            results = evaluator.run()
+            results.print_summary()
+            results.save()
         finally:
             env.close()
 

@@ -1,0 +1,69 @@
+version: 1
+
+scenarios:
+  nominal:
+    type: nominal
+    description: Unmodified Franka environment.
+
+  damping_125:
+    type: specified
+    description: Increase arm joint damping by 25 percent.
+    physics:
+      damping_scale: 1.25
+
+  effort_080:
+    type: specified
+    description: Reduce arm effort limits to 80 percent.
+    physics:
+      effort_limit_scale: 0.80
+
+  damping_125_effort_080:
+    type: specified
+    description: Combined fixed damping and effort perturbation.
+    physics:
+      damping_scale: 1.25
+      effort_limit_scale: 0.80
+
+  observation_noise_test:
+    type: specified
+    description: Fixed evaluation distribution for observation corruption.
+    observations:
+      joint_position_noise:
+        distribution: uniform
+        low: -0.005
+        high: 0.005
+      joint_velocity_noise:
+        distribution: uniform
+        low: -0.03
+        high: 0.03
+
+  franka_dr_train_v1:
+    type: random
+    description: Initial domain-randomized training distribution.
+    resampling: reset
+    physics:
+      stiffness_scale:
+        distribution: uniform
+        low: 0.90
+        high: 1.10
+      damping_scale:
+        distribution: uniform
+        low: 0.90
+        high: 1.10
+      effort_limit_scale:
+        distribution: uniform
+        low: 0.80
+        high: 1.00
+      joint_friction_add:
+        distribution: uniform
+        low: 0.00
+        high: 0.10
+    observations:
+      joint_position_noise:
+        distribution: uniform
+        low: -0.002
+        high: 0.002
+      joint_velocity_noise:
+        distribution: uniform
+        low: -0.01
+        high: 0.01

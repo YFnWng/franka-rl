@@ -19,6 +19,7 @@ EXTENSION_TOML_DATA = toml.load(os.path.join(EXTENSION_PATH, "config", "extensio
 INSTALL_REQUIRES = [
     # NOTE: Add dependencies
     "psutil",
+    "PyYAML>=6.0",
 ]
 
 # Installation operation
@@ -34,6 +35,7 @@ setup(
     install_requires=INSTALL_REQUIRES,
     license="Apache-2.0",
     include_package_data=True,
+    package_data={"franka_rl": ["config/*.yaml"]},
     python_requires=">=3.12",
     classifiers=[
         "Natural Language :: English",
