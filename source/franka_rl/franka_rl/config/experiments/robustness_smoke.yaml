@@ -1,0 +1,29 @@
+version: 1
+
+name: nominal_robustness_smoke
+baseline_policy: nominal_ppo
+
+policies:
+  nominal_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
+    description: PPO policy trained without domain randomization.
+
+scenarios:
+  - nominal
+  - damping_125
+  - effort_080
+
+seeds:
+  - 123
+
+evaluation:
+  task: Template-Franka-Rl-v0
+  num_envs: 128
+  episodes_per_job: 256
+  success_threshold: 0.03
+  success_steps: 5
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+
+scenario_file: null
