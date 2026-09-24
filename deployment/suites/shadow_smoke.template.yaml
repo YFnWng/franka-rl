@@ -1,0 +1,25 @@
+# Replace paths and hashes after transferring the immutable bundle locally.
+schema_version: 1
+name: shadow_smoke
+mode: shadow
+policy_bundle:
+  path: ../bundles/dr_v2_model_999_release_1
+  sha256: REPLACE_WITH_TRUSTED_MANIFEST_SHA256
+target_set:
+  path: ../target_sets/shadow_smoke.yaml
+  sha256: REPLACE_WITH_TARGET_FILE_SHA256
+execution:
+  repetitions: 3
+  order: sequential
+  seed: 123
+  move_to_start_before_each_trial: false
+  trial_timeout_s: 6.0
+  inter_trial_hold_s: 2.0
+success:
+  position_threshold_m: 0.03
+  consecutive_policy_steps: 5
+failure_policy:
+  abort_suite_on_fault: true
+  continue_after_timeout: false
+artifacts:
+  root: /var/local/franka_rl/experiments

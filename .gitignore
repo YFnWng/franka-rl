@@ -65,7 +65,8 @@ _build
 /datasets/
 
 # Tests
-/tests/
+/tests/*
+!/tests/deployment/
 
 # Docker history
 .isaac-lab-docker-history
@@ -88,3 +89,6 @@ _build
 
 # Superpowers (Claude Code plugin artifacts)
 docs/superpowers/
+
+# Portable deployment package initializer
+!/deployment/franka_policy_bundle/__init__.py

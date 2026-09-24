@@ -1,0 +1,153 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mode": {
+      "enum": [
+        "shadow",
+        "active"
+      ]
+    },
+    "policy_bundle": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "target_set": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "repetitions": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "order": {
+          "enum": [
+            "sequential",
+            "seeded_shuffle"
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "move_to_start_before_each_trial": {
+          "type": "boolean"
+        },
+        "trial_timeout_s": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "inter_trial_hold_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "repetitions",
+        "order",
+        "seed",
+        "move_to_start_before_each_trial",
+        "trial_timeout_s",
+        "inter_trial_hold_s"
+      ],
+      "additionalProperties": false
+    },
+    "success": {
+      "type": "object",
+      "properties": {
+        "position_threshold_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "consecutive_policy_steps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "position_threshold_m",
+        "consecutive_policy_steps"
+      ],
+      "additionalProperties": false
+    },
+    "failure_policy": {
+      "type": "object",
+      "properties": {
+        "abort_suite_on_fault": {
+          "const": true
+        },
+        "continue_after_timeout": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "abort_suite_on_fault",
+        "continue_after_timeout"
+      ],
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "root"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "name",
+    "mode",
+    "policy_bundle",
+    "target_set",
+    "execution",
+    "success",
+    "failure_policy",
+    "artifacts"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

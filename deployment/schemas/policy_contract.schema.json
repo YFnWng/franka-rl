@@ -1,0 +1,189 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "robot_model": {
+      "const": "panda"
+    },
+    "joint_names": {
+      "const": [
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7"
+      ]
+    },
+    "default_joint_position_rad": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "default_joint_velocity_rad_s": {
+      "const": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "policy_period_s": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "observation": {
+      "const": {
+        "size": 24,
+        "dtype": "float32",
+        "terms": [
+          "joint_pos_rel",
+          "joint_vel_rel",
+          "ee_position_error",
+          "previous_action"
+        ],
+        "normalization": false,
+        "previous_action": "raw_actor_output",
+        "reset_previous_action": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "size": {
+          "const": 7
+        },
+        "dtype": {
+          "const": "float32"
+        },
+        "inference": {
+          "const": "deterministic_mean"
+        },
+        "mapping": {
+          "const": "default_plus_scaled"
+        },
+        "scale_rad": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "clip": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "size",
+        "dtype",
+        "inference",
+        "mapping",
+        "scale_rad",
+        "clip"
+      ],
+      "additionalProperties": false
+    },
+    "frames": {
+      "const": {
+        "base": "panda_link0",
+        "tracked_body": "panda_hand"
+      }
+    },
+    "target_workspace_m": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "y": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "z": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "additionalProperties": false
+    },
+    "deployment_observation_noise": {
+      "const": false
+    },
+    "observation_layout": {
+      "const": [
+        {
+          "start": 0,
+          "stop": 7,
+          "expression": "q_measured - q_default",
+          "unit": "rad"
+        },
+        {
+          "start": 7,
+          "stop": 14,
+          "expression": "dq_measured",
+          "unit": "rad/s"
+        },
+        {
+          "start": 14,
+          "stop": 17,
+          "expression": "target_base - panda_hand_base",
+          "unit": "m"
+        },
+        {
+          "start": 17,
+          "stop": 24,
+          "expression": "previous_raw_actor_output",
+          "unit": "unitless"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "robot_model",
+    "joint_names",
+    "default_joint_position_rad",
+    "default_joint_velocity_rad_s",
+    "policy_period_s",
+    "observation",
+    "action",
+    "frames",
+    "target_workspace_m",
+    "deployment_observation_noise",
+    "observation_layout"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
