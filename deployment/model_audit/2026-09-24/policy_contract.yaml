@@ -1,0 +1,83 @@
+schema_version: 1
+robot_model: panda
+joint_names:
+- panda_joint1
+- panda_joint2
+- panda_joint3
+- panda_joint4
+- panda_joint5
+- panda_joint6
+- panda_joint7
+default_joint_position_rad:
+- 0.0
+- -0.569
+- 0.0
+- -2.81
+- 0.0
+- 3.037
+- 0.741
+default_joint_velocity_rad_s:
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+- 0.0
+policy_period_s: 0.03333333333333333
+observation_layout:
+- start: 0
+  stop: 7
+  expression: q_measured - q_default
+  unit: rad
+- start: 7
+  stop: 14
+  expression: dq_measured
+  unit: rad/s
+- start: 14
+  stop: 17
+  expression: target_base - panda_hand_base
+  unit: m
+- start: 17
+  stop: 24
+  expression: previous_raw_actor_output
+  unit: unitless
+observation:
+  size: 24
+  dtype: float32
+  terms:
+  - joint_pos_rel
+  - joint_vel_rel
+  - ee_position_error
+  - previous_action
+  normalization: false
+  previous_action: raw_actor_output
+  reset_previous_action:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+action:
+  size: 7
+  dtype: float32
+  inference: deterministic_mean
+  mapping: default_plus_scaled
+  scale_rad: 0.5
+  clip: null
+frames:
+  base: panda_link0
+  tracked_body: panda_hand
+target_workspace_m:
+  x:
+  - 0.35
+  - 0.6
+  y:
+  - -0.2
+  - 0.2
+  z:
+  - 0.2
+  - 0.5
+deployment_observation_noise: false

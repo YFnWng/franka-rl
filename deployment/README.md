@@ -10,6 +10,14 @@ importing the existing `franka_rl` package registers simulator tasks. The
 exporter uses the installed training environment's PyTorch/RSL-RL; bundle
 verification only needs `deployment/requirements.txt`.
 
+## Return audit from the real-time host (2026-09-24)
+
+The Panda-to-FR3v2 model audit and portable evidence are in
+[model_audit/2026-09-24/FINDINGS.md](model_audit/2026-09-24/FINDINGS.md).
+The simulation workstation should continue with
+[SIMULATION_HANDOFF.md](model_audit/2026-09-24/SIMULATION_HANDOFF.md), starting
+with effective runtime inertias and the bare-flange dynamics mismatch.
+
 ## Export on the training computer
 
 ```bash

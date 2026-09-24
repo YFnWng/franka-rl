@@ -1,0 +1,79 @@
+name: franka_dr_train_v2
+type: random
+description: Calibrated reset-time DR with payload, sensing, initialization, and policy-step
+  latency.
+physics:
+  stiffness_scale:
+    distribution: uniform
+    low: 0.65
+    high: 1.5
+  damping_scale:
+    distribution: uniform
+    low: 0.75
+    high: 1.5
+  effort_limit_scale:
+    distribution: uniform
+    low: 0.5
+    high: 1.0
+  joint_friction_add:
+    distribution: uniform
+    low: 0.0
+    high: 0.5
+  joint_armature_scale: null
+  link_mass_scale: null
+  link_inertia_scale: null
+  payload_mass_kg:
+    distribution: uniform
+    low: 0.0
+    high: 2.0
+  payload_com_offset_m: !!python/tuple
+  - distribution: uniform
+    low: -0.03
+    high: 0.03
+  - distribution: uniform
+    low: -0.03
+    high: 0.03
+  - distribution: uniform
+    low: 0.0
+    high: 0.1
+observations:
+  joint_position_noise:
+    distribution: uniform
+    low: -0.01
+    high: 0.01
+  joint_velocity_noise:
+    distribution: uniform
+    low: -0.05
+    high: 0.05
+  ee_position_error_noise:
+    distribution: uniform
+    low: -0.01
+    high: 0.01
+  joint_position_bias: null
+  joint_velocity_bias: null
+  ee_position_error_bias: null
+control:
+  action_delay_steps: null
+  action_delay_range: !!python/tuple
+  - 0
+  - 1
+reset:
+  joint_position_range: !!python/tuple
+  - -0.125
+  - 0.125
+resampling: reset
+catalog:
+  schema_version: 1
+  source: package:config/scenarios.yaml
+  sha256: bfe84078ac51247453545ebb8755644dcf58a9200d8d48f092493e9827e1ceb4
+configured_values:
+  reset_joint_position_range: !!python/tuple
+  - -0.125
+  - 0.125
+runtime_control:
+  action_delay_range:
+  - 0
+  - 1
+  sampling: uniform_integer_per_environment_per_episode
+  initial_action: zero_residual
+  reset_behavior: clear_done_environment_history
