@@ -22,6 +22,7 @@ def read_artifacts(
     expected_job_id: str,
     expected_episodes: int,
     expected_checkpoint_sha256: str,
+    expected_target_set_sha256: str | None = None,
 ) -> EvaluationArtifacts:
     summary = _read_json(output_dir / "summary.json")
     manifest = _read_json(output_dir / "manifest.json")
@@ -39,6 +40,10 @@ def read_artifacts(
         raise ValueError(f"Summary episode count mismatch in {output_dir}.")
     if manifest.get("checkpoint_sha256") != expected_checkpoint_sha256:
         raise ValueError(f"Checkpoint hash mismatch in {output_dir}.")
+    target_set = manifest.get("target_set")
+    actual_target_sha256 = target_set.get("sha256") if isinstance(target_set, dict) else None
+    if actual_target_sha256 != expected_target_set_sha256:
+        raise ValueError(f"Target-set hash mismatch in {output_dir}.")
     return EvaluationArtifacts(output_dir, summary, manifest, completion)
 
 

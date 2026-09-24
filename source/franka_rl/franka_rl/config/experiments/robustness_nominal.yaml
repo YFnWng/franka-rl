@@ -1,6 +1,6 @@
 version: 1
 
-name: nominal_robustness_smoke
+name: nominal_ppo_full_robustness
 baseline_policy: nominal_ppo
 
 policies:
@@ -8,13 +8,23 @@ policies:
     checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
     description: PPO policy trained without domain randomization.
 
+# The fixed seven-row protocol from IMPLEMENTATION_PLAN.md section 6.
 scenarios:
   - nominal
-  - damping_125
   - effort_080
+  - damping_125
+  - friction_add_010
+  - observation_noise_test
+  - action_delay_1
+  - action_delay_2
 
+# Five paired seeds support seed dispersion and confidence intervals.
 seeds:
   - 123
+  - 456
+  - 789
+  - 1011
+  - 1213
 
 evaluation:
   task: Template-Franka-Rl-v0

@@ -7,7 +7,9 @@
 
 import argparse
 import contextlib
+import hashlib
 import importlib.metadata as metadata
+import json
 import os
 import shutil
 import sys
@@ -103,6 +105,23 @@ parser.add_argument("--external_callback", default=None, help="Fully qualified p
 parser.add_argument("--success_threshold", type=float, default=0.03)
 parser.add_argument("--success_steps", type=int, default=5)
 parser.add_argument(
+    "--output-dir",
+    type=Path,
+    default=None,
+    help="Write artifacts to this exact directory instead of a timestamped directory.",
+)
+parser.add_argument(
+    "--job-id",
+    default=None,
+    help="Stable coordinator job identifier stored in the evaluation artifacts.",
+)
+parser.add_argument(
+    "--target-set",
+    type=Path,
+    default=None,
+    help="Optional deterministic target-set JSON for paired evaluation.",
+)
+parser.add_argument(
     "--scenario",
     default="nominal",
     help="Named scenario from the scenario YAML catalog.",
@@ -147,11 +166,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     scenario = scenario_catalog.get(args_cli.scenario)
     scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
 
+    if args_cli.target_set is None:
+        target_set_metadata = None
+    else:
+        target_set_path = args_cli.target_set.expanduser().resolve()
+        if not target_set_path.is_file():
+            raise FileNotFoundError(f"Target set not found: {target_set_path}")
+        target_set_sha256 = hashlib.sha256(target_set_path.read_bytes()).hexdigest()
+        target_set_metadata = {
+            "path": str(target_set_path),
+            "sha256": target_set_sha256,
+        }
+
     data_root = Path(os.environ.get("FRANKA_RL_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser().resolve()
     validate_data_root(data_root)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
-    output_dir = data_root / "evaluations" / f"{timestamp}_{args_cli.scenario}"
+    if args_cli.output_dir is None:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
+        output_dir = data_root / "evaluations" / f"{timestamp}_{args_cli.scenario}"
+    else:
+        output_dir = args_cli.output_dir.expanduser().resolve()
+        try:
+            output_dir.relative_to(data_root)
+        except ValueError as error:
+            raise RuntimeError(
+                f"Evaluation output directory must be under FRANKA_RL_DATA_ROOT ({data_root}): {output_dir}"
+            ) from error
 
     with launch_simulation(env_cfg, args_cli):
         # grab task name for checkpoint path
@@ -203,6 +243,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "required_steps": args_cli.success_steps,
             },
         )
+        env_cfg.terminations.evaluation_state_metrics = TerminationTermCfg(
+            func=mdp.EvaluationStateMetrics,
+            time_out=False,
+            params={
+                "command_name": "ee_pose",
+                "hand_asset_cfg": SceneEntityCfg(
+                    "robot",
+                    body_names=["panda_hand"],
+                ),
+                "joint_asset_cfg": SceneEntityCfg(
+                    "robot",
+                    joint_names=["panda_joint.*"],
+                ),
+            },
+        )
 
         scenario_metadata = scenario_modifier.apply(env_cfg)
         print("[INFO] Robustness scenario:")
@@ -210,6 +265,36 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
+
+        evaluation_state_term = env.unwrapped.termination_manager.get_term_cfg(
+            "evaluation_state_metrics"
+        ).func
+
+        def trajectory_state_reader(_env):
+            return {
+                "position_error_m": evaluation_state_term.position_error_m,
+                "joint_limit_margin_rad": evaluation_state_term.joint_limit_margin_rad,
+            }
+
+        # Install deterministic replay only after SimulationApp and the
+        # environment exist. An eager custom Isaac command import initializes
+        # USD/pxr too early and can make native Kit startup crash.
+        if args_cli.target_set is not None:
+            from franka_rl.utils.target_replay import TargetReplayController
+
+            target_replay = TargetReplayController(args_cli.target_set, target_set_sha256)
+            target_replay.install(env.unwrapped, command_name="ee_pose")
+
+        action_delay_steps = scenario.control.action_delay_steps or 0
+        if action_delay_steps:
+            from franka_rl.utils.action_delay import FixedActionDelayWrapper
+
+            env = FixedActionDelayWrapper(env, action_delay_steps)
+            scenario_metadata["runtime_control"] = {
+                "action_delay_steps": action_delay_steps,
+                "initial_action": "zero_residual",
+                "reset_behavior": "clear_done_environment_history",
+            }
 
         if scenario_modifier.records_episode_parameters:
             # Resolve runtime joint names now so the artifact schema exactly
@@ -272,6 +357,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         # initialize evaluator
         evaluation_cfg = EvaluationConfig(
+            job_id=args_cli.job_id,
+            target_set=target_set_metadata,
             scenario=scenario_metadata,
             record_domain_parameters=scenario_modifier.records_episode_parameters,
             domain_parameter_schema=domain_parameter_schema,
@@ -292,6 +379,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             checkpoint_path=resume_path,
             reset_policy=reset_policy,
             domain_parameter_reader=domain_parameter_reader,
+            trajectory_state_reader=trajectory_state_reader,
         )
 
         # simulate environment
@@ -299,6 +387,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             results = evaluator.run()
             results.print_summary()
             results.save()
+            completion = {
+                "status": "complete",
+                "job_id": args_cli.job_id,
+                "episodes_recorded": results.num_episodes,
+                "completed_at": datetime.now().astimezone().isoformat(),
+            }
+            completion_tmp = output_dir / "completed.json.tmp"
+            completion_path = output_dir / "completed.json"
+            with completion_tmp.open("w", encoding="utf-8") as file:
+                json.dump(completion, file, indent=2)
+                file.write("\n")
+            completion_tmp.replace(completion_path)
         finally:
             env.close()
 

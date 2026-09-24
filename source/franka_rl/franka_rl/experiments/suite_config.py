@@ -23,6 +23,15 @@ class PolicySpec:
 
 
 @dataclass(frozen=True)
+class TargetReplaySettings:
+    enabled: bool
+    pos_x: tuple[float, float]
+    pos_y: tuple[float, float]
+    pos_z: tuple[float, float]
+    extra_episodes_per_env: int = 32
+
+
+@dataclass(frozen=True)
 class EvaluationSettings:
     task: str
     num_envs: int
@@ -32,6 +41,7 @@ class EvaluationSettings:
     device: str
     deterministic: bool = True
     visualizer: str = "none"
+    target_replay: TargetReplaySettings | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +153,7 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
         "device",
         "deterministic",
         "visualizer",
+        "target_replay",
     }
     _unknown(mapping, allowed, "evaluation")
     task = mapping.get("task")
@@ -163,6 +174,7 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
     deterministic = mapping.get("deterministic", True)
     if not isinstance(deterministic, bool):
         raise TypeError("evaluation.deterministic must be boolean.")
+    target_replay = _parse_target_replay(mapping.get("target_replay"))
     return EvaluationSettings(
         task=task,
         num_envs=num_envs,
@@ -172,6 +184,37 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
         device=device,
         deterministic=deterministic,
         visualizer=visualizer,
+        target_replay=target_replay,
+    )
+
+
+def _parse_target_replay(value: Any) -> TargetReplaySettings | None:
+    if value is None:
+        return None
+    mapping = _mapping(value, "evaluation.target_replay")
+    _unknown(
+        mapping,
+        {"enabled", "position_ranges", "extra_episodes_per_env"},
+        "evaluation.target_replay",
+    )
+    enabled = mapping.get("enabled", True)
+    if not isinstance(enabled, bool):
+        raise TypeError("evaluation.target_replay.enabled must be boolean.")
+    if not enabled:
+        return None
+    ranges = _mapping(mapping.get("position_ranges"), "target replay position_ranges")
+    _unknown(ranges, {"x", "y", "z"}, "target replay position_ranges")
+    if set(ranges) != {"x", "y", "z"}:
+        raise ValueError("Target replay position_ranges must define x, y, and z.")
+    extra = mapping.get("extra_episodes_per_env", 32)
+    if not isinstance(extra, int) or isinstance(extra, bool) or extra < 0:
+        raise ValueError("target_replay.extra_episodes_per_env must be a nonnegative integer.")
+    return TargetReplaySettings(
+        enabled=True,
+        pos_x=_number_range(ranges["x"], "target replay x range"),
+        pos_y=_number_range(ranges["y"], "target replay y range"),
+        pos_z=_number_range(ranges["z"], "target replay z range"),
+        extra_episodes_per_env=extra,
     )
 
 
@@ -233,3 +276,14 @@ def _positive_int(value: Any, context: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{context} must be a positive integer.")
     return value
+
+
+def _number_range(value: Any, context: str) -> tuple[float, float]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise TypeError(f"{context} must be a two-element list.")
+    if not all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value):
+        raise TypeError(f"{context} values must be numbers.")
+    low, high = float(value[0]), float(value[1])
+    if low > high:
+        raise ValueError(f"{context} lower bound exceeds upper bound.")
+    return (low, high)

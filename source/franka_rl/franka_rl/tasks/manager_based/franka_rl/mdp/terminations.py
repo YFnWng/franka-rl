@@ -62,6 +62,64 @@ class SustainedPositionSuccess(ManagerTermBase):
 
         return self._consecutive_steps >= required_steps
 
+
+class EvaluationStateMetrics(ManagerTermBase):
+    """Capture post-physics trajectory metrics before automatic episode reset.
+
+    The term never terminates an environment.  Evaluation code reads the
+    cached tensors after ``env.step()``; keeping the cache unchanged in
+    :meth:`reset` preserves the terminal sample even though manager-based
+    environments reset completed environments inside that call.
+    """
+
+    def __init__(
+        self,
+        cfg: TerminationTermCfg,
+        env: ManagerBasedRLEnv,
+    ):
+        super().__init__(cfg, env)
+        self.position_error_m = torch.full(
+            (self.num_envs,), float("nan"), device=self.device
+        )
+        self.joint_limit_margin_rad = torch.full(
+            (self.num_envs,), float("nan"), device=self.device
+        )
+        self._never_done = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        """Retain the last pre-reset sample for the evaluator."""
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        hand_asset_cfg: SceneEntityCfg,
+        joint_asset_cfg: SceneEntityCfg,
+    ) -> torch.Tensor:
+        position_error = ee_position_error_b(
+            env,
+            command_name=command_name,
+            asset_cfg=hand_asset_cfg,
+        )
+        self.position_error_m.copy_(
+            torch.linalg.vector_norm(position_error, dim=1)
+        )
+
+        robot: Articulation = env.scene[joint_asset_cfg.name]
+        joint_pos = robot.data.joint_pos.torch[:, joint_asset_cfg.joint_ids]
+        limits = robot.data.soft_joint_pos_limits.torch[
+            :, joint_asset_cfg.joint_ids
+        ]
+        lower_margin = joint_pos - limits[..., 0]
+        upper_margin = limits[..., 1] - joint_pos
+        self.joint_limit_margin_rad.copy_(
+            torch.minimum(lower_margin, upper_margin).amin(dim=1)
+        )
+
+        return self._never_done
+
 def non_finite_joint_state(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg,

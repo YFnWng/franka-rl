@@ -1,6 +1,6 @@
 version: 1
 
-name: nominal_robustness_smoke
+name: nominal_ppo_robustness_calibration
 baseline_policy: nominal_ppo
 
 policies:
@@ -8,10 +8,30 @@ policies:
     checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
     description: PPO policy trained without domain randomization.
 
+# One matched seed is intentional: this suite locates informative perturbation
+# magnitudes. Freeze selected points in a separate five-seed final suite.
 scenarios:
   - nominal
-  - damping_125
   - effort_080
+  - effort_060
+  - effort_040
+  - damping_125
+  - damping_150
+  - damping_200
+  - friction_add_010
+  - friction_add_025
+  - friction_add_050
+  - link_mass_090
+  - link_mass_110
+  - link_inertia_080
+  - link_inertia_120
+  - armature_050
+  - armature_200
+  - observation_noise_test
+  - observation_noise_medium
+  - observation_noise_high
+  - observation_bias
+  - reset_joint_0125
 
 seeds:
   - 123

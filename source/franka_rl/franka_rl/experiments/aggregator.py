@@ -21,6 +21,16 @@ METRICS = (
     "mean_time_to_success_s",
     "median_time_to_success_s",
     "p90_time_to_success_s",
+    "mean_final_position_error_m",
+    "mean_min_position_error_m",
+    "mean_integrated_position_error_m_s",
+    "mean_position_error_m",
+    "mean_threshold_overshoot_m",
+    "threshold_entry_rate",
+    "mean_action_magnitude",
+    "mean_peak_action_magnitude",
+    "mean_min_joint_limit_margin_rad",
+    "worst_joint_limit_margin_rad",
 )
 
 
@@ -41,7 +51,8 @@ def compile_results(
     baseline_policy: str,
 ) -> None:
     destination.mkdir(parents=True, exist_ok=True)
-    rows = [_job_row(job) for job in jobs]
+    job_list = list(jobs)
+    rows = [_job_row(job) for job in job_list]
     rows.sort(key=lambda row: (row["policy"], row["scenario"], int(row["seed"])))
     _write_csv(destination / "jobs.csv", rows, _job_fields())
 
@@ -50,6 +61,29 @@ def compile_results(
 
     comparison_rows = _comparison_rows(rows, baseline_policy)
     _write_csv(destination / "policy_comparison.csv", comparison_rows, _comparison_fields())
+
+    degradation_rows = _degradation_rows(rows)
+    _write_csv(
+        destination / "robustness_degradation.csv",
+        degradation_rows,
+        _degradation_fields(),
+    )
+
+    pairing_rows = _target_pairing_rows(job_list, baseline_policy)
+    _write_csv(
+        destination / "target_pairing.csv",
+        pairing_rows,
+        [
+            "reference_policy",
+            "reference_scenario",
+            "policy",
+            "scenario",
+            "seed",
+            "episodes_compared",
+            "matching_targets",
+            "match_rate",
+        ],
+    )
 
 
 def _job_row(job: CompletedJob) -> dict[str, Any]:
@@ -137,6 +171,89 @@ def _comparison_rows(rows: list[dict[str, Any]], baseline_policy: str) -> list[d
     return output
 
 
+def _degradation_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Compare each robustness scenario with nominal using matched seeds."""
+    lookup = {
+        (str(row["policy"]), str(row["scenario"]), int(row["seed"])): row
+        for row in rows
+    }
+    policies = sorted({str(row["policy"]) for row in rows})
+    scenarios = sorted({str(row["scenario"]) for row in rows} - {"nominal"})
+    output: list[dict[str, Any]] = []
+    for policy in policies:
+        for scenario in scenarios:
+            seeds = sorted(
+                seed
+                for row_policy, row_scenario, seed in lookup
+                if row_policy == policy
+                and row_scenario == "nominal"
+                and (policy, scenario, seed) in lookup
+            )
+            if not seeds:
+                continue
+            result: dict[str, Any] = {
+                "policy": policy,
+                "reference_scenario": "nominal",
+                "scenario": scenario,
+                "paired_seeds": len(seeds),
+                "seeds": ";".join(str(seed) for seed in seeds),
+            }
+            for metric in METRICS:
+                deltas = [
+                    _numeric(lookup[(policy, scenario, seed)].get(metric))
+                    - _numeric(lookup[(policy, "nominal", seed)].get(metric))
+                    for seed in seeds
+                    if lookup[(policy, scenario, seed)].get(metric) is not None
+                    and lookup[(policy, "nominal", seed)].get(metric) is not None
+                ]
+                for statistic, value in _statistics(deltas).items():
+                    result[f"delta_{metric}_{statistic}"] = value
+            output.append(result)
+    return output
+
+
+def _target_pairing_rows(jobs: list[CompletedJob], baseline_policy: str) -> list[dict[str, Any]]:
+    lookup = {(job.policy, job.scenario, job.seed): job for job in jobs}
+    output: list[dict[str, Any]] = []
+    for job in sorted(jobs, key=lambda item: (item.policy, item.scenario, item.seed)):
+        reference = lookup.get((baseline_policy, "nominal", job.seed))
+        if reference is None:
+            continue
+        reference_targets = _episode_targets(reference.artifacts.output_dir / "episodes.csv")
+        job_targets = _episode_targets(job.artifacts.output_dir / "episodes.csv")
+        common = sorted(set(reference_targets) & set(job_targets))
+        matches = sum(reference_targets[key] == job_targets[key] for key in common)
+        output.append(
+            {
+                "reference_policy": baseline_policy,
+                "reference_scenario": "nominal",
+                "policy": job.policy,
+                "scenario": job.scenario,
+                "seed": job.seed,
+                "episodes_compared": len(common),
+                "matching_targets": matches,
+                "match_rate": matches / len(common) if common else "",
+            }
+        )
+    return output
+
+
+def _episode_targets(path: Path) -> dict[tuple[int, int], tuple[str, str, str]]:
+    with path.open("r", encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        required = {"env_id", "episode_id", "target_x", "target_y", "target_z"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise ValueError(f"Episode artifact lacks target columns: {path}")
+        return {
+            (int(row["env_id"]), int(row["episode_id"])): (
+                row["target_x"],
+                row["target_y"],
+                row["target_z"],
+            )
+            for row in reader
+        }
+
+
 def _statistics(values: Iterable[Any]) -> dict[str, float | int | str]:
     numbers = [_numeric(value) for value in values if value is not None and value != ""]
     if not numbers:
@@ -201,6 +318,16 @@ def _scenario_fields() -> list[str]:
 
 def _comparison_fields() -> list[str]:
     fields = ["baseline_policy", "candidate_policy", "scenario", "paired_seeds", "seeds"]
+    for metric in METRICS:
+        fields.extend(
+            f"delta_{metric}_{statistic}"
+            for statistic in ("mean", "std", "ci95_low", "ci95_high", "min", "max")
+        )
+    return fields
+
+
+def _degradation_fields() -> list[str]:
+    fields = ["policy", "reference_scenario", "scenario", "paired_seeds", "seeds"]
     for metric in METRICS:
         fields.extend(
             f"delta_{metric}_{statistic}"

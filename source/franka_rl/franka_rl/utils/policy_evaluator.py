@@ -66,6 +66,8 @@ class EvaluationConfig:
     seed: int
     output_dir: Path
 
+    job_id: str | None = None
+    target_set: dict[str, Any] | None = None
     scenario: dict[str, Any] = field(default_factory=dict)
     record_domain_parameters: bool = True
     domain_parameter_schema: dict[str, Any] = field(default_factory=dict)
@@ -99,6 +101,15 @@ class EvaluationResults:
 
     episode_steps: torch.Tensor
     time_to_success: torch.Tensor
+    final_position_error_m: torch.Tensor
+    min_position_error_m: torch.Tensor
+    integrated_position_error_m_s: torch.Tensor
+    mean_position_error_m: torch.Tensor
+    threshold_overshoot_m: torch.Tensor
+    entered_success_region: torch.Tensor
+    mean_action_magnitude: torch.Tensor
+    peak_action_magnitude: torch.Tensor
+    min_joint_limit_margin_rad: torch.Tensor
     domain_parameters: dict[str, torch.Tensor]
 
     metadata: dict[str, Any]
@@ -139,6 +150,36 @@ class EvaluationResults:
             "mean_episode_steps": (
                 float(self.episode_steps.float().mean()) if count else None
             ),
+            "mean_final_position_error_m": (
+                float(self.final_position_error_m.float().mean()) if count else None
+            ),
+            "mean_min_position_error_m": (
+                float(self.min_position_error_m.float().mean()) if count else None
+            ),
+            "mean_integrated_position_error_m_s": (
+                float(self.integrated_position_error_m_s.float().mean()) if count else None
+            ),
+            "mean_position_error_m": (
+                float(self.mean_position_error_m.float().mean()) if count else None
+            ),
+            "mean_threshold_overshoot_m": (
+                float(self.threshold_overshoot_m.float().mean()) if count else None
+            ),
+            "threshold_entry_rate": (
+                float(self.entered_success_region.float().mean()) if count else None
+            ),
+            "mean_action_magnitude": (
+                float(self.mean_action_magnitude.float().mean()) if count else None
+            ),
+            "mean_peak_action_magnitude": (
+                float(self.peak_action_magnitude.float().mean()) if count else None
+            ),
+            "mean_min_joint_limit_margin_rad": (
+                float(self.min_joint_limit_margin_rad.float().mean()) if count else None
+            ),
+            "worst_joint_limit_margin_rad": (
+                float(self.min_joint_limit_margin_rad.float().min()) if count else None
+            ),
         }
 
         if successful_times.numel() > 0:
@@ -168,13 +209,15 @@ class EvaluationResults:
         schema = self.metadata.get("domain_parameter_schema", {})
         for name, values in self.domain_parameters.items():
             per_joint: dict[str, Any] = {}
-            joint_names = schema.get(name, {}).get("joint_names", [])
-            for joint_index, joint_name in enumerate(joint_names):
-                joint_values = values[:, joint_index].float()
-                per_joint[joint_name] = {
-                    "min": float(joint_values.min()),
-                    "mean": float(joint_values.mean()),
-                    "max": float(joint_values.max()),
+            component_names = schema.get(name, {}).get(
+                "component_names", schema.get(name, {}).get("joint_names", [])
+            )
+            for component_index, component_name in enumerate(component_names):
+                component_values = values[:, component_index].float()
+                per_joint[component_name] = {
+                    "min": float(component_values.min()),
+                    "mean": float(component_values.mean()),
+                    "max": float(component_values.max()),
                 }
             domain_summary[name] = {
                 "unit": schema.get(name, {}).get("unit"),
@@ -242,6 +285,28 @@ class EvaluationResults:
                 f"{summary['mean_episode_steps']:.2f} policy steps"
             )
 
+        if summary["mean_position_error_m"] is not None:
+            print(
+                "Mean trajectory position error: "
+                f"{summary['mean_position_error_m']:.4f} m"
+            )
+            print(
+                "Mean final position error: "
+                f"{summary['mean_final_position_error_m']:.4f} m"
+            )
+            print(
+                "Mean integrated position error: "
+                f"{summary['mean_integrated_position_error_m_s']:.4f} m*s"
+            )
+            print(
+                "Mean policy-action magnitude: "
+                f"{summary['mean_action_magnitude']:.4f}"
+            )
+            print(
+                "Worst soft joint-limit margin: "
+                f"{summary['worst_joint_limit_margin_rad']:.4f} rad"
+            )
+
         if summary["mean_time_to_success_s"] is not None:
             print(
                 "Mean time to success: "
@@ -304,19 +369,30 @@ class EvaluationResults:
                 "other_failure",
                 "episode_steps",
                 "time_to_success_s",
+                "final_position_error_m",
+                "min_position_error_m",
+                "integrated_position_error_m_s",
+                "mean_position_error_m",
+                "threshold_overshoot_m",
+                "entered_success_region",
+                "mean_action_magnitude",
+                "peak_action_magnitude",
+                "min_joint_limit_margin_rad",
             ]
             domain_columns: list[tuple[str, str, int]] = []
             schema = self.metadata.get("domain_parameter_schema", {})
             for parameter_name, values in self.domain_parameters.items():
-                joint_names = schema.get(parameter_name, {}).get("joint_names", [])
-                if values.ndim != 2 or values.shape[1] != len(joint_names):
+                component_names = schema.get(parameter_name, {}).get(
+                    "component_names", schema.get(parameter_name, {}).get("joint_names", [])
+                )
+                if values.ndim != 2 or values.shape[1] != len(component_names):
                     raise ValueError(
                         f"Domain parameter {parameter_name!r} does not match its schema."
                     )
-                for joint_index, joint_name in enumerate(joint_names):
-                    column_name = f"{parameter_name}__{joint_name}"
+                for component_index, component_name in enumerate(component_names):
+                    column_name = f"{parameter_name}__{component_name}"
                     fieldnames.append(column_name)
-                    domain_columns.append((column_name, parameter_name, joint_index))
+                    domain_columns.append((column_name, parameter_name, component_index))
             writer = csv.DictWriter(file, fieldnames=fieldnames)
             writer.writeheader()
 
@@ -362,6 +438,33 @@ class EvaluationResults:
                             )
                             else ""
                         ),
+                        "final_position_error_m": float(
+                            self.final_position_error_m[index]
+                        ),
+                        "min_position_error_m": float(
+                            self.min_position_error_m[index]
+                        ),
+                        "integrated_position_error_m_s": float(
+                            self.integrated_position_error_m_s[index]
+                        ),
+                        "mean_position_error_m": float(
+                            self.mean_position_error_m[index]
+                        ),
+                        "threshold_overshoot_m": float(
+                            self.threshold_overshoot_m[index]
+                        ),
+                        "entered_success_region": bool(
+                            self.entered_success_region[index]
+                        ),
+                        "mean_action_magnitude": float(
+                            self.mean_action_magnitude[index]
+                        ),
+                        "peak_action_magnitude": float(
+                            self.peak_action_magnitude[index]
+                        ),
+                        "min_joint_limit_margin_rad": float(
+                            self.min_joint_limit_margin_rad[index]
+                        ),
                     }
                 for column_name, parameter_name, joint_index in domain_columns:
                     row[column_name] = float(
@@ -383,6 +486,7 @@ class PolicyEvaluator:
         checkpoint_path: str | Path,
         reset_policy: Callable[[torch.Tensor], None] | None = None,
         domain_parameter_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
+        trajectory_state_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -390,6 +494,7 @@ class PolicyEvaluator:
         self.checkpoint_path = Path(checkpoint_path)
         self.reset_policy = reset_policy
         self.domain_parameter_reader = domain_parameter_reader
+        self.trajectory_state_reader = trajectory_state_reader
 
         if config.record_domain_parameters and domain_parameter_reader is None:
             raise ValueError(
@@ -398,6 +503,10 @@ class PolicyEvaluator:
         if not config.record_domain_parameters and domain_parameter_reader is not None:
             raise ValueError(
                 "A domain_parameter_reader was provided while recording is disabled."
+            )
+        if trajectory_state_reader is None:
+            raise ValueError(
+                "A trajectory_state_reader is required for continuous evaluation metrics."
             )
 
         self.base_env = env.unwrapped
@@ -433,8 +542,58 @@ class PolicyEvaluator:
         time_to_success = torch.full(
             shape, float("nan"), device=self.device
         )
+        final_position_error_m = torch.full(
+            shape, float("nan"), device=self.device
+        )
+        min_position_error_m = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        integrated_position_error_m_s = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        mean_position_error_m = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        threshold_overshoot_m = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        entered_success_region = torch.zeros_like(recorded)
+        mean_action_magnitude = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        peak_action_magnitude = torch.full_like(
+            final_position_error_m, float("nan")
+        )
+        min_joint_limit_margin_rad = torch.full_like(
+            final_position_error_m, float("nan")
+        )
         target_positions = torch.zeros(
             (*shape, 3), dtype=torch.float32, device=self.device
+        )
+
+        current_final_error = torch.full(
+            (self.num_envs,), float("nan"), device=self.device
+        )
+        current_min_error = torch.full(
+            (self.num_envs,), float("inf"), device=self.device
+        )
+        current_integrated_error = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        current_overshoot = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        current_entered_region = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        current_action_sum = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        current_peak_action = torch.zeros(
+            self.num_envs, device=self.device
+        )
+        current_min_joint_margin = torch.full(
+            (self.num_envs,), float("inf"), device=self.device
         )
 
         # Start from an explicit reset. This is required for reset-mode domain
@@ -481,8 +640,70 @@ class PolicyEvaluator:
                     current_steps[active] += 1
 
                     actions = self.policy(obs)
+                    action_magnitude = torch.linalg.vector_norm(
+                        actions.reshape(self.num_envs, -1), dim=1
+                    )
+                    current_action_sum[active] += action_magnitude[active]
+                    current_peak_action[active] = torch.maximum(
+                        current_peak_action[active], action_magnitude[active]
+                    )
                     obs, _, dones, _ = self.env.step(actions)
                     dones = dones.bool()
+
+                    trajectory_state = self.trajectory_state_reader(
+                        self.base_env
+                    )
+                    expected_state_keys = {
+                        "position_error_m",
+                        "joint_limit_margin_rad",
+                    }
+                    if trajectory_state.keys() != expected_state_keys:
+                        raise RuntimeError(
+                            "Trajectory state reader must return exactly "
+                            f"{sorted(expected_state_keys)}; got "
+                            f"{sorted(trajectory_state)}."
+                        )
+                    position_error = trajectory_state["position_error_m"]
+                    joint_margin = trajectory_state[
+                        "joint_limit_margin_rad"
+                    ]
+                    expected_shape = (self.num_envs,)
+                    if (
+                        position_error.shape != expected_shape
+                        or joint_margin.shape != expected_shape
+                    ):
+                        raise RuntimeError(
+                            "Trajectory state tensors must have shape "
+                            f"{expected_shape}."
+                        )
+
+                    current_final_error[active] = position_error[active]
+                    current_min_error[active] = torch.minimum(
+                        current_min_error[active], position_error[active]
+                    )
+                    current_integrated_error[active] += (
+                        position_error[active] * self.step_dt
+                    )
+                    current_overshoot[active] = torch.where(
+                        current_entered_region[active],
+                        torch.maximum(
+                            current_overshoot[active],
+                            torch.clamp(
+                                position_error[active]
+                                - self.config.success_threshold,
+                                min=0.0,
+                            ),
+                        ),
+                        current_overshoot[active],
+                    )
+                    current_entered_region[active] |= (
+                        position_error[active]
+                        < self.config.success_threshold
+                    )
+                    current_min_joint_margin[active] = torch.minimum(
+                        current_min_joint_margin[active],
+                        joint_margin[active],
+                    )
 
                     terms = self.base_env.termination_manager
 
@@ -564,8 +785,46 @@ class PolicyEvaluator:
                         * self.step_dt
                     )
 
+                    final_position_error_m[env_ids, episode_ids] = (
+                        current_final_error[env_ids]
+                    )
+                    min_position_error_m[env_ids, episode_ids] = (
+                        current_min_error[env_ids]
+                    )
+                    integrated_position_error_m_s[
+                        env_ids, episode_ids
+                    ] = current_integrated_error[env_ids]
+                    mean_position_error_m[env_ids, episode_ids] = (
+                        current_integrated_error[env_ids]
+                        / (current_steps[env_ids] * self.step_dt)
+                    )
+                    threshold_overshoot_m[env_ids, episode_ids] = (
+                        current_overshoot[env_ids]
+                    )
+                    entered_success_region[env_ids, episode_ids] = (
+                        current_entered_region[env_ids]
+                    )
+                    mean_action_magnitude[env_ids, episode_ids] = (
+                        current_action_sum[env_ids]
+                        / current_steps[env_ids]
+                    )
+                    peak_action_magnitude[env_ids, episode_ids] = (
+                        current_peak_action[env_ids]
+                    )
+                    min_joint_limit_margin_rad[
+                        env_ids, episode_ids
+                    ] = current_min_joint_margin[env_ids]
+
                     completed[env_ids] += 1
                     current_steps[dones] = 0
+                    current_final_error[dones] = float("nan")
+                    current_min_error[dones] = float("inf")
+                    current_integrated_error[dones] = 0.0
+                    current_overshoot[dones] = 0.0
+                    current_entered_region[dones] = False
+                    current_action_sum[dones] = 0.0
+                    current_peak_action[dones] = 0.0
+                    current_min_joint_margin[dones] = float("inf")
 
                     # env.step() has reset done environments, so this now
                     # reads each environment's next command.
@@ -610,6 +869,15 @@ class PolicyEvaluator:
             other_failures=other_failures,
             episode_steps=episode_steps,
             time_to_success=time_to_success,
+            final_position_error_m=final_position_error_m,
+            min_position_error_m=min_position_error_m,
+            integrated_position_error_m_s=integrated_position_error_m_s,
+            mean_position_error_m=mean_position_error_m,
+            threshold_overshoot_m=threshold_overshoot_m,
+            entered_success_region=entered_success_region,
+            mean_action_magnitude=mean_action_magnitude,
+            peak_action_magnitude=peak_action_magnitude,
+            min_joint_limit_margin_rad=min_joint_limit_margin_rad,
             domain_parameters=domain_parameters,
             interrupted=interrupted,
         )
@@ -666,6 +934,15 @@ class PolicyEvaluator:
         other_failures: torch.Tensor,
         episode_steps: torch.Tensor,
         time_to_success: torch.Tensor,
+        final_position_error_m: torch.Tensor,
+        min_position_error_m: torch.Tensor,
+        integrated_position_error_m_s: torch.Tensor,
+        mean_position_error_m: torch.Tensor,
+        threshold_overshoot_m: torch.Tensor,
+        entered_success_region: torch.Tensor,
+        mean_action_magnitude: torch.Tensor,
+        peak_action_magnitude: torch.Tensor,
+        min_joint_limit_margin_rad: torch.Tensor,
         domain_parameters: dict[str, torch.Tensor],
         interrupted: bool,
     ) -> EvaluationResults:
@@ -699,6 +976,21 @@ class PolicyEvaluator:
             other_failures=other_failures[recorded].cpu(),
             episode_steps=episode_steps[recorded].cpu(),
             time_to_success=time_to_success[recorded].cpu(),
+            final_position_error_m=(
+                final_position_error_m[recorded].cpu()
+            ),
+            min_position_error_m=min_position_error_m[recorded].cpu(),
+            integrated_position_error_m_s=(
+                integrated_position_error_m_s[recorded].cpu()
+            ),
+            mean_position_error_m=mean_position_error_m[recorded].cpu(),
+            threshold_overshoot_m=threshold_overshoot_m[recorded].cpu(),
+            entered_success_region=entered_success_region[recorded].cpu(),
+            mean_action_magnitude=mean_action_magnitude[recorded].cpu(),
+            peak_action_magnitude=peak_action_magnitude[recorded].cpu(),
+            min_joint_limit_margin_rad=(
+                min_joint_limit_margin_rad[recorded].cpu()
+            ),
             domain_parameters={
                 name: values[recorded].cpu()
                 for name, values in domain_parameters.items()
@@ -706,6 +998,8 @@ class PolicyEvaluator:
             metadata={
                 "checkpoint": str(checkpoint_path),
                 "checkpoint_sha256": _sha256(checkpoint_path),
+                "job_id": self.config.job_id,
+                "target_set": self.config.target_set,
                 "seed": self.config.seed,
                 "task": self.config.task_name,
                 "scenario": self.config.scenario,
@@ -721,6 +1015,14 @@ class PolicyEvaluator:
                 "success_steps": self.config.success_steps,
                 "command_name": self.config.command_name,
                 "step_dt_s": self.step_dt,
+                "trajectory_metric_sampling": (
+                    "post-physics pre-reset manager term; integrated error uses policy step_dt"
+                ),
+                "action_metric": "L2 norm of the policy command before fixed-delay processing",
+                "joint_limit_margin": "minimum distance to any soft joint-position limit",
+                "threshold_overshoot": (
+                    "maximum distance outside the success radius after first entering it"
+                ),
                 "device": str(self.device),
                 "deterministic": self.config.deterministic,
                 "interrupted": interrupted,

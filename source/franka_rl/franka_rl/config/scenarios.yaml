@@ -17,6 +17,12 @@ scenarios:
     physics:
       effort_limit_scale: 0.80
 
+  friction_add_010:
+    type: specified
+    description: Add 0.10 joint friction to every arm joint.
+    physics:
+      joint_friction_add: 0.10
+
   damping_125_effort_080:
     type: specified
     description: Combined fixed damping and effort perturbation.
@@ -37,6 +43,202 @@ scenarios:
         low: -0.03
         high: 0.03
 
+  effort_060:
+    type: specified
+    description: Calibration point with arm effort limits at 60 percent.
+    physics:
+      effort_limit_scale: 0.60
+
+  effort_040:
+    type: specified
+    description: Calibration point with arm effort limits at 40 percent.
+    physics:
+      effort_limit_scale: 0.40
+
+  effort_030:
+    type: specified
+    description: Severe calibration point with arm effort limits at 30 percent.
+    physics:
+      effort_limit_scale: 0.30
+
+  stiffness_050:
+    type: specified
+    description: Calibration point with arm position stiffness at 50 percent.
+    physics:
+      stiffness_scale: 0.50
+
+  stiffness_075:
+    type: specified
+    description: Calibration point with arm position stiffness at 75 percent.
+    physics:
+      stiffness_scale: 0.75
+
+  stiffness_125:
+    type: specified
+    description: Calibration point with arm position stiffness at 125 percent.
+    physics:
+      stiffness_scale: 1.25
+
+  stiffness_150:
+    type: specified
+    description: Calibration point with arm position stiffness at 150 percent.
+    physics:
+      stiffness_scale: 1.50
+
+  damping_150:
+    type: specified
+    description: Calibration point with arm damping increased by 50 percent.
+    physics:
+      damping_scale: 1.50
+
+  damping_200:
+    type: specified
+    description: Calibration point with doubled arm damping.
+    physics:
+      damping_scale: 2.00
+
+  friction_add_025:
+    type: specified
+    description: Calibration point adding 0.25 arm-joint friction.
+    physics:
+      joint_friction_add: 0.25
+
+  friction_add_050:
+    type: specified
+    description: Calibration point adding 0.50 arm-joint friction.
+    physics:
+      joint_friction_add: 0.50
+
+  link_mass_090:
+    type: specified
+    description: Scale moving Franka link masses and consistent inertias to 90 percent.
+    physics:
+      link_mass_scale: 0.90
+
+  link_mass_110:
+    type: specified
+    description: Scale moving Franka link masses and consistent inertias to 110 percent.
+    physics:
+      link_mass_scale: 1.10
+
+  link_mass_050:
+    type: specified
+    description: Severe calibration point with moving-link mass at 50 percent.
+    physics:
+      link_mass_scale: 0.50
+
+  link_mass_070:
+    type: specified
+    description: Calibration point with moving-link mass at 70 percent.
+    physics:
+      link_mass_scale: 0.70
+
+  link_mass_130:
+    type: specified
+    description: Calibration point with moving-link mass at 130 percent.
+    physics:
+      link_mass_scale: 1.30
+
+  link_mass_150:
+    type: specified
+    description: Severe calibration point with moving-link mass at 150 percent.
+    physics:
+      link_mass_scale: 1.50
+
+  link_inertia_080:
+    type: specified
+    description: Scale moving-link diagonal inertias to 80 percent without changing mass.
+    physics:
+      link_inertia_scale: 0.80
+
+  link_inertia_120:
+    type: specified
+    description: Scale moving-link diagonal inertias to 120 percent without changing mass.
+    physics:
+      link_inertia_scale: 1.20
+
+  armature_050:
+    type: specified
+    description: Scale arm-joint armature to 50 percent.
+    physics:
+      joint_armature_scale: 0.50
+
+  armature_200:
+    type: specified
+    description: Double arm-joint armature.
+    physics:
+      joint_armature_scale: 2.00
+
+  observation_noise_medium:
+    type: specified
+    description: Moderate proprioceptive and task-space per-step observation noise.
+    observations:
+      joint_position_noise: {distribution: uniform, low: -0.01, high: 0.01}
+      joint_velocity_noise: {distribution: uniform, low: -0.05, high: 0.05}
+      ee_position_error_noise: {distribution: uniform, low: -0.005, high: 0.005}
+
+  observation_noise_high:
+    type: specified
+    description: Strong proprioceptive and task-space per-step observation noise.
+    observations:
+      joint_position_noise: {distribution: uniform, low: -0.02, high: 0.02}
+      joint_velocity_noise: {distribution: uniform, low: -0.10, high: 0.10}
+      ee_position_error_noise: {distribution: uniform, low: -0.01, high: 0.01}
+
+  observation_bias:
+    type: specified
+    description: Episode-constant encoder and end-effector-error bias.
+    observations:
+      joint_position_bias: {distribution: uniform, low: -0.01, high: 0.01}
+      joint_velocity_bias: {distribution: uniform, low: -0.05, high: 0.05}
+      ee_position_error_bias: {distribution: uniform, low: -0.005, high: 0.005}
+
+  observation_bias_2x:
+    type: specified
+    description: Twice the persistent encoder and end-effector-error bias calibration level.
+    observations:
+      joint_position_bias: {distribution: uniform, low: -0.02, high: 0.02}
+      joint_velocity_bias: {distribution: uniform, low: -0.10, high: 0.10}
+      ee_position_error_bias: {distribution: uniform, low: -0.01, high: 0.01}
+
+  observation_bias_3x:
+    type: specified
+    description: Three times the persistent encoder and end-effector-error bias calibration level.
+    observations:
+      joint_position_bias: {distribution: uniform, low: -0.03, high: 0.03}
+      joint_velocity_bias: {distribution: uniform, low: -0.15, high: 0.15}
+      ee_position_error_bias: {distribution: uniform, low: -0.015, high: 0.015}
+
+  ee_error_noise_020:
+    type: specified
+    description: Per-step task-space error noise of plus or minus 2 cm per Cartesian component.
+    observations:
+      ee_position_error_noise: {distribution: uniform, low: -0.02, high: 0.02}
+
+  ee_error_noise_030:
+    type: specified
+    description: Per-step task-space error noise of plus or minus 3 cm per Cartesian component.
+    observations:
+      ee_position_error_noise: {distribution: uniform, low: -0.03, high: 0.03}
+
+  reset_joint_0125:
+    type: specified
+    description: Widen initial joint-position offsets to plus or minus 0.125 rad.
+    reset:
+      joint_position_range: [-0.125, 0.125]
+
+  action_delay_1:
+    type: specified
+    description: Delay every action by exactly one policy step.
+    control:
+      action_delay_steps: 1
+
+  action_delay_2:
+    type: specified
+    description: Delay every action by exactly two policy steps.
+    control:
+      action_delay_steps: 2
+
   franka_dr_train_v1:
     type: random
     description: Initial domain-randomized training distribution.
@@ -48,8 +250,8 @@ scenarios:
         high: 1.10
       damping_scale:
         distribution: uniform
-        low: 0.90
-        high: 1.10
+        low: 0.75
+        high: 1.50
       effort_limit_scale:
         distribution: uniform
         low: 0.80
@@ -58,6 +260,14 @@ scenarios:
         distribution: uniform
         low: 0.00
         high: 0.10
+      joint_armature_scale:
+        distribution: uniform
+        low: 0.80
+        high: 1.20
+      link_mass_scale:
+        distribution: uniform
+        low: 0.95
+        high: 1.05
     observations:
       joint_position_noise:
         distribution: uniform
@@ -67,3 +277,19 @@ scenarios:
         distribution: uniform
         low: -0.01
         high: 0.01
+      ee_position_error_noise:
+        distribution: uniform
+        low: -0.002
+        high: 0.002
+      joint_position_bias:
+        distribution: uniform
+        low: -0.002
+        high: 0.002
+      joint_velocity_bias:
+        distribution: uniform
+        low: -0.01
+        high: 0.01
+      ee_position_error_bias:
+        distribution: uniform
+        low: -0.002
+        high: 0.002

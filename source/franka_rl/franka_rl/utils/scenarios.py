@@ -15,10 +15,11 @@ import yaml
 
 from isaaclab.envs import mdp
 from isaaclab.managers import EventTermCfg, ManagerTermBase, SceneEntityCfg
-from isaaclab.utils.noise import UniformNoiseCfg
+from isaaclab.utils.noise import ConstantNoiseCfg, NoiseModelWithAdditiveBiasCfg, UniformNoiseCfg
 
 
 ARM_JOINT_PATTERN = "panda_joint.*"
+ARM_BODY_PATTERN = "panda_link[1-7]|panda_hand"
 ARM_ACTUATOR_NAMES = ("panda_shoulder", "panda_forearm")
 DEFAULT_SCENARIO_RESOURCE = "config/scenarios.yaml"
 
@@ -51,12 +52,33 @@ class PhysicsSpec:
     damping_scale: float | DistributionSpec | None = None
     effort_limit_scale: float | DistributionSpec | None = None
     joint_friction_add: float | DistributionSpec | None = None
+    joint_armature_scale: float | DistributionSpec | None = None
+    link_mass_scale: float | DistributionSpec | None = None
+    link_inertia_scale: float | DistributionSpec | None = None
 
 
 @dataclass(frozen=True)
 class ObservationSpec:
     joint_position_noise: DistributionSpec | None = None
     joint_velocity_noise: DistributionSpec | None = None
+    ee_position_error_noise: DistributionSpec | None = None
+    joint_position_bias: DistributionSpec | None = None
+    joint_velocity_bias: DistributionSpec | None = None
+    ee_position_error_bias: DistributionSpec | None = None
+
+
+@dataclass(frozen=True)
+class ControlSpec:
+    """Controller-interface perturbations applied outside the scene config."""
+
+    action_delay_steps: int | None = None
+
+
+@dataclass(frozen=True)
+class ResetSpec:
+    """Episode initialization variations."""
+
+    joint_position_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -66,6 +88,8 @@ class ScenarioSpec:
     description: str = ""
     physics: PhysicsSpec = field(default_factory=PhysicsSpec)
     observations: ObservationSpec = field(default_factory=ObservationSpec)
+    control: ControlSpec = field(default_factory=ControlSpec)
+    reset: ResetSpec = field(default_factory=ResetSpec)
     resampling: Literal["startup", "reset"] | None = None
 
     @property
@@ -146,6 +170,9 @@ class ScenarioModifier:
         "joint_damping": {"unit": "N*m*s/rad"},
         "joint_effort_limit": {"unit": "N*m"},
         "joint_friction_coefficient": {"unit": "backend_specific"},
+        "joint_armature": {"unit": "kg*m^2"},
+        "link_mass": {"unit": "kg"},
+        "link_inertia_diagonal": {"unit": "kg*m^2"},
     }
 
     def __init__(self, scenario: ScenarioSpec, catalog: ScenarioCatalog):
@@ -180,11 +207,20 @@ class ScenarioModifier:
             raise ValueError(f"Unsupported scenario type: {self.spec.type}")
 
         self._apply_observation_noise(env_cfg)
+        self._apply_reset_variation(env_cfg)
         return self.metadata
 
     def _apply_specified_physics(self, env_cfg) -> None:
         physics = self.spec.physics
-        for field_name in ("stiffness_scale", "damping_scale", "effort_limit_scale", "joint_friction_add"):
+        for field_name in (
+            "stiffness_scale",
+            "damping_scale",
+            "effort_limit_scale",
+            "joint_friction_add",
+            "joint_armature_scale",
+            "link_mass_scale",
+            "link_inertia_scale",
+        ):
             value = getattr(physics, field_name)
             if isinstance(value, DistributionSpec):
                 raise TypeError(f"Specified scenario property {field_name!r} must be a scalar.")
@@ -211,6 +247,53 @@ class ScenarioModifier:
                 },
             )
             self._configured_values["joint_friction_add"] = physics.joint_friction_add
+
+        if physics.joint_armature_scale is not None:
+            env_cfg.events.scenario_joint_armature = EventTermCfg(
+                func=mdp.randomize_joint_parameters,
+                mode="startup",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", joint_names=[ARM_JOINT_PATTERN]),
+                    "armature_distribution_params": (
+                        physics.joint_armature_scale,
+                        physics.joint_armature_scale,
+                    ),
+                    "operation": "scale",
+                    "distribution": "uniform",
+                },
+            )
+            self._configured_values["joint_armature_scale"] = physics.joint_armature_scale
+
+        if physics.link_mass_scale is not None:
+            env_cfg.events.scenario_link_mass = EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="startup",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN]),
+                    "mass_distribution_params": (physics.link_mass_scale, physics.link_mass_scale),
+                    "operation": "scale",
+                    "distribution": "uniform",
+                    "recompute_inertia": True,
+                },
+            )
+            self._configured_values["link_mass_scale"] = physics.link_mass_scale
+
+        if physics.link_inertia_scale is not None:
+            env_cfg.events.scenario_link_inertia = EventTermCfg(
+                func=mdp.randomize_rigid_body_inertia,
+                mode="startup",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN]),
+                    "inertia_distribution_params": (
+                        physics.link_inertia_scale,
+                        physics.link_inertia_scale,
+                    ),
+                    "operation": "scale",
+                    "distribution": "uniform",
+                    "diagonal_only": True,
+                },
+            )
+            self._configured_values["link_inertia_scale"] = physics.link_inertia_scale
 
     def _scale_actuator_cfg(self, env_cfg, attribute: str, scale: float) -> None:
         values: dict[str, dict[str, float]] = {}
@@ -302,26 +385,89 @@ class ScenarioModifier:
                 },
             )
 
+        if physics.joint_armature_scale is not None:
+            armature = _require_distribution(physics.joint_armature_scale, "joint_armature_scale")
+            env_cfg.events.scenario_joint_armature = EventTermCfg(
+                func=mdp.randomize_joint_parameters,
+                mode=mode,
+                params={
+                    "asset_cfg": asset_cfg,
+                    "armature_distribution_params": armature.parameters,
+                    "operation": "scale",
+                    "distribution": armature.distribution,
+                },
+            )
+
+        body_cfg = SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN])
+        if physics.link_mass_scale is not None:
+            mass = _require_distribution(physics.link_mass_scale, "link_mass_scale")
+            env_cfg.events.scenario_link_mass = EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode=mode,
+                params={
+                    "asset_cfg": body_cfg,
+                    "mass_distribution_params": mass.parameters,
+                    "operation": "scale",
+                    "distribution": mass.distribution,
+                    "recompute_inertia": True,
+                },
+            )
+
+        if physics.link_inertia_scale is not None:
+            inertia = _require_distribution(physics.link_inertia_scale, "link_inertia_scale")
+            env_cfg.events.scenario_link_inertia = EventTermCfg(
+                func=mdp.randomize_rigid_body_inertia,
+                mode=mode,
+                params={
+                    "asset_cfg": body_cfg,
+                    "inertia_distribution_params": inertia.parameters,
+                    "operation": "scale",
+                    "distribution": inertia.distribution,
+                    "diagonal_only": True,
+                },
+            )
+
     def _apply_observation_noise(self, env_cfg) -> None:
         observations = self.spec.observations
         terms = (
-            ("joint_position_noise", "joint_pos_rel"),
-            ("joint_velocity_noise", "joint_vel_rel"),
+            ("joint_position_noise", "joint_position_bias", "joint_pos_rel"),
+            ("joint_velocity_noise", "joint_velocity_bias", "joint_vel_rel"),
+            ("ee_position_error_noise", "ee_position_error_bias", "ee_position_error"),
         )
         enabled = False
-        for field_name, term_name in terms:
-            distribution = getattr(observations, field_name)
-            if distribution is None:
+        for noise_name, bias_name, term_name in terms:
+            noise = getattr(observations, noise_name)
+            bias = getattr(observations, bias_name)
+            if noise is None and bias is None:
                 continue
-            if distribution.distribution != "uniform":
-                raise ValueError(
-                    f"Observation property {field_name!r} currently supports only uniform noise."
-                )
+            for field_name, distribution in ((noise_name, noise), (bias_name, bias)):
+                if distribution is not None and distribution.distribution != "uniform":
+                    raise ValueError(
+                        f"Observation property {field_name!r} currently supports only uniform noise."
+                    )
             observation_term = getattr(env_cfg.observations.policy, term_name)
-            observation_term.noise = UniformNoiseCfg(n_min=distribution.low, n_max=distribution.high)
+            if bias is None:
+                observation_term.noise = UniformNoiseCfg(n_min=noise.low, n_max=noise.high)
+            else:
+                per_step_noise = (
+                    UniformNoiseCfg(n_min=noise.low, n_max=noise.high)
+                    if noise is not None
+                    else ConstantNoiseCfg(bias=0.0)
+                )
+                observation_term.noise = NoiseModelWithAdditiveBiasCfg(
+                    noise_cfg=per_step_noise,
+                    bias_noise_cfg=UniformNoiseCfg(n_min=bias.low, n_max=bias.high),
+                )
             enabled = True
         if enabled:
             env_cfg.observations.policy.enable_corruption = True
+
+    def _apply_reset_variation(self, env_cfg) -> None:
+        joint_range = self.spec.reset.joint_position_range
+        if joint_range is None:
+            return
+        env_cfg.events.reset_arm.params["position_range"] = joint_range
+        self._configured_values["reset_joint_position_range"] = joint_range
 
     def capture(self, base_env) -> dict[str, torch.Tensor]:
         """Read realized arm parameters, one row per environment."""
@@ -329,21 +475,40 @@ class ScenarioModifier:
         robot = base_env.scene["robot"]
         if self._joint_ids is None:
             self._joint_ids, self._joint_names = robot.find_joints(ARM_JOINT_PATTERN)
+            self._body_ids, self._body_names = robot.find_bodies(ARM_BODY_PATTERN)
         joint_ids = self._joint_ids
+        body_ids = self._body_ids
+        inertia_diagonal = robot.data.body_inertia.torch[:, body_ids][..., (0, 4, 8)]
         return {
             "joint_stiffness": robot.data.joint_stiffness.torch[:, joint_ids].clone(),
             "joint_damping": robot.data.joint_damping.torch[:, joint_ids].clone(),
             "joint_effort_limit": robot.data.joint_effort_limits.torch[:, joint_ids].clone(),
             "joint_friction_coefficient": robot.data.joint_friction_coeff.torch[:, joint_ids].clone(),
+            "joint_armature": robot.data.joint_armature.torch[:, joint_ids].clone(),
+            "link_mass": robot.data.body_mass.torch[:, body_ids].clone(),
+            "link_inertia_diagonal": inertia_diagonal.reshape(base_env.num_envs, -1).clone(),
         }
 
     @property
     def parameter_schema(self) -> dict[str, Any]:
         if self._joint_names is None:
             raise RuntimeError("capture() must be called before reading parameter_schema.")
+        joint_names = list(self._joint_names)
+        body_names = list(self._body_names)
         return {
-            name: {**schema, "joint_names": list(self._joint_names)}
-            for name, schema in self.PARAMETER_SCHEMA.items()
+            "joint_stiffness": {**self.PARAMETER_SCHEMA["joint_stiffness"], "component_names": joint_names},
+            "joint_damping": {**self.PARAMETER_SCHEMA["joint_damping"], "component_names": joint_names},
+            "joint_effort_limit": {**self.PARAMETER_SCHEMA["joint_effort_limit"], "component_names": joint_names},
+            "joint_friction_coefficient": {
+                **self.PARAMETER_SCHEMA["joint_friction_coefficient"],
+                "component_names": joint_names,
+            },
+            "joint_armature": {**self.PARAMETER_SCHEMA["joint_armature"], "component_names": joint_names},
+            "link_mass": {**self.PARAMETER_SCHEMA["link_mass"], "component_names": body_names},
+            "link_inertia_diagonal": {
+                **self.PARAMETER_SCHEMA["link_inertia_diagonal"],
+                "component_names": [f"{body}:{axis}" for body in body_names for axis in ("Ixx", "Iyy", "Izz")],
+            },
         }
 
     def validate_runtime(self, base_env, tolerance: float = 1.0e-5) -> dict[str, Any]:
@@ -382,13 +547,13 @@ class RandomizeJointEffortLimits(ManagerTermBase):
         distribution: DistributionName,
     ) -> None:
         if env_ids is None:
-            env_ids = torch.arange(env.scene.num_envs, device=self.asset.device)
+            env_ids = torch.arange(env.scene.num_envs, device=self.asset.device, dtype=torch.int32)
         else:
-            env_ids = torch.as_tensor(env_ids, device=self.asset.device, dtype=torch.long)
+            env_ids = torch.as_tensor(env_ids, device=self.asset.device, dtype=torch.int32)
         if isinstance(self.asset_cfg.joint_ids, slice):
-            joint_ids = torch.arange(self.asset.num_joints, device=self.asset.device)
+            joint_ids = torch.arange(self.asset.num_joints, device=self.asset.device, dtype=torch.int32)
         else:
-            joint_ids = torch.as_tensor(self.asset_cfg.joint_ids, device=self.asset.device)
+            joint_ids = torch.as_tensor(self.asset_cfg.joint_ids, device=self.asset.device, dtype=torch.int32)
 
         shape = (len(env_ids), len(joint_ids))
         if distribution == "uniform":
@@ -418,19 +583,28 @@ def _parse_scenario(name: str, value: Any) -> ScenarioSpec:
             f"Invalid scenario name {name!r}; use letters, numbers, '.', '_', and '-'."
         )
     mapping = _require_mapping(value, f"scenario {name!r}")
-    _reject_unknown_keys(mapping, {"type", "description", "physics", "observations", "resampling"}, name)
+    _reject_unknown_keys(
+        mapping,
+        {"type", "description", "physics", "observations", "control", "reset", "resampling"},
+        name,
+    )
     scenario_type = mapping.get("type")
     if scenario_type not in ("nominal", "specified", "random"):
         raise ValueError(f"Scenario {name!r} has invalid type {scenario_type!r}.")
 
     physics = _parse_physics(mapping.get("physics"), scenario_type, name)
     observations = _parse_observations(mapping.get("observations"), name)
+    control = _parse_control(mapping.get("control"), scenario_type, name)
+    reset = _parse_reset(mapping.get("reset"), scenario_type, name)
     resampling = mapping.get("resampling")
     if resampling not in (None, "startup", "reset"):
         raise ValueError(f"Scenario {name!r} has invalid resampling mode {resampling!r}.")
 
-    has_modifiers = any(value is not None for value in asdict(physics).values()) or any(
-        value is not None for value in asdict(observations).values()
+    has_modifiers = (
+        any(value is not None for value in asdict(physics).values())
+        or any(value is not None for value in asdict(observations).values())
+        or any(value is not None for value in asdict(control).values())
+        or any(value is not None for value in asdict(reset).values())
     )
     if scenario_type == "nominal" and has_modifiers:
         raise ValueError(f"Nominal scenario {name!r} cannot define modifiers.")
@@ -447,6 +621,8 @@ def _parse_scenario(name: str, value: Any) -> ScenarioSpec:
         description=str(mapping.get("description", "")),
         physics=physics,
         observations=observations,
+        control=control,
+        reset=reset,
         resampling=resampling,
     )
 
@@ -455,7 +631,15 @@ def _parse_physics(value: Any, scenario_type: ScenarioType, scenario_name: str) 
     if value is None:
         return PhysicsSpec()
     mapping = _require_mapping(value, f"physics for scenario {scenario_name!r}")
-    allowed = {"stiffness_scale", "damping_scale", "effort_limit_scale", "joint_friction_add"}
+    allowed = {
+        "stiffness_scale",
+        "damping_scale",
+        "effort_limit_scale",
+        "joint_friction_add",
+        "joint_armature_scale",
+        "link_mass_scale",
+        "link_inertia_scale",
+    }
     _reject_unknown_keys(mapping, allowed, f"physics for scenario {scenario_name!r}")
     parsed: dict[str, Any] = {}
     for key, raw_value in mapping.items():
@@ -473,7 +657,14 @@ def _parse_observations(value: Any, scenario_name: str) -> ObservationSpec:
     if value is None:
         return ObservationSpec()
     mapping = _require_mapping(value, f"observations for scenario {scenario_name!r}")
-    allowed = {"joint_position_noise", "joint_velocity_noise"}
+    allowed = {
+        "joint_position_noise",
+        "joint_velocity_noise",
+        "ee_position_error_noise",
+        "joint_position_bias",
+        "joint_velocity_bias",
+        "ee_position_error_bias",
+    }
     _reject_unknown_keys(mapping, allowed, f"observations for scenario {scenario_name!r}")
     return ObservationSpec(
         **{
@@ -481,6 +672,41 @@ def _parse_observations(value: Any, scenario_name: str) -> ObservationSpec:
             for key, raw_value in mapping.items()
         }
     )
+
+
+def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) -> ControlSpec:
+    if value is None:
+        return ControlSpec()
+    mapping = _require_mapping(value, f"control for scenario {scenario_name!r}")
+    _reject_unknown_keys(mapping, {"action_delay_steps"}, f"control for scenario {scenario_name!r}")
+    delay = mapping.get("action_delay_steps")
+    if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+        raise ValueError(f"{scenario_name}.action_delay_steps must be a nonnegative integer.")
+    if scenario_type == "random":
+        raise ValueError(
+            f"Random scenario {scenario_name!r} cannot yet randomize action delay; "
+            "use a fixed specified evaluation scenario."
+        )
+    return ControlSpec(action_delay_steps=delay)
+
+
+def _parse_reset(value: Any, scenario_type: ScenarioType, scenario_name: str) -> ResetSpec:
+    if value is None:
+        return ResetSpec()
+    mapping = _require_mapping(value, f"reset for scenario {scenario_name!r}")
+    _reject_unknown_keys(mapping, {"joint_position_range"}, f"reset for scenario {scenario_name!r}")
+    if scenario_type == "random":
+        raise ValueError(
+            f"Random scenario {scenario_name!r} cannot currently override reset ranges."
+        )
+    raw_range = mapping.get("joint_position_range")
+    if not isinstance(raw_range, list) or len(raw_range) != 2:
+        raise TypeError(f"{scenario_name}.joint_position_range must be a two-element list.")
+    low = _require_number(raw_range[0], f"{scenario_name}.joint_position_range[0]")
+    high = _require_number(raw_range[1], f"{scenario_name}.joint_position_range[1]")
+    if low > high:
+        raise ValueError(f"{scenario_name}.joint_position_range lower bound exceeds upper bound.")
+    return ResetSpec(joint_position_range=(low, high))
 
 
 def _parse_distribution(value: Any, context: str) -> DistributionSpec:

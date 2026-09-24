@@ -104,6 +104,51 @@ Then you can run pre-commit with:
 pre-commit run --all-files
 ```
 
+## Robustness evaluation suite
+
+Use the one-seed calibration sweep first to identify perturbation levels that
+produce measurable degradation without making the task universally impossible.
+It runs 21 isolated Isaac Sim jobs with paired target sets.
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/experiments/run_evaluation_suite.py \
+  --suite source/franka_rl/franka_rl/config/experiments/robustness_calibration.yaml
+```
+
+After the broad sweep, run the targeted final calibration to resolve stronger
+stiffness, mass, observation-bias, and task-space-noise levels. Its artifacts
+also include continuous position-error, action-magnitude, overshoot, and soft
+joint-limit-margin metrics.
+
+```bash
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/experiments/run_evaluation_suite.py \
+  --suite source/franka_rl/franka_rl/config/experiments/robustness_calibration_final.yaml
+```
+
+The full nominal-policy protocol evaluates seven fixed scenarios over five
+paired seeds (35 isolated Isaac Sim jobs). Targets are replayed exactly across
+scenarios, failed jobs are resumable, and compiled tables include both
+cross-policy comparisons and scenario-minus-nominal degradation.
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/experiments/run_evaluation_suite.py \
+  --suite source/franka_rl/franka_rl/config/experiments/robustness_nominal.yaml
+```
+
+The output directory contains `jobs/`, `target_sets/`, and these compiled
+tables: `jobs.csv`, `scenario_summary.csv`, `robustness_degradation.csv`,
+`policy_comparison.csv`, and `target_pairing.csv`.
+
 ## Troubleshooting
 
 ### Pylance Missing Indexing of Extensions

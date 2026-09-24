@@ -7,6 +7,7 @@ __all__ = [
     "ee_position_error_b",
     "position_tracking_exp",
     "SustainedPositionSuccess",
+    "EvaluationStateMetrics",
     "non_finite_joint_state",
 ]
 
@@ -15,4 +16,8 @@ from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .observations import ee_position_error_b
 from .rewards import position_tracking_exp
-from .terminations import SustainedPositionSuccess, non_finite_joint_state
+from .terminations import (
+    EvaluationStateMetrics,
+    SustainedPositionSuccess,
+    non_finite_joint_state,
+)

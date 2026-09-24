@@ -1,6 +1,6 @@
 version: 1
 
-name: nominal_robustness_smoke
+name: nominal_ppo_robustness_calibration_final
 baseline_policy: nominal_ppo
 
 policies:
@@ -8,10 +8,27 @@ policies:
     checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
     description: PPO policy trained without domain randomization.
 
+# One matched seed is intentional. This targeted sweep selects informative
+# magnitudes using both outcome rates and continuous trajectory metrics. The
+# selected scenarios should subsequently be frozen in a five-seed suite.
 scenarios:
   - nominal
-  - damping_125
-  - effort_080
+  - action_delay_1
+  - effort_040
+  - effort_030
+  - stiffness_050
+  - stiffness_075
+  - stiffness_125
+  - stiffness_150
+  - link_mass_050
+  - link_mass_070
+  - link_mass_130
+  - link_mass_150
+  - observation_bias
+  - observation_bias_2x
+  - observation_bias_3x
+  - ee_error_noise_020
+  - ee_error_noise_030
 
 seeds:
   - 123

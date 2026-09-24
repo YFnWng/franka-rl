@@ -19,6 +19,7 @@ import yaml
 from .aggregator import CompletedJob, compile_results
 from .artifact_reader import read_artifacts
 from .suite_config import EvaluationSuiteConfig, PolicySpec
+from .target_sets import ensure_target_set
 
 
 DEFAULT_DATA_ROOT = Path("/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data")
@@ -33,6 +34,8 @@ class EvaluationJob:
     seed: int
     job_id: str
     output_dir: Path
+    target_set_path: Path | None
+    target_set_sha256: str | None
 
 
 class EvaluationSuiteCoordinator:
@@ -60,6 +63,7 @@ class EvaluationSuiteCoordinator:
         self.jobs_log = self.output_dir / "jobs.jsonl"
         self._available_scenarios, self._scenario_catalog_sha256 = self._load_scenario_catalog()
         self._checkpoint_hashes = self._validate_inputs()
+        self._target_sets = self._prepare_target_sets()
 
     def run(self) -> bool:
         jobs = self._make_jobs()
@@ -122,6 +126,9 @@ class EvaluationSuiteCoordinator:
                         "checkpoint_sha256": checkpoint_sha256,
                         "scenario": scenario,
                         "scenario_catalog_sha256": self._scenario_catalog_sha256,
+                        "target_set_sha256": (
+                            self._target_sets[seed]["sha256"] if seed in self._target_sets else None
+                        ),
                         "seed": seed,
                         "evaluation": asdict(self.config.evaluation),
                     }
@@ -130,8 +137,18 @@ class EvaluationSuiteCoordinator:
                     ).hexdigest()
                     job_id = f"{policy.name}__{scenario}__seed_{seed}__{digest[:12]}"
                     output_dir = self.output_dir / "jobs" / policy.name / scenario / f"seed_{seed}"
+                    target_set = self._target_sets.get(seed)
                     jobs.append(
-                        EvaluationJob(policy, checkpoint_sha256, scenario, seed, job_id, output_dir)
+                        EvaluationJob(
+                            policy,
+                            checkpoint_sha256,
+                            scenario,
+                            seed,
+                            job_id,
+                            output_dir,
+                            Path(target_set["path"]) if target_set else None,
+                            str(target_set["sha256"]) if target_set else None,
+                        )
                     )
         return jobs
 
@@ -150,6 +167,11 @@ class EvaluationSuiteCoordinator:
                 "seed": job.seed,
                 "checkpoint": str(job.policy.checkpoint),
                 "checkpoint_sha256": job.checkpoint_sha256,
+                "target_set": (
+                    {"path": str(job.target_set_path), "sha256": job.target_set_sha256}
+                    if job.target_set_path is not None
+                    else None
+                ),
                 "command": command,
             },
         )
@@ -209,6 +231,8 @@ class EvaluationSuiteCoordinator:
             command.append("--deterministic")
         if self.config.scenario_file is not None:
             command.extend(("--scenario-file", str(self.config.scenario_file)))
+        if job.target_set_path is not None:
+            command.extend(("--target-set", str(job.target_set_path)))
         return command
 
     def _read_if_valid(self, job: EvaluationJob):
@@ -218,6 +242,7 @@ class EvaluationSuiteCoordinator:
                 expected_job_id=job.job_id,
                 expected_episodes=self.config.evaluation.episodes_per_job,
                 expected_checkpoint_sha256=job.checkpoint_sha256,
+                expected_target_set_sha256=job.target_set_sha256,
             )
         except (FileNotFoundError, TypeError, ValueError, json.JSONDecodeError):
             return None
@@ -264,6 +289,7 @@ class EvaluationSuiteCoordinator:
             "config": self.config.to_dict(),
             "checkpoint_sha256": self._checkpoint_hashes,
             "scenario_catalog_sha256": self._scenario_catalog_sha256,
+            "target_sets": self._target_sets,
             "jobs": [job.job_id for job in jobs],
         }
         self._write_json_atomic(self.output_dir / "suite_manifest.json", manifest)
@@ -301,6 +327,22 @@ class EvaluationSuiteCoordinator:
             path.relative_to(self.data_root)
         except ValueError as error:
             raise RuntimeError(f"Suite output must be under {self.data_root}: {path}") from error
+
+    def _prepare_target_sets(self) -> dict[int, dict[str, Any]]:
+        settings = self.config.evaluation.target_replay
+        if settings is None:
+            return {}
+        result: dict[int, dict[str, Any]] = {}
+        for seed in self.config.seeds:
+            path = self.output_dir / "target_sets" / f"seed_{seed}.json"
+            result[seed] = ensure_target_set(
+                path,
+                seed=seed,
+                num_envs=self.config.evaluation.num_envs,
+                total_episodes=self.config.evaluation.episodes_per_job,
+                settings=settings,
+            )
+        return result
 
 
 def _sha256(path: Path) -> str:
