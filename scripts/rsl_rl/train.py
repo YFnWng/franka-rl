@@ -218,6 +218,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+        if scenario.control.action_delay_range is not None:
+            from franka_rl.utils.action_delay import RandomActionDelayWrapper
+
+            min_delay, max_delay = scenario.control.action_delay_range
+            env = RandomActionDelayWrapper(env, min_delay, max_delay)
+            scenario_metadata["runtime_control"] = {
+                "action_delay_range": [min_delay, max_delay],
+                "sampling": "uniform_integer_per_environment_per_episode",
+                "initial_action": "zero_residual",
+                "reset_behavior": "clear_done_environment_history",
+            }
+
         # convert to single-agent instance if required by the RL algorithm
         if isinstance(env.unwrapped.cfg, DirectMARLEnvCfg):
             from isaaclab.envs import multi_agent_to_single_agent

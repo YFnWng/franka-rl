@@ -295,6 +295,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "initial_action": "zero_residual",
                 "reset_behavior": "clear_done_environment_history",
             }
+        elif scenario.control.action_delay_range is not None:
+            from franka_rl.utils.action_delay import RandomActionDelayWrapper
+
+            min_delay, max_delay = scenario.control.action_delay_range
+            env = RandomActionDelayWrapper(env, min_delay, max_delay)
+            scenario_metadata["runtime_control"] = {
+                "action_delay_range": [min_delay, max_delay],
+                "sampling": "uniform_integer_per_environment_per_episode",
+                "initial_action": "zero_residual",
+                "reset_behavior": "clear_done_environment_history",
+            }
 
         if scenario_modifier.records_episode_parameters:
             # Resolve runtime joint names now so the artifact schema exactly

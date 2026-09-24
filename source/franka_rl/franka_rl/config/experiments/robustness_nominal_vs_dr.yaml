@@ -1,0 +1,55 @@
+version: 1
+
+name: nominal_vs_dr_ppo_robustness
+baseline_policy: nominal_ppo
+
+policies:
+  nominal_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
+    description: PPO policy trained without domain randomization.
+  dr_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-24_00-48-20_dr_v2/model_999.pt
+    description: PPO policy trained with the calibrated franka_dr_train_v2 distribution.
+
+# Boundary cases exercise the training distribution. Stronger cases measure
+# extrapolation outside it. All policies and scenarios replay identical target
+# sets within each seed.
+scenarios:
+  - nominal
+  - reset_joint_0125
+  - stiffness_050
+  - damping_200
+  - effort_040
+  - friction_add_050
+  - observation_noise_high
+  - observation_bias_2x
+  - action_delay_1
+  - action_delay_2
+  - payload_200
+  - payload_200_z010
+
+seeds:
+  - 123
+  - 456
+  - 789
+  - 1011
+  - 1213
+
+evaluation:
+  task: Template-Franka-Rl-v0
+  num_envs: 128
+  episodes_per_job: 256
+  success_threshold: 0.03
+  success_steps: 5
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+  target_replay:
+    enabled: true
+    extra_episodes_per_env: 32
+    position_ranges:
+      x: [0.35, 0.60]
+      y: [-0.20, 0.20]
+      z: [0.20, 0.50]
+
+scenario_file: null

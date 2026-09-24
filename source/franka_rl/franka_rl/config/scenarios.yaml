@@ -145,6 +145,58 @@ scenarios:
     physics:
       link_mass_scale: 1.50
 
+  payload_025:
+    type: specified
+    description: Add a centered 0.25 kg lumped payload to panda_hand.
+    physics:
+      payload_mass_kg: 0.25
+
+  payload_050:
+    type: specified
+    description: Add a centered 0.50 kg lumped payload to panda_hand.
+    physics:
+      payload_mass_kg: 0.50
+
+  payload_100:
+    type: specified
+    description: Add a centered 1.00 kg lumped payload to panda_hand.
+    physics:
+      payload_mass_kg: 1.00
+
+  payload_200:
+    type: specified
+    description: Add a centered 2.00 kg lumped payload to panda_hand.
+    physics:
+      payload_mass_kg: 2.00
+
+  payload_100_z005:
+    type: specified
+    description: Add a 1.00 kg point payload 5 cm along hand-frame +z from the nominal hand COM.
+    physics:
+      payload_mass_kg: 1.00
+      payload_com_offset_m: [0.0, 0.0, 0.05]
+
+  payload_100_z010:
+    type: specified
+    description: Add a 1.00 kg point payload 10 cm along hand-frame +z from the nominal hand COM.
+    physics:
+      payload_mass_kg: 1.00
+      payload_com_offset_m: [0.0, 0.0, 0.10]
+
+  payload_100_x010:
+    type: specified
+    description: Add a 1.00 kg point payload 10 cm along hand-frame +x from the nominal hand COM.
+    physics:
+      payload_mass_kg: 1.00
+      payload_com_offset_m: [0.10, 0.0, 0.0]
+
+  payload_200_z010:
+    type: specified
+    description: Add a 2.00 kg point payload 10 cm along hand-frame +z from the nominal hand COM.
+    physics:
+      payload_mass_kg: 2.00
+      payload_com_offset_m: [0.0, 0.0, 0.10]
+
   link_inertia_080:
     type: specified
     description: Scale moving-link diagonal inertias to 80 percent without changing mass.
@@ -293,3 +345,26 @@ scenarios:
         distribution: uniform
         low: -0.002
         high: 0.002
+
+  franka_dr_train_v2:
+    type: random
+    description: Calibrated reset-time DR with payload, sensing, initialization, and policy-step latency.
+    resampling: reset
+    physics:
+      stiffness_scale: {distribution: uniform, low: 0.65, high: 1.50}
+      damping_scale: {distribution: uniform, low: 0.75, high: 1.50}
+      effort_limit_scale: {distribution: uniform, low: 0.50, high: 1.00}
+      joint_friction_add: {distribution: uniform, low: 0.00, high: 0.50}
+      payload_mass_kg: {distribution: uniform, low: 0.00, high: 2.00}
+      payload_com_offset_m:
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: 0.00, high: 0.10}
+    observations:
+      joint_position_noise: {distribution: uniform, low: -0.01, high: 0.01}
+      joint_velocity_noise: {distribution: uniform, low: -0.05, high: 0.05}
+      ee_position_error_noise: {distribution: uniform, low: -0.01, high: 0.01}
+    control:
+      action_delay_range: [0, 1]
+    reset:
+      joint_position_range: [-0.125, 0.125]

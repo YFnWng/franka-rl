@@ -20,6 +20,7 @@ from isaaclab.utils.noise import ConstantNoiseCfg, NoiseModelWithAdditiveBiasCfg
 
 ARM_JOINT_PATTERN = "panda_joint.*"
 ARM_BODY_PATTERN = "panda_link[1-7]|panda_hand"
+HAND_BODY_PATTERN = "panda_hand"
 ARM_ACTUATOR_NAMES = ("panda_shoulder", "panda_forearm")
 DEFAULT_SCENARIO_RESOURCE = "config/scenarios.yaml"
 
@@ -55,6 +56,15 @@ class PhysicsSpec:
     joint_armature_scale: float | DistributionSpec | None = None
     link_mass_scale: float | DistributionSpec | None = None
     link_inertia_scale: float | DistributionSpec | None = None
+    payload_mass_kg: float | DistributionSpec | None = None
+    payload_com_offset_m: (
+        tuple[
+            float | DistributionSpec,
+            float | DistributionSpec,
+            float | DistributionSpec,
+        ]
+        | None
+    ) = None
 
 
 @dataclass(frozen=True)
@@ -72,6 +82,7 @@ class ControlSpec:
     """Controller-interface perturbations applied outside the scene config."""
 
     action_delay_steps: int | None = None
+    action_delay_range: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -173,6 +184,10 @@ class ScenarioModifier:
         "joint_armature": {"unit": "kg*m^2"},
         "link_mass": {"unit": "kg"},
         "link_inertia_diagonal": {"unit": "kg*m^2"},
+        "payload_mass": {"unit": "kg"},
+        "hand_total_mass": {"unit": "kg"},
+        "payload_com_offset": {"unit": "m"},
+        "hand_center_of_mass": {"unit": "m"},
     }
 
     def __init__(self, scenario: ScenarioSpec, catalog: ScenarioCatalog):
@@ -220,6 +235,7 @@ class ScenarioModifier:
             "joint_armature_scale",
             "link_mass_scale",
             "link_inertia_scale",
+            "payload_mass_kg",
         ):
             value = getattr(physics, field_name)
             if isinstance(value, DistributionSpec):
@@ -294,6 +310,31 @@ class ScenarioModifier:
                 },
             )
             self._configured_values["link_inertia_scale"] = physics.link_inertia_scale
+
+        if physics.payload_mass_kg is not None:
+            env_cfg.events.scenario_payload_mass = EventTermCfg(
+                func=RandomizeLumpedPayload,
+                mode="startup",
+                params={
+                    "asset_cfg": SceneEntityCfg(
+                        "robot", body_names=[HAND_BODY_PATTERN]
+                    ),
+                    "payload_mass_distribution_params": (
+                        physics.payload_mass_kg,
+                        physics.payload_mass_kg,
+                    ),
+                    "distribution": "uniform",
+                    "com_offset_m": (
+                        physics.payload_com_offset_m or (0.0, 0.0, 0.0)
+                    ),
+                },
+            )
+            self._configured_values["payload_mass_kg"] = (
+                physics.payload_mass_kg
+            )
+            self._configured_values["payload_com_offset_m"] = (
+                physics.payload_com_offset_m or (0.0, 0.0, 0.0)
+            )
 
     def _scale_actuator_cfg(self, env_cfg, attribute: str, scale: float) -> None:
         values: dict[str, dict[str, float]] = {}
@@ -427,6 +468,36 @@ class ScenarioModifier:
                 },
             )
 
+        if physics.payload_mass_kg is not None:
+            payload = _require_distribution(
+                physics.payload_mass_kg, "payload_mass_kg"
+            )
+            payload_event_params: dict[str, Any] = {
+                "asset_cfg": SceneEntityCfg(
+                    "robot", body_names=[HAND_BODY_PATTERN]
+                ),
+                "payload_mass_distribution_params": payload.parameters,
+                "distribution": payload.distribution,
+            }
+            if physics.payload_com_offset_m is None:
+                payload_event_params["com_offset_m"] = (0.0, 0.0, 0.0)
+            else:
+                offset_distributions = tuple(
+                    _require_distribution(component, f"payload_com_offset_m[{index}]")
+                    for index, component in enumerate(physics.payload_com_offset_m)
+                )
+                payload_event_params["com_offset_distribution_params"] = tuple(
+                    component.parameters for component in offset_distributions
+                )
+                payload_event_params["com_offset_distributions"] = tuple(
+                    component.distribution for component in offset_distributions
+                )
+            env_cfg.events.scenario_payload_mass = EventTermCfg(
+                func=RandomizeLumpedPayload,
+                mode=mode,
+                params=payload_event_params,
+            )
+
     def _apply_observation_noise(self, env_cfg) -> None:
         observations = self.spec.observations
         terms = (
@@ -476,9 +547,27 @@ class ScenarioModifier:
         if self._joint_ids is None:
             self._joint_ids, self._joint_names = robot.find_joints(ARM_JOINT_PATTERN)
             self._body_ids, self._body_names = robot.find_bodies(ARM_BODY_PATTERN)
+            hand_body_ids, _ = robot.find_bodies(HAND_BODY_PATTERN)
+            if len(hand_body_ids) != 1:
+                raise RuntimeError(
+                    f"Expected exactly one {HAND_BODY_PATTERN!r} body; "
+                    f"found {len(hand_body_ids)}."
+                )
+            self._hand_body_id = hand_body_ids[0]
         joint_ids = self._joint_ids
         body_ids = self._body_ids
         inertia_diagonal = robot.data.body_inertia.torch[:, body_ids][..., (0, 4, 8)]
+        configured_payload = self.spec.physics.payload_mass_kg
+        payload_mass = (
+            float(configured_payload)
+            if isinstance(configured_payload, (int, float))
+            else 0.0
+        )
+        payload_offset = self.spec.physics.payload_com_offset_m or (
+            0.0,
+            0.0,
+            0.0,
+        )
         return {
             "joint_stiffness": robot.data.joint_stiffness.torch[:, joint_ids].clone(),
             "joint_damping": robot.data.joint_damping.torch[:, joint_ids].clone(),
@@ -487,6 +576,26 @@ class ScenarioModifier:
             "joint_armature": robot.data.joint_armature.torch[:, joint_ids].clone(),
             "link_mass": robot.data.body_mass.torch[:, body_ids].clone(),
             "link_inertia_diagonal": inertia_diagonal.reshape(base_env.num_envs, -1).clone(),
+            "payload_mass": torch.full(
+                (base_env.num_envs, 1),
+                payload_mass,
+                dtype=robot.data.body_mass.torch.dtype,
+                device=robot.data.body_mass.torch.device,
+            ),
+            "hand_total_mass": robot.data.body_mass.torch[
+                :, self._hand_body_id : self._hand_body_id + 1
+            ].clone(),
+            "payload_com_offset": torch.tensor(
+                payload_offset,
+                dtype=robot.data.body_com_pose_b.torch.dtype,
+                device=robot.data.body_com_pose_b.torch.device,
+            )
+            .unsqueeze(0)
+            .expand(base_env.num_envs, -1)
+            .clone(),
+            "hand_center_of_mass": robot.data.body_com_pose_b.torch[
+                :, self._hand_body_id, :3
+            ].clone(),
         }
 
     @property
@@ -509,6 +618,22 @@ class ScenarioModifier:
                 **self.PARAMETER_SCHEMA["link_inertia_diagonal"],
                 "component_names": [f"{body}:{axis}" for body in body_names for axis in ("Ixx", "Iyy", "Izz")],
             },
+            "payload_mass": {
+                **self.PARAMETER_SCHEMA["payload_mass"],
+                "component_names": ["panda_hand_payload"],
+            },
+            "hand_total_mass": {
+                **self.PARAMETER_SCHEMA["hand_total_mass"],
+                "component_names": ["panda_hand"],
+            },
+            "payload_com_offset": {
+                **self.PARAMETER_SCHEMA["payload_com_offset"],
+                "component_names": ["x", "y", "z"],
+            },
+            "hand_center_of_mass": {
+                **self.PARAMETER_SCHEMA["hand_center_of_mass"],
+                "component_names": ["x", "y", "z"],
+            },
         }
 
     def validate_runtime(self, base_env, tolerance: float = 1.0e-5) -> dict[str, Any]:
@@ -527,6 +652,193 @@ class ScenarioModifier:
             "tolerance": tolerance,
             "maximum_cross_environment_spread": maximum_spread,
         }
+
+
+class RandomizeLumpedPayload(ManagerTermBase):
+    """Add a point-mass payload and update combined mass, COM, and inertia.
+
+    ``com_offset_m`` is expressed in the hand body frame relative to the
+    hand's nominal center of mass. The payload is modeled as a point mass;
+    its intrinsic rotational inertia and collision geometry are therefore
+    zero. All properties are recomputed from the original hand properties on
+    every invocation, so reset-mode randomization does not accumulate mass.
+    """
+
+    def __init__(self, cfg: EventTermCfg, env):
+        super().__init__(cfg, env)
+        self.asset_cfg = cfg.params["asset_cfg"]
+        self.asset = env.scene[self.asset_cfg.name]
+        self.default_mass = None
+        self.default_com = None
+        self.default_inertia = None
+        manager_name = env.sim.physics_manager.__name__.lower()
+        self._is_newton = "newton" in manager_name
+
+    def __call__(
+        self,
+        env,
+        env_ids,
+        asset_cfg,
+        payload_mass_distribution_params: tuple[float, float],
+        distribution: DistributionName,
+        com_offset_m: tuple[float, float, float] | None = None,
+        com_offset_distribution_params: tuple[
+            tuple[float, float], tuple[float, float], tuple[float, float]
+        ]
+        | None = None,
+        com_offset_distributions: tuple[
+            DistributionName, DistributionName, DistributionName
+        ]
+        | None = None,
+    ) -> None:
+        if self.default_mass is None:
+            self.default_mass = self.asset.data.body_mass.torch.clone()
+            self.default_com = self.asset.data.body_com_pose_b.torch.clone()
+            self.default_inertia = self.asset.data.body_inertia.torch.clone()
+
+        if env_ids is None:
+            env_ids = torch.arange(
+                env.scene.num_envs,
+                device=self.asset.device,
+                dtype=torch.int32,
+            )
+        else:
+            env_ids = torch.as_tensor(
+                env_ids, device=self.asset.device, dtype=torch.int32
+            )
+
+        if isinstance(self.asset_cfg.body_ids, slice):
+            body_ids = torch.arange(
+                self.asset.num_bodies,
+                device=self.asset.device,
+                dtype=torch.int32,
+            )
+        else:
+            body_ids = torch.as_tensor(
+                self.asset_cfg.body_ids,
+                device=self.asset.device,
+                dtype=torch.int32,
+            )
+        if len(body_ids) != 1:
+            raise ValueError(
+                "A lumped payload must target exactly one rigid body; "
+                f"resolved {len(body_ids)} bodies."
+            )
+
+        shape = (len(env_ids), 1)
+        if distribution == "uniform":
+            payload_mass = torch.empty(
+                shape, device=self.asset.device
+            ).uniform_(*payload_mass_distribution_params)
+        elif distribution == "log_uniform":
+            low, high = payload_mass_distribution_params
+            payload_mass = (
+                torch.empty(shape, device=self.asset.device)
+                .uniform_(math.log(low), math.log(high))
+                .exp_()
+            )
+        elif distribution == "gaussian":
+            mean, std = payload_mass_distribution_params
+            payload_mass = torch.empty(
+                shape, device=self.asset.device
+            ).normal_(mean, std)
+        else:  # pragma: no cover - guarded by YAML parsing
+            raise ValueError(f"Unsupported distribution: {distribution}")
+
+        default_mass = self.default_mass[
+            env_ids[:, None], body_ids
+        ]
+        total_mass = default_mass + payload_mass
+
+        default_com_pose = self.default_com[
+            env_ids[:, None], body_ids
+        ].clone()
+        default_com = default_com_pose[..., :3]
+        if com_offset_distribution_params is None:
+            if com_offset_m is None:
+                raise ValueError(
+                    "Lumped payload requires either a fixed COM offset or COM-offset distributions."
+                )
+            offset = torch.tensor(
+                com_offset_m,
+                dtype=default_com.dtype,
+                device=default_com.device,
+            ).reshape(1, 1, 3)
+        else:
+            if com_offset_m is not None:
+                raise ValueError("Specify either fixed or randomized payload COM offset, not both.")
+            if com_offset_distributions is None or len(com_offset_distributions) != 3:
+                raise ValueError("Random payload COM offset requires three distributions.")
+            if len(com_offset_distribution_params) != 3:
+                raise ValueError("Random payload COM offset requires three parameter pairs.")
+            offset = torch.empty(
+                (len(env_ids), 1, 3),
+                dtype=default_com.dtype,
+                device=default_com.device,
+            )
+            for axis, (parameters, distribution_name) in enumerate(
+                zip(com_offset_distribution_params, com_offset_distributions, strict=True)
+            ):
+                axis_samples = offset[..., axis]
+                if distribution_name == "uniform":
+                    axis_samples.uniform_(*parameters)
+                elif distribution_name == "log_uniform":
+                    low, high = parameters
+                    axis_samples.uniform_(math.log(low), math.log(high)).exp_()
+                elif distribution_name == "gaussian":
+                    axis_samples.normal_(*parameters)
+                else:  # pragma: no cover - guarded by YAML parsing
+                    raise ValueError(f"Unsupported distribution: {distribution_name}")
+        payload_com = default_com + offset
+        combined_com = (
+            default_mass[..., None] * default_com
+            + payload_mass[..., None] * payload_com
+        ) / total_mass[..., None]
+
+        default_inertia = self.default_inertia[
+            env_ids[:, None], body_ids
+        ].reshape(len(env_ids), 1, 3, 3)
+        eye = torch.eye(
+            3,
+            dtype=default_inertia.dtype,
+            device=default_inertia.device,
+        ).reshape(1, 1, 3, 3)
+
+        def parallel_axis(mass: torch.Tensor, displacement: torch.Tensor):
+            squared_distance = torch.sum(
+                displacement * displacement, dim=-1
+            )
+            outer = displacement.unsqueeze(-1) * displacement.unsqueeze(-2)
+            return mass[..., None, None] * (
+                squared_distance[..., None, None] * eye - outer
+            )
+
+        combined_inertia = (
+            default_inertia
+            + parallel_axis(default_mass, default_com - combined_com)
+            + parallel_axis(payload_mass, payload_com - combined_com)
+        ).reshape(len(env_ids), 1, 9)
+
+        self.asset.set_masses_index(
+            masses=total_mass,
+            body_ids=body_ids,
+            env_ids=env_ids,
+        )
+        default_com_pose[..., :3] = combined_com
+        self.asset.set_coms_index(
+            coms=(
+                default_com_pose[..., :3]
+                if self._is_newton
+                else default_com_pose
+            ),
+            body_ids=body_ids,
+            env_ids=env_ids,
+        )
+        self.asset.set_inertias_index(
+            inertias=combined_inertia,
+            body_ids=body_ids,
+            env_ids=env_ids,
+        )
 
 
 class RandomizeJointEffortLimits(ManagerTermBase):
@@ -639,10 +951,35 @@ def _parse_physics(value: Any, scenario_type: ScenarioType, scenario_name: str) 
         "joint_armature_scale",
         "link_mass_scale",
         "link_inertia_scale",
+        "payload_mass_kg",
+        "payload_com_offset_m",
     }
     _reject_unknown_keys(mapping, allowed, f"physics for scenario {scenario_name!r}")
     parsed: dict[str, Any] = {}
     for key, raw_value in mapping.items():
+        if key == "payload_com_offset_m":
+            if not isinstance(raw_value, list) or len(raw_value) != 3:
+                raise TypeError(
+                    f"{scenario_name}.payload_com_offset_m must be a "
+                    "three-element list."
+                )
+            if scenario_type == "random":
+                parsed[key] = tuple(
+                    _parse_distribution(
+                        component,
+                        f"{scenario_name}.{key}[{index}]",
+                    )
+                    for index, component in enumerate(raw_value)
+                )
+            else:
+                parsed[key] = tuple(
+                    _require_number(
+                        component,
+                        f"{scenario_name}.{key}[{index}]",
+                    )
+                    for index, component in enumerate(raw_value)
+                )
+            continue
         if scenario_type == "specified":
             parsed[key] = _require_number(raw_value, f"{scenario_name}.{key}")
         elif scenario_type == "random":
@@ -650,6 +987,20 @@ def _parse_physics(value: Any, scenario_type: ScenarioType, scenario_name: str) 
         else:
             parsed[key] = raw_value
         _validate_physics_value(key, parsed[key], f"{scenario_name}.{key}")
+    if parsed.get("payload_com_offset_m") is not None and parsed.get(
+        "payload_mass_kg"
+    ) is None:
+        raise ValueError(
+            f"Scenario {scenario_name!r} defines a payload COM offset without "
+            "payload_mass_kg."
+        )
+    if parsed.get("payload_mass_kg") is not None and parsed.get(
+        "link_mass_scale"
+    ) is not None:
+        raise ValueError(
+            f"Scenario {scenario_name!r} cannot combine payload_mass_kg with "
+            "link_mass_scale because both modify panda_hand mass."
+        )
     return PhysicsSpec(**parsed)
 
 
@@ -678,16 +1029,37 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
     if value is None:
         return ControlSpec()
     mapping = _require_mapping(value, f"control for scenario {scenario_name!r}")
-    _reject_unknown_keys(mapping, {"action_delay_steps"}, f"control for scenario {scenario_name!r}")
+    _reject_unknown_keys(
+        mapping,
+        {"action_delay_steps", "action_delay_range"},
+        f"control for scenario {scenario_name!r}",
+    )
     delay = mapping.get("action_delay_steps")
-    if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+    delay_range = mapping.get("action_delay_range")
+    if delay is not None and delay_range is not None:
+        raise ValueError(f"Scenario {scenario_name!r} cannot define both fixed and random action delay.")
+    if delay is not None and (
+        not isinstance(delay, int) or isinstance(delay, bool) or delay < 0
+    ):
         raise ValueError(f"{scenario_name}.action_delay_steps must be a nonnegative integer.")
-    if scenario_type == "random":
+    if scenario_type == "random" and delay is not None:
         raise ValueError(
-            f"Random scenario {scenario_name!r} cannot yet randomize action delay; "
-            "use a fixed specified evaluation scenario."
+            f"Random scenario {scenario_name!r} must use action_delay_range, not action_delay_steps."
         )
-    return ControlSpec(action_delay_steps=delay)
+    if scenario_type != "random" and delay_range is not None:
+        raise ValueError(f"Only random scenarios may define action_delay_range.")
+    parsed_range = None
+    if delay_range is not None:
+        if (
+            not isinstance(delay_range, list)
+            or len(delay_range) != 2
+            or any(not isinstance(item, int) or isinstance(item, bool) for item in delay_range)
+        ):
+            raise TypeError(f"{scenario_name}.action_delay_range must contain two integers.")
+        if delay_range[0] < 0 or delay_range[0] > delay_range[1]:
+            raise ValueError(f"{scenario_name}.action_delay_range must be ordered and nonnegative.")
+        parsed_range = (delay_range[0], delay_range[1])
+    return ControlSpec(action_delay_steps=delay, action_delay_range=parsed_range)
 
 
 def _parse_reset(value: Any, scenario_type: ScenarioType, scenario_name: str) -> ResetSpec:
@@ -695,10 +1067,6 @@ def _parse_reset(value: Any, scenario_type: ScenarioType, scenario_name: str) ->
         return ResetSpec()
     mapping = _require_mapping(value, f"reset for scenario {scenario_name!r}")
     _reject_unknown_keys(mapping, {"joint_position_range"}, f"reset for scenario {scenario_name!r}")
-    if scenario_type == "random":
-        raise ValueError(
-            f"Random scenario {scenario_name!r} cannot currently override reset ranges."
-        )
     raw_range = mapping.get("joint_position_range")
     if not isinstance(raw_range, list) or len(raw_range) != 2:
         raise TypeError(f"{scenario_name}.joint_position_range must be a two-element list.")
@@ -732,6 +1100,24 @@ def _require_distribution(value: float | DistributionSpec, context: str) -> Dist
 
 def _validate_physics_value(key: str, value: float | DistributionSpec, context: str) -> None:
     if key == "joint_friction_add":
+        return
+    if key == "payload_mass_kg":
+        if isinstance(value, float):
+            if value < 0.0:
+                raise ValueError(f"Payload mass {context} must be nonnegative.")
+            return
+        if value.distribution == "gaussian":
+            raise ValueError(
+                f"Payload mass {context} cannot use an unbounded gaussian distribution."
+            )
+        if value.low < 0.0:
+            raise ValueError(
+                f"Payload-mass distribution {context} must have a nonnegative lower bound."
+            )
+        if value.distribution == "log_uniform" and value.low == 0.0:
+            raise ValueError(
+                f"Log-uniform payload distribution {context} must have a positive lower bound."
+            )
         return
     if isinstance(value, float):
         if value <= 0.0:

@@ -131,6 +131,26 @@ direnv exec /home/chen-lab/isaac/franka-rl \
   --suite source/franka_rl/franka_rl/config/experiments/robustness_calibration_final.yaml
 ```
 
+Calibrate centered lumped payload mass separately before choosing the payload
+range for domain-randomized training:
+
+```bash
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/experiments/run_evaluation_suite.py \
+  --suite source/franka_rl/franka_rl/config/experiments/payload_calibration.yaml
+```
+
+Then compare centered payloads with physically consistent hand-frame COM
+offsets using the parallel-axis payload model:
+
+```bash
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/experiments/run_evaluation_suite.py \
+  --suite source/franka_rl/franka_rl/config/experiments/payload_com_calibration.yaml
+```
+
 The full nominal-policy protocol evaluates seven fixed scenarios over five
 paired seeds (35 isolated Isaac Sim jobs). Targets are replayed exactly across
 scenarios, failed jobs are resumable, and compiled tables include both
@@ -148,6 +168,42 @@ direnv exec /home/chen-lab/isaac/franka-rl \
 The output directory contains `jobs/`, `target_sets/`, and these compiled
 tables: `jobs.csv`, `scenario_summary.csv`, `robustness_degradation.csv`,
 `policy_comparison.csv`, and `target_pairing.csv`.
+
+## Domain-randomized training
+
+The calibrated `franka_dr_train_v2` scenario resamples actuator stiffness,
+damping, effort limits, joint friction, point-payload mass and hand-frame COM,
+sensor noise, initial joint offsets, and a 0--1 policy-step action delay. Run it
+from the data volume so checkpoints and logs stay outside the source tree:
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+
+cd "$FRANKA_RL_DATA_ROOT/runs"
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  /home/chen-lab/isaac/franka-rl/scripts/rsl_rl/train.py \
+  --task Template-Franka-Rl-v0 \
+  --scenario franka_dr_train_v2 \
+  --num_envs 4096 \
+  --max_iterations 1000 \
+  --seed 123 \
+  --device cuda:0 \
+  --headless \
+  --run_name dr_v2
+```
+
+Compare the nominal and DR checkpoints over five paired seeds and fixed
+in-distribution/beyond-training stress scenarios with:
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  /home/chen-lab/isaac/franka-rl/scripts/experiments/run_evaluation_suite.py \
+  --suite /home/chen-lab/isaac/franka-rl/source/franka_rl/franka_rl/config/experiments/robustness_nominal_vs_dr.yaml
+```
 
 ## Troubleshooting
 
