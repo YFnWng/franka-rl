@@ -13,6 +13,9 @@ from typing import Any
 from .suite_config import TargetReplaySettings
 
 
+FRANKA_ARM_JOINT_NAMES = tuple(f"panda_joint{index}" for index in range(1, 8))
+
+
 def ensure_target_set(
     path: Path,
     *,
@@ -42,10 +45,12 @@ def ensure_target_set(
     return {
         "path": str(path),
         "sha256": expected_sha256,
+        "schema_version": document["schema_version"],
         "seed": seed,
         "num_envs": num_envs,
         "episodes_per_env": capacity,
         "required_episodes_per_env": required,
+        "replays_initial_joint_state": True,
     }
 
 
@@ -68,8 +73,22 @@ def _generate_document(
                 ]
             )
         targets.append(environment_targets)
+    joint_position_unit_samples = []
+    joint_velocity_unit_samples = []
+    for _env_id in range(num_envs):
+        environment_positions = []
+        environment_velocities = []
+        for _episode_id in range(capacity):
+            environment_positions.append(
+                [generator.random() for _joint_name in FRANKA_ARM_JOINT_NAMES]
+            )
+            environment_velocities.append(
+                [generator.random() for _joint_name in FRANKA_ARM_JOINT_NAMES]
+            )
+        joint_position_unit_samples.append(environment_positions)
+        joint_velocity_unit_samples.append(environment_velocities)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "seed": seed,
         "num_envs": num_envs,
         "episodes_per_env": capacity,
@@ -80,4 +99,10 @@ def _generate_document(
         },
         "settings": asdict(settings),
         "targets": targets,
+        "initial_joint_state": {
+            "joint_names": list(FRANKA_ARM_JOINT_NAMES),
+            "position_unit_samples": joint_position_unit_samples,
+            "velocity_unit_samples": joint_velocity_unit_samples,
+            "mapping": "default + low + unit_sample * (high - low)",
+        },
     }

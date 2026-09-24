@@ -71,6 +71,7 @@ class EvaluationConfig:
     scenario: dict[str, Any] = field(default_factory=dict)
     record_domain_parameters: bool = True
     domain_parameter_schema: dict[str, Any] = field(default_factory=dict)
+    initial_joint_names: tuple[str, ...] = ()
     task_name: str = ""
     command_name: str = "ee_pose"
     real_time: bool = False
@@ -90,6 +91,8 @@ class EvaluationResults:
     env_ids: torch.Tensor
     episode_ids: torch.Tensor
     target_positions: torch.Tensor
+    initial_joint_positions: torch.Tensor
+    initial_joint_velocities: torch.Tensor
 
     successes: torch.Tensor
     timeouts: torch.Tensor
@@ -379,6 +382,19 @@ class EvaluationResults:
                 "peak_action_magnitude",
                 "min_joint_limit_margin_rad",
             ]
+            initial_state_columns: list[tuple[str, str, int]] = []
+            for joint_index, joint_name in enumerate(
+                self.metadata.get("initial_joint_names", [])
+            ):
+                position_column = f"initial_joint_position__{joint_name}"
+                velocity_column = f"initial_joint_velocity__{joint_name}"
+                fieldnames.extend((position_column, velocity_column))
+                initial_state_columns.extend(
+                    (
+                        (position_column, "position", joint_index),
+                        (velocity_column, "velocity", joint_index),
+                    )
+                )
             domain_columns: list[tuple[str, str, int]] = []
             schema = self.metadata.get("domain_parameter_schema", {})
             for parameter_name, values in self.domain_parameters.items():
@@ -470,6 +486,13 @@ class EvaluationResults:
                     row[column_name] = float(
                         self.domain_parameters[parameter_name][index, joint_index]
                     )
+                for column_name, state_name, joint_index in initial_state_columns:
+                    values = (
+                        self.initial_joint_positions
+                        if state_name == "position"
+                        else self.initial_joint_velocities
+                    )
+                    row[column_name] = float(values[index, joint_index])
                 writer.writerow(row)
 
         print(f"Evaluation artifacts written to: {destination}")
@@ -487,6 +510,7 @@ class PolicyEvaluator:
         reset_policy: Callable[[torch.Tensor], None] | None = None,
         domain_parameter_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
         trajectory_state_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
+        initial_state_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -495,6 +519,7 @@ class PolicyEvaluator:
         self.reset_policy = reset_policy
         self.domain_parameter_reader = domain_parameter_reader
         self.trajectory_state_reader = trajectory_state_reader
+        self.initial_state_reader = initial_state_reader
 
         if config.record_domain_parameters and domain_parameter_reader is None:
             raise ValueError(
@@ -508,6 +533,10 @@ class PolicyEvaluator:
             raise ValueError(
                 "A trajectory_state_reader is required for continuous evaluation metrics."
             )
+        if initial_state_reader is None:
+            raise ValueError("An initial_state_reader is required for paired evaluation.")
+        if not config.initial_joint_names:
+            raise ValueError("initial_joint_names must be provided.")
 
         self.base_env = env.unwrapped
         self.num_envs = self.base_env.num_envs
@@ -570,6 +599,11 @@ class PolicyEvaluator:
         target_positions = torch.zeros(
             (*shape, 3), dtype=torch.float32, device=self.device
         )
+        joint_count = len(self.config.initial_joint_names)
+        initial_joint_positions = torch.zeros(
+            (*shape, joint_count), dtype=torch.float32, device=self.device
+        )
+        initial_joint_velocities = torch.zeros_like(initial_joint_positions)
 
         current_final_error = torch.full(
             (self.num_envs,), float("nan"), device=self.device
@@ -607,6 +641,7 @@ class PolicyEvaluator:
         # Save the target before stepping. On termination, Isaac Lab may
         # already have reset the environment and sampled its next target.
         current_targets = self._get_target_positions().clone()
+        current_initial_state = self._read_initial_state()
         if self.domain_parameter_reader is None:
             current_domain_parameters: dict[str, torch.Tensor] = {}
         else:
@@ -746,6 +781,12 @@ class PolicyEvaluator:
                     target_positions[env_ids, episode_ids] = (
                         current_targets[env_ids]
                     )
+                    initial_joint_positions[env_ids, episode_ids] = (
+                        current_initial_state["joint_position"][env_ids]
+                    )
+                    initial_joint_velocities[env_ids, episode_ids] = (
+                        current_initial_state["joint_velocity"][env_ids]
+                    )
                     for name, values in current_domain_parameters.items():
                         domain_parameters[name][env_ids, episode_ids] = values[env_ids]
 
@@ -830,6 +871,9 @@ class PolicyEvaluator:
                     # reads each environment's next command.
                     next_targets = self._get_target_positions()
                     current_targets[dones] = next_targets[dones]
+                    next_initial_state = self._read_initial_state()
+                    for name, values in next_initial_state.items():
+                        current_initial_state[name][dones] = values[dones]
 
                     if self.domain_parameter_reader is not None and torch.any(dones):
                         next_parameters = self.domain_parameter_reader(self.base_env)
@@ -860,6 +904,8 @@ class PolicyEvaluator:
         return self._build_results(
             recorded=recorded,
             target_positions=target_positions,
+            initial_joint_positions=initial_joint_positions,
+            initial_joint_velocities=initial_joint_velocities,
             successes=successes,
             timeouts=timeouts,
             unsafe_failures=unsafe_failures,
@@ -910,6 +956,22 @@ class PolicyEvaluator:
         )
         return command[:, :3]
 
+    def _read_initial_state(self) -> dict[str, torch.Tensor]:
+        state = self.initial_state_reader(self.base_env)
+        expected = {"joint_position", "joint_velocity"}
+        if state.keys() != expected:
+            raise ValueError(
+                f"Initial-state reader returned {set(state)}, expected {expected}."
+            )
+        expected_shape = (self.num_envs, len(self.config.initial_joint_names))
+        for name, values in state.items():
+            if tuple(values.shape) != expected_shape:
+                raise ValueError(
+                    f"Initial-state {name!r} has shape {tuple(values.shape)}; "
+                    f"expected {expected_shape}."
+                )
+        return {name: values.clone() for name, values in state.items()}
+
     def _visualizer_is_running(self) -> bool:
         visualizers = self.base_env.sim.visualizers
         if not visualizers:
@@ -925,6 +987,8 @@ class PolicyEvaluator:
         *,
         recorded: torch.Tensor,
         target_positions: torch.Tensor,
+        initial_joint_positions: torch.Tensor,
+        initial_joint_velocities: torch.Tensor,
         successes: torch.Tensor,
         timeouts: torch.Tensor,
         unsafe_failures: torch.Tensor,
@@ -961,6 +1025,8 @@ class PolicyEvaluator:
             env_ids=env_grid[recorded].cpu(),
             episode_ids=episode_grid[recorded].cpu(),
             target_positions=target_positions[recorded].cpu(),
+            initial_joint_positions=initial_joint_positions[recorded].cpu(),
+            initial_joint_velocities=initial_joint_velocities[recorded].cpu(),
             successes=successes[recorded].cpu(),
             timeouts=timeouts[recorded].cpu(),
             unsafe_failures=unsafe_failures[recorded].cpu(),
@@ -1000,6 +1066,8 @@ class PolicyEvaluator:
                 "checkpoint_sha256": _sha256(checkpoint_path),
                 "job_id": self.config.job_id,
                 "target_set": self.config.target_set,
+                "initial_state_recording": "episode_start",
+                "initial_joint_names": list(self.config.initial_joint_names),
                 "seed": self.config.seed,
                 "task": self.config.task_name,
                 "scenario": self.config.scenario,

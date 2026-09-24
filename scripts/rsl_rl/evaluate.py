@@ -279,11 +279,41 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # Install deterministic replay only after SimulationApp and the
         # environment exist. An eager custom Isaac command import initializes
         # USD/pxr too early and can make native Kit startup crash.
+        replay_controller = None
         if args_cli.target_set is not None:
             from franka_rl.utils.target_replay import TargetReplayController
 
-            target_replay = TargetReplayController(args_cli.target_set, target_set_sha256)
-            target_replay.install(env.unwrapped, command_name="ee_pose")
+            replay_controller = TargetReplayController(
+                args_cli.target_set, target_set_sha256
+            )
+            replay_controller.install(
+                env.unwrapped,
+                command_name="ee_pose",
+                reset_event_name="reset_arm",
+            )
+            target_set_metadata.update(
+                {
+                    "schema_version": replay_controller.schema_version,
+                    "replays_initial_joint_state": (
+                        replay_controller.replays_initial_joint_state
+                    ),
+                }
+            )
+
+        robot = env.unwrapped.scene["robot"]
+        initial_joint_ids, initial_joint_names = robot.find_joints(
+            "panda_joint.*"
+        )
+
+        def initial_state_reader(_env):
+            return {
+                "joint_position": robot.data.joint_pos.torch[
+                    :, initial_joint_ids
+                ],
+                "joint_velocity": robot.data.joint_vel.torch[
+                    :, initial_joint_ids
+                ],
+            }
 
         action_delay_steps = scenario.control.action_delay_steps or 0
         if action_delay_steps:
@@ -373,6 +403,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             scenario=scenario_metadata,
             record_domain_parameters=scenario_modifier.records_episode_parameters,
             domain_parameter_schema=domain_parameter_schema,
+            initial_joint_names=tuple(initial_joint_names),
             num_episodes=args_cli.num_episodes,
             success_threshold=args_cli.success_threshold,
             success_steps=args_cli.success_steps,
@@ -391,6 +422,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             reset_policy=reset_policy,
             domain_parameter_reader=domain_parameter_reader,
             trajectory_state_reader=trajectory_state_reader,
+            initial_state_reader=initial_state_reader,
         )
 
         # simulate environment

@@ -167,7 +167,10 @@ direnv exec /home/chen-lab/isaac/franka-rl \
 
 The output directory contains `jobs/`, `target_sets/`, and these compiled
 tables: `jobs.csv`, `scenario_summary.csv`, `robustness_degradation.csv`,
-`policy_comparison.csv`, and `target_pairing.csv`.
+`policy_comparison.csv`, `target_pairing.csv`, and
+`initial_state_pairing.csv`. Target and initial-state pairing are checked
+between policies within the same scenario; reset-range scenarios deliberately
+map the same normalized joint samples to different absolute ranges.
 
 ## Domain-randomized training
 

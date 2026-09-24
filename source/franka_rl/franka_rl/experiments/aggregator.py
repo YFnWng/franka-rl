@@ -85,6 +85,27 @@ def compile_results(
         ],
     )
 
+    initial_state_pairing_rows = _initial_state_pairing_rows(
+        job_list, baseline_policy
+    )
+    _write_csv(
+        destination / "initial_state_pairing.csv",
+        initial_state_pairing_rows,
+        [
+            "reference_policy",
+            "policy",
+            "scenario",
+            "seed",
+            "episodes_compared",
+            "matching_initial_positions",
+            "position_match_rate",
+            "max_position_abs_difference",
+            "matching_initial_velocities",
+            "velocity_match_rate",
+            "max_velocity_abs_difference",
+        ],
+    )
+
 
 def _job_row(job: CompletedJob) -> dict[str, Any]:
     summary = job.artifacts.summary
@@ -216,7 +237,7 @@ def _target_pairing_rows(jobs: list[CompletedJob], baseline_policy: str) -> list
     lookup = {(job.policy, job.scenario, job.seed): job for job in jobs}
     output: list[dict[str, Any]] = []
     for job in sorted(jobs, key=lambda item: (item.policy, item.scenario, item.seed)):
-        reference = lookup.get((baseline_policy, "nominal", job.seed))
+        reference = lookup.get((baseline_policy, job.scenario, job.seed))
         if reference is None:
             continue
         reference_targets = _episode_targets(reference.artifacts.output_dir / "episodes.csv")
@@ -226,13 +247,88 @@ def _target_pairing_rows(jobs: list[CompletedJob], baseline_policy: str) -> list
         output.append(
             {
                 "reference_policy": baseline_policy,
-                "reference_scenario": "nominal",
+                "reference_scenario": job.scenario,
                 "policy": job.policy,
                 "scenario": job.scenario,
                 "seed": job.seed,
                 "episodes_compared": len(common),
                 "matching_targets": matches,
                 "match_rate": matches / len(common) if common else "",
+            }
+        )
+    return output
+
+
+def _initial_state_pairing_rows(
+    jobs: list[CompletedJob], baseline_policy: str
+) -> list[dict[str, Any]]:
+    """Compare episode-start joint states between policies in each scenario."""
+
+    lookup = {(job.policy, job.scenario, job.seed): job for job in jobs}
+    output: list[dict[str, Any]] = []
+    for job in sorted(jobs, key=lambda item: (item.policy, item.scenario, item.seed)):
+        reference = lookup.get((baseline_policy, job.scenario, job.seed))
+        if reference is None:
+            continue
+        reference_states = _episode_initial_states(
+            reference.artifacts.output_dir / "episodes.csv"
+        )
+        job_states = _episode_initial_states(job.artifacts.output_dir / "episodes.csv")
+        if reference_states is None or job_states is None:
+            continue
+
+        common = sorted(set(reference_states) & set(job_states))
+        matching_positions = 0
+        matching_velocities = 0
+        maximum_position_difference = 0.0
+        maximum_velocity_difference = 0.0
+        for key in common:
+            reference_position, reference_velocity = reference_states[key]
+            position, velocity = job_states[key]
+            if len(reference_position) != len(position) or len(reference_velocity) != len(
+                velocity
+            ):
+                raise ValueError(
+                    "Initial-state column count differs between paired artifacts."
+                )
+            position_difference = max(
+                (abs(left - right) for left, right in zip(reference_position, position)),
+                default=0.0,
+            )
+            velocity_difference = max(
+                (abs(left - right) for left, right in zip(reference_velocity, velocity)),
+                default=0.0,
+            )
+            matching_positions += position_difference == 0.0
+            matching_velocities += velocity_difference == 0.0
+            maximum_position_difference = max(
+                maximum_position_difference, position_difference
+            )
+            maximum_velocity_difference = max(
+                maximum_velocity_difference, velocity_difference
+            )
+
+        output.append(
+            {
+                "reference_policy": baseline_policy,
+                "policy": job.policy,
+                "scenario": job.scenario,
+                "seed": job.seed,
+                "episodes_compared": len(common),
+                "matching_initial_positions": matching_positions,
+                "position_match_rate": (
+                    matching_positions / len(common) if common else ""
+                ),
+                "max_position_abs_difference": (
+                    maximum_position_difference if common else ""
+                ),
+                "matching_initial_velocities": matching_velocities,
+                "velocity_match_rate": (
+                    matching_velocities / len(common) if common else ""
+                ),
+                "max_velocity_abs_difference": (
+                    maximum_velocity_difference if common else ""
+                ),
             }
         )
     return output
@@ -249,6 +345,39 @@ def _episode_targets(path: Path) -> dict[tuple[int, int], tuple[str, str, str]]:
                 row["target_x"],
                 row["target_y"],
                 row["target_z"],
+            )
+            for row in reader
+        }
+
+
+def _episode_initial_states(
+    path: Path,
+) -> dict[tuple[int, int], tuple[tuple[float, ...], tuple[float, ...]]] | None:
+    with path.open("r", encoding="utf-8", newline="") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ValueError(f"Episode artifact has no header: {path}")
+        position_columns = sorted(
+            name
+            for name in reader.fieldnames
+            if name.startswith("initial_joint_position__")
+        )
+        velocity_columns = sorted(
+            name
+            for name in reader.fieldnames
+            if name.startswith("initial_joint_velocity__")
+        )
+        if not position_columns and not velocity_columns:
+            return None
+        if not position_columns or len(position_columns) != len(velocity_columns):
+            raise ValueError(f"Episode artifact has incomplete initial-state columns: {path}")
+        required = {"env_id", "episode_id"}
+        if not required.issubset(reader.fieldnames):
+            raise ValueError(f"Episode artifact lacks episode identity columns: {path}")
+        return {
+            (int(row["env_id"]), int(row["episode_id"])): (
+                tuple(float(row[column]) for column in position_columns),
+                tuple(float(row[column]) for column in velocity_columns),
             )
             for row in reader
         }

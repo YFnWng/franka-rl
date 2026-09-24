@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,7 +45,34 @@ def read_artifacts(
     actual_target_sha256 = target_set.get("sha256") if isinstance(target_set, dict) else None
     if actual_target_sha256 != expected_target_set_sha256:
         raise ValueError(f"Target-set hash mismatch in {output_dir}.")
+    requires_initial_state = isinstance(target_set, dict) and (
+        target_set.get("replays_initial_joint_state") is True
+        or target_set.get("schema_version") == 2
+    )
+    if requires_initial_state:
+        _validate_initial_state_columns(episodes_path, manifest)
     return EvaluationArtifacts(output_dir, summary, manifest, completion)
+
+
+def _validate_initial_state_columns(path: Path, manifest: dict[str, Any]) -> None:
+    with path.open("r", encoding="utf-8", newline="") as file:
+        fieldnames = csv.DictReader(file).fieldnames
+    if fieldnames is None:
+        raise ValueError(f"Episode artifact has no header: {path}")
+
+    joint_names = manifest.get("initial_joint_names")
+    if not isinstance(joint_names, list) or not joint_names:
+        raise ValueError(f"Manifest lacks initial_joint_names in {path.parent}.")
+    required = {
+        f"initial_joint_{state}__{joint_name}"
+        for state in ("position", "velocity")
+        for joint_name in joint_names
+    }
+    missing = sorted(required - set(fieldnames))
+    if missing:
+        raise ValueError(
+            f"Episode artifact lacks paired initial-state columns in {path}: {missing}"
+        )
 
 
 def _read_json(path: Path) -> dict[str, Any]:
