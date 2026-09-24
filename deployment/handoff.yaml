@@ -1,0 +1,9 @@
+schema_version: 1
+handoff_id: franka_rt_handoff_1
+bundles:
+  nominal:
+    directory: nominal_model_299_handoff_1
+    manifest_sha256: 18850aad5a85763677affc5c0a269ddd9119bb1afa2445f80aa9a6511dd58119
+  dr:
+    directory: dr_v2_model_999_handoff_1
+    manifest_sha256: cee941cc9945d4a3e2acf34ed82044e594ab97ca7a88c060551c1d1489a31b95
