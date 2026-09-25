@@ -75,6 +75,20 @@ def test_exact_hook_timing_partial_reset_and_raw_action(adapter):
     np.testing.assert_array_equal(term._governor.previous_raw,raw)
 
 
+def test_invalid_command_is_not_written(adapter):
+    term, env, robot = make(adapter)
+    term.process_actions(tensor(np.zeros((2, 7)), dtype=np.float32))
+    term.apply_actions()  # reset at tick zero
+    robot.data.joint_vel.torch[1, 3] = 0.31
+    term.apply_actions()
+    term.apply_actions()
+    writes = []
+    robot.set_joint_position_target_index = lambda **kwargs: writes.append(kwargs)
+    with pytest.raises(RuntimeError, match="TRACKING"):
+        term.apply_actions()
+    assert not writes
+
+
 def test_reject_wrong_timebase_and_internal_decimation(adapter):
     term,env,robot=make(adapter)
     env.physics_dt=1/60

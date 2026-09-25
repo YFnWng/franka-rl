@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import ssl
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -35,6 +36,8 @@ def quat(matrix):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--urdf", type=Path, default=REPO / "deployment/model_audit/2026-09-24/fr3v2_no_hand_fake.urdf")
+    parser.add_argument("--mesh-dir", type=Path, help="Reuse the pinned v1 collision meshes (validated against its manifest).")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -53,17 +56,22 @@ def main():
         raise FileNotFoundError("Create the generated_assets directory on the mounted data volume first")
     out = args.output_dir
     out.mkdir()
-    urdf = REPO / "deployment/model_audit/2026-09-24/fr3v2_no_hand_fake.urdf"
+    urdf = args.urdf.resolve()
     robot = ET.parse(urdf).getroot()
+    prefix = "fr3v2_" if robot.find("joint[@name='fr3v2_joint1']") is not None else ""
+    shutil.copyfile(urdf, out / "source.urdf")
+    cached_hashes = json.loads((args.mesh_dir.parent / "manifest.json").read_text())["mesh_sha256"] if args.mesh_dir else None
     meshes = out / "meshes"
     meshes.mkdir()
     hashes = {}
     for i in range(8):
         relative = f"meshes/robot_arms/fr3v2/collision/link{i}.stl"
         url = f"https://raw.githubusercontent.com/frankarobotics/franka_description/{REVISION}/{relative}"
-        raw = urllib.request.urlopen(
+        raw = (args.mesh_dir / f"link{i}.stl").read_bytes() if args.mesh_dir else urllib.request.urlopen(
             url, timeout=60, context=ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
         ).read()
+        if cached_hashes and hashlib.sha256(raw).hexdigest() != cached_hashes[relative]:
+            raise ValueError(f"Cached mesh hash mismatch: {relative}")
         (meshes / f"link{i}.stl").write_bytes(raw)
         hashes[relative] = hashlib.sha256(raw).hexdigest()
     stage = Usd.Stage.CreateNew(str(out / "fr3v2.usda"))
@@ -76,7 +84,7 @@ def main():
     ar = PhysxSchema.PhysxArticulationAPI.Apply(root.GetPrim())
     ar.CreateEnabledSelfCollisionsAttr(True)
     poses = [np.eye(4)]
-    joints = [robot.find(f"joint[@name='fr3v2_joint{i}']") for i in range(1, 8)]
+    joints = [robot.find(f"joint[@name='{prefix}joint{i}']") for i in range(1, 8)]
     for joint in joints:
         origin = joint.find("origin")
         pose = np.eye(4)
@@ -87,7 +95,7 @@ def main():
     names = [f"fr3_link{i}" for i in range(7)] + ["fr3_flange"]
     reference = []
     for i, name in enumerate(names):
-        link = robot.find(f"link[@name='fr3v2_link{i}']")
+        link = robot.find(f"link[@name='{prefix}link{i}']")
         inertial = link.find("inertial")
         mass = float(inertial.find("mass").get("value"))
         origin = inertial.find("origin")
@@ -158,6 +166,9 @@ def main():
     manifest = dict(
         schema_version=1,
         model="fr3v2_bare_flange",
+        source_robot=robot.get("name"),
+        source_urdf=str(urdf),
+        source_joint_prefix=prefix,
         description_revision=REVISION,
         urdf_sha256=hashlib.sha256(urdf.read_bytes()).hexdigest(),
         mesh_sha256=hashes,
@@ -166,6 +177,7 @@ def main():
         joint_names=[f"panda_joint{i}" for i in range(1, 8)],
         flange_offset_from_link7_m=shift.tolist(),
         limitations=[
+            "Geometry retains pinned public fr3v2 meshes, not verified live fr3v2.1 geometry.",
             "Collision geometry uses convex hulls of pinned URDF collision meshes; visuals reuse those meshes.",
             "Controller gains, friction, armature and governor are simulation assumptions, not hardware identification.",
         ],

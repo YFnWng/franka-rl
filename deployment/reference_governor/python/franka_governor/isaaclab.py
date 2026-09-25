@@ -95,6 +95,10 @@ class GovernedJointPositionAction(ActionTerm):
                 self._pending = None
                 self._pending_rows[:] = False
             target = self._governor.positions
+            invalid = [i for i, output in enumerate(self._governor.outputs) if not output.command_valid]
+            if invalid:
+                details = {i: str(self._governor.outputs[i].reason) for i in invalid}
+                raise RuntimeError(f"Governor command invalid at physics tick {self._physics_tick}: {details}; refusing to apply targets")
             self._processed[:] = torch.as_tensor(target, device=self._env.device, dtype=self._processed.dtype)
             self._failed[:] = torch.as_tensor(self._governor.failed, device=self._env.device)
         elif self._needs_reset.any():

@@ -1,6 +1,7 @@
 """Check FR3 runtime mass properties, flange FK, and reset-time payload composition."""
 
 import argparse
+import hashlib
 import json
 import sys
 import xml.etree.ElementTree as ET
@@ -33,6 +34,7 @@ def main():
     modifier.apply(cfg)
     asset = Path(cfg.scene.robot.spawn.usd_path)
     reference = json.loads((asset.parent / "manifest.json").read_text())
+    completed = False
     with launch_simulation(cfg, args):
         env = gym.make("Franka-FR3v2-Reach-v0", cfg=cfg).unwrapped
         try:
@@ -49,13 +51,31 @@ def main():
                 np.testing.assert_allclose(masses[:, i], r["mass_kg"], rtol=1e-5)
                 np.testing.assert_allclose(coms[0, i, :3], r["com_body_m"], atol=1e-7)
                 np.testing.assert_allclose(inertias[0, i], r["inertia_body_kg_m2"], atol=1e-7)
-            urdf = ET.parse(REPO / "deployment/model_audit/2026-09-24/fr3v2_no_hand_fake.urdf").getroot()
+            source = asset.parent / "source.urdf"
+            if not source.exists():
+                source = REPO / "deployment/model_audit/2026-09-24/fr3v2_no_hand_fake.urdf"
+            assert hashlib.sha256(source.read_bytes()).hexdigest() == reference["urdf_sha256"]
+            urdf = ET.parse(source).getroot()
+            prefix = reference.get("source_joint_prefix", "fr3v2_")
+            # Independently verify manifest mass properties against source URDF.
+            for i, name in enumerate([f"fr3_link{j}" for j in range(7)] + ["fr3_flange"]):
+                inertial = urdf.find(f"link[@name='{prefix}link{i}']/inertial")
+                np.testing.assert_allclose(rows[name]["mass_kg"], float(inertial.find("mass").get("value")))
+                com = np.fromstring(inertial.find("origin").get("xyz"), sep=" ")
+                if i == 7:
+                    com -= [0, 0, 0.107]
+                np.testing.assert_allclose(rows[name]["com_body_m"], com, atol=1e-9)
+                v = inertial.find("inertia").attrib
+                tensor = np.array([[float(v[k]) for k in row] for row in
+                                   [("ixx", "ixy", "ixz"), ("ixy", "iyy", "iyz"), ("ixz", "iyz", "izz")]])
+                rotation = Rotation.from_euler("xyz", np.fromstring(inertial.find("origin").get("rpy"), sep=" ")).as_matrix()
+                np.testing.assert_allclose(rows[name]["inertia_body_kg_m2"], rotation @ tensor @ rotation.T, atol=1e-9)
             pose = np.eye(4)
             q = robot.data.joint_pos.torch[0].cpu().numpy()
             expected_limits = []
             expected_vel = []
             for i in range(1, 8):
-                joint = urdf.find(f"joint[@name='fr3v2_joint{i}']")
+                joint = urdf.find(f"joint[@name='{prefix}joint{i}']")
                 origin = joint.find("origin")
                 transform = np.eye(4)
                 transform[:3, :3] = Rotation.from_euler("xyz", np.fromstring(origin.get("rpy"), sep=" ")).as_matrix()
@@ -111,6 +131,9 @@ def main():
             print("FR3_MODEL_VALIDATION_PASSED", flush=True)
         finally:
             env.close()
+        completed = True
+    if not completed:
+        raise RuntimeError("FR3 validation failed; see simulator traceback.")
 
 
 if __name__ == "__main__":

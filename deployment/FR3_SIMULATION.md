@@ -1,5 +1,107 @@
 # FR3v2 bare-flange simulation
 
+## Live-model correction and governor smoke — 2026-09-25
+
+The original asset and checkpoints remain unchanged. New asset:
+`generated_assets/fr3v21_bare_flange_live_v1/fr3v2.usda` under the data root.
+Its mass/COM/inertia source is the archived robot-returned fr3v2.1 URDF in
+`hardware_control_audit/2026-09-25/`. The builder stores that URDF and its hash
+beside the USD. Geometry deliberately retains pinned public fr3v2 collision
+meshes; equivalence to live fr3v2.1 collision geometry is not established.
+No firmware metadata is interpreted as measured actuator gains/friction.
+
+Actual PhysX validation passed: masses, COMs, full inertias, static limits,
+flange FK and payload composition across two resets. Evidence is beside the
+asset in `runtime_validation.json`. The validator uses the archived source
+URDF rather than hard-coding the earlier public description.
+
+The standalone governor source initially lacked its Python `__init__.py`
+because `**/__*` was ignored. A tracked simulation-host initializer now exports
+the native API and strictly loads explicitly opted-in simulation fixtures.
+It deliberately rejects deployment configs pending receipt of the RT-host
+loader/review schema. This locally rebuilt package is not the claimed validated
+release wheel; transfer/reconcile these changes before parity claims.
+
+Actual two-environment smoke **failed closed at 13 ms**, physics tick 39:
+environment 1, joint 4 measured velocity -0.310698 rad/s exceeded the synthetic
+0.3 rad/s cap. Governor reason was TRACKING; its reference velocity was only
+about -0.000212 rad/s. Invalid references are now rejected before writing targets.
+This demonstrates plant/reference mismatch, not excessive reference speed.
+Uncompensated gravity with the retained 80/4 surrogate is a plausible contributor,
+not an identified cause. Do not loosen limits or claim hardware equivalence to
+make this check pass. No PPO training was launched. Actual partial-reset,
+stop-termination and throughput checks were not reached; API-stub/core tests
+cover them separately. Failure details are in `governor_smoke.json` beside the
+asset. Next resolve the compensated/identified plant response model.
+
+### Stationary-reference diagnostic — 2026-09-25
+
+`scripts/deployment/diagnose_fr3_hold.py` runs two isolated Isaac processes with
+identical seeded joint resets, 3 kHz physics and the existing implicit PD 80/4.
+Each holds its exact measured initial joint position, with zero velocity target.
+No policy, governor, automatic episode reset or termination runs during sampling.
+Only the world gravity vector differs. Two environments, 0.2 seconds, 601 samples
+including the initial state; traces are buffered and saved as compressed NPZ,
+with JSON summaries and logs. Original task configurations remain unchanged.
+
+Actual result in `generated_assets/fr3v21_bare_flange_live_v1/hold_diagnostic_v3/`:
+
+- Initial q/dq matched exactly across cases.
+- Gravity off: zero motion in all joints throughout the recorded interval.
+- Gravity on: environment 1 joint 4 crossed 0.3 rad/s at 12.667 ms; its speed
+  reached about 1.50 rad/s within 0.2 s. The original governor fault was at the
+  next 1 ms sampling boundary, 13 ms.
+- At 13 ms, joint 4 required about 18.95 Nm gravity compensation, whereas
+  instantaneous PD estimate was only 1.41 Nm (position error 0.00211 rad).
+  The initial PD estimate was zero. This paired ablation isolates gravity-induced
+  motion under the uncompensated surrogate as the trigger, without a moving
+  policy reference. It is not hardware controller identification.
+- `isaac_applied_torque` is an implicit-actuator estimate, not a motor-torque
+  measurement. Raw PhysX actuation-force readback was zero despite the drive;
+  do not interpret it as total applied drive torque. `gravity_compensation`
+  is the model term g(q), logged but not applied as feedforward.
+
+To repeat (use a new output directory):
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+export FRANKA_RL_FR3_USD="$FRANKA_RL_DATA_ROOT/generated_assets/fr3v21_bare_flange_live_v1/fr3v2.usda"
+direnv exec /home/chen-lab/isaac/franka-rl /home/chen-lab/isaac/.venv/bin/python \
+  /home/chen-lab/isaac/franka-rl/scripts/deployment/diagnose_fr3_hold.py \
+  --device cuda:0 --duration 0.2 \
+  --output-dir "$FRANKA_RL_DATA_ROOT/generated_assets/fr3v21_bare_flange_live_v1/hold_diagnostic_repeat"
+```
+
+### Asset and governor reproduction
+
+Run with the repository direnv environment active, from the data-volume runs
+directory. Verify the data volume is mounted, writable and has free space.
+Build output directories and report files must not already exist.
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+export FRANKA_RL_FR3_USD="$FRANKA_RL_DATA_ROOT/generated_assets/fr3v21_bare_flange_live_v1/fr3v2.usda"
+export FRANKA_RL_GOVERNOR_CONFIG=/home/chen-lab/isaac/franka-rl/deployment/reference_governor/configs/simulation.json
+export FRANKA_RL_GOVERNOR_SIMULATION_FIXTURE=1
+
+# To rebuild, choose a NEW output directory; existing audited assets are immutable.
+direnv exec /home/chen-lab/isaac/franka-rl /home/chen-lab/isaac/.venv/bin/python \
+  /home/chen-lab/isaac/franka-rl/scripts/deployment/build_fr3v2_asset.py \
+  --urdf /home/chen-lab/isaac/franka-rl/deployment/hardware_control_audit/2026-09-25/robot_returned_model.urdf \
+  --mesh-dir "$FRANKA_RL_DATA_ROOT/generated_assets/fr3v2_bare_flange_v1/meshes" \
+  --output-dir "$FRANKA_RL_DATA_ROOT/generated_assets/fr3v21_bare_flange_live_v2"
+
+direnv exec /home/chen-lab/isaac/franka-rl /home/chen-lab/isaac/.venv/bin/python \
+  /home/chen-lab/isaac/franka-rl/scripts/deployment/smoke_fr3_governor.py \
+  --num_envs 2 --steps 30 --device cuda:0 --viz none \
+  --output "$FRANKA_RL_DATA_ROOT/generated_assets/fr3v21_bare_flange_live_v1/governor_smoke_repeat.json"
+```
+
+The smoke runner records success or failure, refuses report overwrites, and exits
+nonzero even when Isaac's launcher suppresses an exception. It tests a small
+joint target, not trained-policy reaching performance. Earlier model/controller
+documentation below describes the original public-description asset.
+
 Task: `Franka-FR3v2-Reach-v0`. The original `Template-Franka-Rl-v0` remains
 the Panda baseline. Frozen policy observations remain 24D, actions 7D,
 q_target = q_default + 0.5 * raw_action, with raw previous action and a 30 Hz

@@ -83,6 +83,7 @@ _build
 
 # Dev-time files, generated stuff
 **/__*
+!deployment/reference_governor/python/franka_governor/__init__.py
 
 # Isaac Lab CI environments in native mode
 **/_isaaclab_install_ci_*

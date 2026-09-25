@@ -173,3 +173,87 @@ of band. The installed wheel passes 32 tests; native CTest, 5,000-tick bounds/
 allocation checks and downstream CMake consumption pass. No actual Isaac runtime
 or hardware test was performed. Use this clean release rather than earlier
 `0.1.0-rc1` / `0.1.0` build directories.
+
+## Return request: identify hardware controller response before training — 2026-09-25
+
+### New simulation evidence
+
+The corrected live fr3v2.1 asset passed runtime mass/COM/inertia, limit, FK and
+payload-composition validation. Actual governor smoke failed closed at 13 ms:
+joint 4 measured velocity exceeded the synthetic 0.3 rad/s cap while its reference
+was nearly stationary. A paired stationary-reference diagnostic reproduced the
+crossing at 12.7 ms with gravity on; with gravity off, both arms remained exactly
+stationary for 0.2 s. Initial states matched. At 13 ms, joint 4's model gravity
+compensation term was about 18.95 Nm versus a PD estimate of 1.41 Nm.
+This isolates gravity-induced motion in our uncompensated 80/4 surrogate; it
+does not identify the real controller. See `FR3_SIMULATION.md` for artifacts and
+reproduction. Do not disable physical gravity or hardware compensation, or relax
+governor limits simply to pass a smoke test.
+
+The transferred source lacked `franka_governor/__init__.py` due to the broad
+ignore rule. A tracked simulation-only loader was added locally; reconcile it
+with the validated RT release before shipping. The Isaac adapter now refuses
+`command_valid=false` outputs before writing targets. Native tests and 33 Python
+tests passed here; actual partial-reset/stopping/throughput checks were not
+reached before the plant fault. Preserve these distinctions in release evidence.
+
+### Requested work on the real-time machine
+
+**This request authorizes offline preparation, not robot motion, control
+activation, gain/load/safety-setting changes or automatic fault recovery.**
+Pause deployment-oriented training until the response-model assumptions and
+command path are resolved. Preserve current internal settings rather than
+assuming they are factory defaults.
+
+1. **Confirm the selected controller path.** Pin installed source/binary versions,
+   position-interface mode, filtering, compensation evidence and actual enabled
+   host processing. Distinguish verified behavior from unknown firmware internals.
+   Do not infer active gains from URDF K/D metadata or example controllers.
+2. **Complete and validate the offline integration prerequisites.** Use the shared
+   governor in the selected ROS controller; check initialization from desired
+   states, timing, command validity, watchdog, terminal faults and stopping.
+   Remove automatic startup recovery from the selected path and test its absence.
+   Reconcile shared-core/config hashes and numerical parity across machines.
+   No hardware commissioning is authorized by passing these tests.
+3. **Prepare a YAML identification suite and approval proposal.** Specify small,
+   smooth, bounded joint-position references, initially one joint at a time at
+   several reviewed configurations. Include warmup/hold segments, repetition,
+   conservative start/end transitions and separate fitting/validation trials.
+   Propose amplitudes, frequencies, speed/acceleration/jerk bounds, allowed
+   workspace, attachment assumptions, stop criteria and watchdog budgets for
+   lab review; do not invent approved values or execute the suite without
+   separate explicit motion authorization and the lab's physical-stop procedure.
+4. **Implement synchronized local logging.** Record actual post-governor commands,
+   reference q/dq/ddq, robot desired q_d/dq_d/ddq_d, measured q/dq, available torque
+   signals and model terms, governor status/interventions, policy/command sequence
+   numbers, robot time and host monotonic receipt/processing/consumption times.
+   Document signal frames, units, estimator/filtering uncertainty, and gravity/
+   friction compensation conventions. Establish clock relationships before delay
+   calculations. Buffer RT samples; keep allocation, locks and disk I/O outside
+   the RT callback. Log faulted trials rather than silently discarding them.
+5. **Identify effective response, not just two PD numbers.** Once approved data
+   exist, estimate tracking delay, bandwidth, damping, steady-state error and
+   cross-joint/configuration dependence. Test whether a PD-plus-compensation
+   surrogate explains the observations. Position traces alone generally do not
+   uniquely identify gains and unknown inertia; report assumptions, confidence
+   and identifiability limits. Distinguish fitted equivalent gains from actual
+   firmware settings. Do not claim a compensation law from an available model API.
+6. **Validate and return a training contract.** Evaluate the fitted surrogate on
+   held-out trajectories/configurations, reporting position/velocity errors,
+   transient/settling behavior, timing and failure cases. Propose response-model
+   parameters and evidence-supported DR ranges, separately from future payload
+   scenario choices. Define acceptance checks for lab review. Do not replace
+   missing measurements with broad arbitrary PD randomization.
+
+### Return deliverables
+
+Add a new versioned directory under `deployment/hardware_control_audit/` containing
+the offline integration report, reviewed-or-pending YAML experiment suite,
+signal schema and logging/analysis commands, version/config/model hashes, and a
+concise remaining-blockers list. After separately authorized measurements, add
+compact fitted-model parameters, held-out validation results and proposed DR
+ranges with provenance. Keep raw traces outside Git and reference their location
+and hashes. Clearly distinguish planned, offline-tested and hardware-measured
+results. All experiment components remain local to the RT machine, YAML-driven,
+with no training-workstation runtime connection. The objective is matched hardware
+response, not forcing hardware to reproduce the simulator's assumed PD equation.
