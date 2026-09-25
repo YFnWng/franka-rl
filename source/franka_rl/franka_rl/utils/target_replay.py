@@ -41,6 +41,28 @@ class TargetReplayController:
         self._joint_position_samples: torch.Tensor | None = None
         self._joint_velocity_samples: torch.Tensor | None = None
         self._joint_names: tuple[str, ...] = ()
+        self._quotas: torch.Tensor | None = None
+
+    def set_episode_quotas(self, quotas: torch.Tensor) -> None:
+        """Configure before reset; unrecorded resets reuse the last paired sample.
+
+        Covers automatic resets inside the final recorded step, before the
+        evaluator has counted that completion.
+        """
+        if self._episode is None or self._targets is None:
+            raise RuntimeError("Target replay is not installed.")
+        if quotas.shape != self._episode.shape or quotas.dtype != torch.long:
+            raise ValueError("Replay quotas must be one int64 value per environment.")
+        if torch.any(quotas < 0) or torch.any(quotas > self._targets.shape[1]):
+            raise ValueError("Replay capacity is insufficient for the requested quotas.")
+        self._quotas = quotas.to(self._episode.device).clone()
+        self._episode.zero_()
+
+    def _sample_indices(self, env_ids: torch.Tensor) -> torch.Tensor:
+        indices = self._episode[env_ids]
+        if self._quotas is not None:
+            indices = torch.minimum(indices, (self._quotas[env_ids] - 1).clamp_min(0))
+        return indices
 
     @property
     def schema_version(self) -> int:
@@ -179,7 +201,7 @@ class TargetReplayController:
             resolved_ids = torch.arange(len(self._episode), device=self._episode.device)[env_ids]
         else:
             resolved_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self._episode.device)
-        episode_ids = self._episode[resolved_ids]
+        episode_ids = self._sample_indices(resolved_ids)
         capacity = self._targets.shape[1]
         if torch.any(episode_ids >= capacity):
             offending = resolved_ids[episode_ids >= capacity].tolist()
@@ -189,7 +211,12 @@ class TargetReplayController:
 
         self._term.pose_command_b[resolved_ids, :3] = self._targets[resolved_ids, episode_ids]
         self._term.pose_command_b[resolved_ids, 3:] = self._orientation
-        self._episode[resolved_ids] += 1
+        if self._quotas is None:
+            self._episode[resolved_ids] += 1
+        else:
+            self._episode[resolved_ids] += (
+                self._episode[resolved_ids] < self._quotas[resolved_ids]
+            ).long()
 
     def _reset_joints(
         self,
@@ -214,7 +241,7 @@ class TargetReplayController:
             resolved_ids = torch.as_tensor(
                 env_ids, dtype=torch.long, device=self._episode.device
             )
-        episode_ids = self._episode[resolved_ids]
+        episode_ids = self._sample_indices(resolved_ids)
         capacity = self._joint_position_samples.shape[1]
         if torch.any(episode_ids >= capacity):
             offending = resolved_ids[episode_ids >= capacity].tolist()

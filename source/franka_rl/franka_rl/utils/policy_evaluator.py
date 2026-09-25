@@ -511,6 +511,7 @@ class PolicyEvaluator:
         domain_parameter_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
         trajectory_state_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
         initial_state_reader: Callable[[Any], dict[str, torch.Tensor]] | None = None,
+        configure_episode_quotas: Callable[[torch.Tensor], None] | None = None,
     ):
         self.env = env
         self.policy = policy
@@ -520,6 +521,7 @@ class PolicyEvaluator:
         self.domain_parameter_reader = domain_parameter_reader
         self.trajectory_state_reader = trajectory_state_reader
         self.initial_state_reader = initial_state_reader
+        self.configure_episode_quotas = configure_episode_quotas
 
         if config.record_domain_parameters and domain_parameter_reader is None:
             raise ValueError(
@@ -545,6 +547,8 @@ class PolicyEvaluator:
 
     def run(self) -> EvaluationResults:
         quotas = self._make_balanced_quotas()
+        if self.configure_episode_quotas is not None:
+            self.configure_episode_quotas(quotas.clone())
         capacity = int(quotas.max())
 
         shape = (self.num_envs, capacity)

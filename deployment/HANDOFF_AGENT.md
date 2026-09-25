@@ -25,3 +25,95 @@ workspace copied from `source/`; write generated logs outside the package.
 Record revisions and suite/bundle hashes. Report C++ parity, fake-hardware,
 shadow, and hardware results separately; numerical export parity alone is not
 evidence that the policy can safely control this robot.
+
+## 2026-09-25: hardware-control information required before further training
+
+Pause further deployment-oriented training until the control contract below
+is resolved. This is an information-gathering request, not motion authorization.
+
+### Simulation findings
+
+- Both saved Panda training configs enabled gravity: `(0, 0, -9.81)` and
+  `disable_gravity=false`. Runtime reconstruction retained tiny authored link
+  inertias and zero COM offsets. FR3 URDF link-inertia traces are about
+  5,800–11,900 times larger; these are NOT whole-arm joint-space inertia ratios.
+  Exact historical training-asset identity remains unproven. See
+  `model_audit/2026-09-24_runtime/FINDINGS.md`.
+- A separate FR3v2 bare-flange model now passes runtime mass, COM, full-inertia,
+  joint-limit, flange-FK and payload-composition checks. See `FR3_SIMULATION.md`.
+  It still assumes implicit PD 80/4, armature 0.001 kg m², 60 Hz physics and
+  30 Hz policy updates. These are not identified hardware controller settings.
+  No hardware-equivalent reference governor is implemented yet.
+- New FR3 nominal and payload-only DR policies were trained from scratch.
+  DR samples 0–1 kg point payload with flange-relative axial offset 0–5 cm.
+  One evaluation seed, 512 paired episodes per scenario:
+
+  | Scenario | Nominal success | Payload DR success |
+  | --- | ---: | ---: |
+  | Bare flange | 449/512 | 512/512 |
+  | 0.5 kg at flange | 432/512 | 512/512 |
+  | 1 kg at flange Z=5 cm | 406/512 | 512/512 |
+
+  All failures were six-second timeouts; no configured unsafe terminations.
+  Targets and initial joint states matched exactly. Nominal timeout endpoint
+  error averaged 4.1–4.3 cm. DR mean success time was 0.357–0.358 s, but success
+  means position error <3 cm for five policy samples, without a low-velocity
+  or long-hold requirement. It is not a validated hardware settling time.
+  Results: data-root `evaluation_suites/2026-09-24_23-30-50_fr3_nominal_vs_payload_dr`.
+  Checkpoints: data-root `runs/logs/rsl_rl/fr3_reach/` runs
+  `2026-09-24_21-27-32_nominal_seed42` and
+  `2026-09-24_21-37-51_payload_dr_seed42`, both `model_999.pt`.
+  Existing Panda bundles remain unchanged; these FR3 policies are not approved
+  for hardware use. The suite is in `config/experiments/fr3_comparison.yaml`
+  under the `franka_rl` Python package.
+
+### Request to the real-time machine agent
+
+Inspect existing evidence, installed sources/configs and version-matched
+official documentation first. Report each item as verified, inferred or unknown,
+with provenance. Do not guess inaccessible firmware internals or nominal gains.
+
+1. **Platform and selected interface:** confirm robot model/revision, system
+   image, libfranka, franky, ROS 2/franka_ros2/ros2_control versions and revisions.
+   Identify the intended position/velocity/torque command API and controller
+   mode, including the exact executable/controller and configuration to deploy.
+   Recommend one path if undecided; explain unresolved choices.
+2. **Complete command path:** specify how the 30 Hz policy output becomes a
+   1 kHz command. Document default-offset mapping, raw-action clipping,
+   interpolation/hold/filtering, rate limiting, processing order and state,
+   start/reset initialization, timestamps and stale-command handling. Include
+   defaults actually enabled in the installed API, not just available options.
+   Supply reusable governor code or equations and offline input/output vectors
+   so simulation can reproduce this path exactly.
+3. **Low-level dynamics:** establish exposed impedance/stiffness/damping settings,
+   units and configuration ownership; gravity/Coriolis compensation, torque
+   saturation/rate limits and payload-model use. Distinguish known behavior
+   from proprietary/unknown behavior. Do not equate position-interface behavior
+   to our implicit PD or disable hardware compensation to imitate simulation.
+4. **Observations and frames:** identify measured versus commanded q/dq,
+   filtering, signal age, synchronization and inference latency/jitter. Confirm
+   joint order, base/flange/EE transforms, FK source, units, previous-action
+   semantics and normalization. Provide a versioned observation/action contract
+   and offline parity examples against the FR3 flange convention.
+5. **Limits and safety behavior:** return applicable position-dependent velocity,
+   acceleration, jerk, effort and torque-rate limits and their sources. Separate
+   manufacturer constraints, lab-approved operating limits, and sim thresholds.
+   Document collisions/self-collision protections, workspace exclusions,
+   watchdogs, disconnects, protective-stop behavior and terminal-fault handling.
+   Do not invent acceptance thresholds or change robot safety settings.
+6. **Actual installation and identification gaps:** confirm mounting/gravity
+   direction, attached hardware, configured tool/load mass, COM and inertia,
+   and any known calibration offsets. List uncertain friction, actuator response,
+   delay and payload quantities with justified DR ranges where evidence exists.
+   For missing measurements, propose a separately authorized conservative
+   identification protocol, signals to log and acceptance checks; do not execute
+   motions or alter load/controller settings under this request.
+
+Return `deployment/hardware_control_audit/<date>/` with a concise findings and
+blockers note, machine-readable control contract (YAML/JSON), version/config
+evidence, frame/limit definitions and offline parity vectors. Reuse existing
+inventory instead of duplicating it. Explicitly list which simulation changes
+are required, which unknowns need lab decisions or authorized measurements,
+and what is still needed before hardware acceptance. Keep large traces outside
+Git. All eventual runtime components remain local to the real-time machine;
+targets and schedules remain YAML-driven with no training-workstation link.

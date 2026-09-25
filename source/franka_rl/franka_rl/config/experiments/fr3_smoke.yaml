@@ -1,0 +1,29 @@
+version: 1
+name: fr3v2_bare_flange_smoke
+baseline_policy: nominal_ppo
+policies:
+  nominal_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-23_01-15-04_no_success_termination/model_299.pt
+    description: Frozen nominal Panda policy evaluated on FR3v2.
+  dr_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/franka_reach/2026-09-24_00-48-20_dr_v2/model_999.pt
+    description: Frozen Panda DR policy evaluated on FR3v2.
+scenarios: [nominal, fr3_payload_050, fr3_payload_100_z005]
+seeds: [123]
+evaluation:
+  task: Franka-FR3v2-Reach-v0
+  num_envs: 16
+  episodes_per_job: 32
+  success_threshold: 0.03
+  success_steps: 5
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+  target_replay:
+    enabled: true
+    extra_episodes_per_env: 32
+    position_ranges:
+      x: [0.35, 0.60]
+      y: [-0.20, 0.20]
+      z: [0.20, 0.50]
+scenario_file: ../fr3_scenarios.yaml

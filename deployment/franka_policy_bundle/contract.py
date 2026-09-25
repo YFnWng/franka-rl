@@ -28,6 +28,7 @@ def require(condition, message):
 
 
 def extract_contract(env, agent):
+    require(env.get("robot_model", "panda") == "panda", "FR3 export requires a separately versioned hardware contract")
     actor = agent["actor"]
     require(actor["class_name"] == "MLPModel" and actor["activation"] == "elu", "Unsupported actor")
     require(actor["obs_normalization"] is False, "Normalized actors unsupported")

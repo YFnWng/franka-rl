@@ -1,0 +1,27 @@
+version: 1
+scenarios:
+  nominal:
+    type: nominal
+    description: FR3v2 bare flange, no added load.
+  fr3_payload_050:
+    type: specified
+    description: Add 0.5 kg at the flange origin.
+    physics:
+      payload_mass_kg: 0.5
+      payload_com_offset_m: [0.0, 0.0, 0.0]
+  fr3_payload_100_z005:
+    type: specified
+    description: Add 1 kg at flange-frame z=0.05 m.
+    physics:
+      payload_mass_kg: 1.0
+      payload_com_offset_m: [0.0, 0.0, 0.05]
+  fr3_payload_dr:
+    type: random
+    resampling: reset
+    description: Reset-time wrist payload DR; provisional range for later training.
+    physics:
+      payload_mass_kg: {distribution: uniform, low: 0.0, high: 1.0}
+      payload_com_offset_m:
+        - {distribution: uniform, low: 0.0, high: 0.0}
+        - {distribution: uniform, low: 0.0, high: 0.0}
+        - {distribution: uniform, low: 0.0, high: 0.05}

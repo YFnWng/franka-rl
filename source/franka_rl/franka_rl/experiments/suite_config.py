@@ -117,7 +117,8 @@ class EvaluationSuiteConfig:
         if scenario_file_value is None:
             scenario_file = None
         elif isinstance(scenario_file_value, str) and scenario_file_value:
-            scenario_file = Path(scenario_file_value).expanduser().resolve()
+            scenario_path = Path(scenario_file_value).expanduser()
+            scenario_file = (source.parent / scenario_path).resolve() if not scenario_path.is_absolute() else scenario_path.resolve()
         else:
             raise TypeError("scenario_file must be null or a non-empty path string.")
 

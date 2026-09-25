@@ -191,6 +191,8 @@ class ScenarioModifier:
     }
 
     def __init__(self, scenario: ScenarioSpec, catalog: ScenarioCatalog):
+        self._arm_body_pattern = ARM_BODY_PATTERN
+        self._hand_body_pattern = HAND_BODY_PATTERN
         self.spec = scenario
         self.catalog = catalog
         self._joint_ids: list[int] | None = None
@@ -212,6 +214,8 @@ class ScenarioModifier:
     def apply(self, env_cfg) -> dict[str, Any]:
         """Modify ``env_cfg`` before construction and return resolved metadata."""
 
+        self._arm_body_pattern = getattr(env_cfg, "dr_arm_body_pattern", ARM_BODY_PATTERN)
+        self._hand_body_pattern = env_cfg.commands.ee_pose.body_name
         if self.spec.type == "nominal":
             return self.metadata
         if self.spec.type == "specified":
@@ -223,6 +227,13 @@ class ScenarioModifier:
 
         self._apply_observation_noise(env_cfg)
         self._apply_reset_variation(env_cfg)
+        payload_event = getattr(env_cfg.events, "scenario_payload_mass", None)
+        if payload_event is not None:
+            payload_event.params["reference_body_origin"] = getattr(env_cfg, "payload_reference_body_origin", False)
+            self._configured_values["payload_reference"] = (
+                "body_origin" if payload_event.params["reference_body_origin"] else "nominal_com"
+            )
+            self._configured_values["payload_body"] = self._hand_body_pattern
         return self.metadata
 
     def _apply_specified_physics(self, env_cfg) -> None:
@@ -285,7 +296,7 @@ class ScenarioModifier:
                 func=mdp.randomize_rigid_body_mass,
                 mode="startup",
                 params={
-                    "asset_cfg": SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN]),
+                    "asset_cfg": SceneEntityCfg("robot", body_names=[self._arm_body_pattern]),
                     "mass_distribution_params": (physics.link_mass_scale, physics.link_mass_scale),
                     "operation": "scale",
                     "distribution": "uniform",
@@ -299,7 +310,7 @@ class ScenarioModifier:
                 func=mdp.randomize_rigid_body_inertia,
                 mode="startup",
                 params={
-                    "asset_cfg": SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN]),
+                    "asset_cfg": SceneEntityCfg("robot", body_names=[self._arm_body_pattern]),
                     "inertia_distribution_params": (
                         physics.link_inertia_scale,
                         physics.link_inertia_scale,
@@ -317,7 +328,7 @@ class ScenarioModifier:
                 mode="startup",
                 params={
                     "asset_cfg": SceneEntityCfg(
-                        "robot", body_names=[HAND_BODY_PATTERN]
+                        "robot", body_names=[self._hand_body_pattern]
                     ),
                     "payload_mass_distribution_params": (
                         physics.payload_mass_kg,
@@ -439,7 +450,7 @@ class ScenarioModifier:
                 },
             )
 
-        body_cfg = SceneEntityCfg("robot", body_names=[ARM_BODY_PATTERN])
+        body_cfg = SceneEntityCfg("robot", body_names=[self._arm_body_pattern])
         if physics.link_mass_scale is not None:
             mass = _require_distribution(physics.link_mass_scale, "link_mass_scale")
             env_cfg.events.scenario_link_mass = EventTermCfg(
@@ -474,7 +485,7 @@ class ScenarioModifier:
             )
             payload_event_params: dict[str, Any] = {
                 "asset_cfg": SceneEntityCfg(
-                    "robot", body_names=[HAND_BODY_PATTERN]
+                    "robot", body_names=[self._hand_body_pattern]
                 ),
                 "payload_mass_distribution_params": payload.parameters,
                 "distribution": payload.distribution,
@@ -546,11 +557,11 @@ class ScenarioModifier:
         robot = base_env.scene["robot"]
         if self._joint_ids is None:
             self._joint_ids, self._joint_names = robot.find_joints(ARM_JOINT_PATTERN)
-            self._body_ids, self._body_names = robot.find_bodies(ARM_BODY_PATTERN)
-            hand_body_ids, _ = robot.find_bodies(HAND_BODY_PATTERN)
+            self._body_ids, self._body_names = robot.find_bodies(self._arm_body_pattern)
+            hand_body_ids, _ = robot.find_bodies(self._hand_body_pattern)
             if len(hand_body_ids) != 1:
                 raise RuntimeError(
-                    f"Expected exactly one {HAND_BODY_PATTERN!r} body; "
+                    f"Expected exactly one {self._hand_body_pattern!r} body; "
                     f"found {len(hand_body_ids)}."
                 )
             self._hand_body_id = hand_body_ids[0]
@@ -620,11 +631,11 @@ class ScenarioModifier:
             },
             "payload_mass": {
                 **self.PARAMETER_SCHEMA["payload_mass"],
-                "component_names": ["panda_hand_payload"],
+                "component_names": [f"{self._hand_body_pattern}_payload"],
             },
             "hand_total_mass": {
                 **self.PARAMETER_SCHEMA["hand_total_mass"],
-                "component_names": ["panda_hand"],
+                "component_names": [self._hand_body_pattern],
             },
             "payload_com_offset": {
                 **self.PARAMETER_SCHEMA["payload_com_offset"],
@@ -658,9 +669,10 @@ class RandomizeLumpedPayload(ManagerTermBase):
     """Add a point-mass payload and update combined mass, COM, and inertia.
 
     ``com_offset_m`` is expressed in the hand body frame relative to the
-    hand's nominal center of mass. The payload is modeled as a point mass;
-    its intrinsic rotational inertia and collision geometry are therefore
-    zero. All properties are recomputed from the original hand properties on
+    hand's nominal center of mass. With ``reference_body_origin=True``, offsets instead start at the selected
+    body origin (the flange for FR3), preserving Panda defaults.
+    The payload is a point mass with zero intrinsic rotational inertia and
+    no collision geometry. All properties are recomputed from the original hand properties on
     every invocation, so reset-mode randomization does not accumulate mass.
     """
 
@@ -682,6 +694,7 @@ class RandomizeLumpedPayload(ManagerTermBase):
         payload_mass_distribution_params: tuple[float, float],
         distribution: DistributionName,
         com_offset_m: tuple[float, float, float] | None = None,
+        reference_body_origin: bool = False,
         com_offset_distribution_params: tuple[
             tuple[float, float], tuple[float, float], tuple[float, float]
         ]
@@ -789,7 +802,7 @@ class RandomizeLumpedPayload(ManagerTermBase):
                     axis_samples.normal_(*parameters)
                 else:  # pragma: no cover - guarded by YAML parsing
                     raise ValueError(f"Unsupported distribution: {distribution_name}")
-        payload_com = default_com + offset
+        payload_com = offset.expand_as(default_com) if reference_body_origin else default_com + offset
         combined_com = (
             default_mass[..., None] * default_com
             + payload_mass[..., None] * payload_com

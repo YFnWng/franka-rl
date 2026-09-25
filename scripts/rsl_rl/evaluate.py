@@ -193,6 +193,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 f"Evaluation output directory must be under FRANKA_RL_DATA_ROOT ({data_root}): {output_dir}"
             ) from error
 
+    evaluation_completed = False
     with launch_simulation(env_cfg, args_cli):
         # grab task name for checkpoint path
         task_name = args_cli.task.split(":")[-1]
@@ -237,7 +238,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "command_name": "ee_pose",
                 "asset_cfg": SceneEntityCfg(
                     "robot",
-                    body_names=["panda_hand"],
+                    body_names=[env_cfg.commands.ee_pose.body_name],
                 ),
                 "distance_threshold": args_cli.success_threshold,
                 "required_steps": args_cli.success_steps,
@@ -250,7 +251,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "command_name": "ee_pose",
                 "hand_asset_cfg": SceneEntityCfg(
                     "robot",
-                    body_names=["panda_hand"],
+                    body_names=[env_cfg.commands.ee_pose.body_name],
                 ),
                 "joint_asset_cfg": SceneEntityCfg(
                     "robot",
@@ -260,6 +261,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         )
 
         scenario_metadata = scenario_modifier.apply(env_cfg)
+        if getattr(env_cfg, "robot_model", "panda") == "fr3v2_bare_flange":
+            asset_path = Path(env_cfg.scene.robot.spawn.usd_path)
+            asset_manifest = asset_path.parent / "manifest.json"
+            scenario_metadata["robot_model"] = {
+                "name": env_cfg.robot_model,
+                "usd_sha256": hashlib.sha256(asset_path.read_bytes()).hexdigest(),
+                "asset_manifest": json.loads(asset_manifest.read_text()),
+                "controller_assumption": "Implicit PD 80/4, armature 0.001, 60 Hz physics, 30 Hz policy; no hardware governor",
+                "payload_reference": "fr3_flange origin",
+            }
         print("[INFO] Robustness scenario:")
         print_dict(scenario_metadata, nesting=4)
 
@@ -423,11 +434,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             domain_parameter_reader=domain_parameter_reader,
             trajectory_state_reader=trajectory_state_reader,
             initial_state_reader=initial_state_reader,
+            configure_episode_quotas=(
+                replay_controller.set_episode_quotas if replay_controller is not None else None
+            ),
         )
 
         # simulate environment
         try:
             results = evaluator.run()
+            if results.num_episodes != args_cli.num_episodes:
+                raise RuntimeError("Evaluation stopped before recording all requested episodes.")
             results.print_summary()
             results.save()
             completion = {
@@ -444,6 +460,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             completion_tmp.replace(completion_path)
         finally:
             env.close()
+        evaluation_completed = True
+
+    # launch_simulation can print and suppress exceptions from its body.
+    if not evaluation_completed:
+        raise RuntimeError("Evaluation failed; see the preceding simulator traceback.")
 
 
 if __name__ == "__main__":

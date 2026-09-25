@@ -1,0 +1,30 @@
+version: 1
+name: fr3_nominal_vs_payload_dr
+baseline_policy: nominal_ppo
+
+policies:
+  nominal_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_reach/2026-09-24_21-27-32_nominal_seed42/model_999.pt
+  dr_ppo:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_reach/2026-09-24_21-37-51_payload_dr_seed42/model_999.pt
+
+scenario_file: ../fr3_scenarios.yaml
+scenarios: [nominal, fr3_payload_050, fr3_payload_100_z005]
+seeds: [123]
+
+evaluation:
+  task: Franka-FR3v2-Reach-v0
+  num_envs: 64
+  episodes_per_job: 512
+  success_threshold: 0.03
+  success_steps: 5
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+  target_replay:
+    enabled: true
+    extra_episodes_per_env: 32
+    position_ranges:
+      x: [0.35, 0.60]
+      y: [-0.20, 0.20]
+      z: [0.20, 0.50]
