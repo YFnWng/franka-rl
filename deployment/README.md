@@ -10,6 +10,21 @@ importing the existing `franka_rl` package registers simulator tasks. The
 exporter uses the installed training environment's PyTorch/RSL-RL; bundle
 verification only needs `deployment/requirements.txt`.
 
+## Shared governor plan
+
+[REFERENCE_GOVERNOR_PLAN.md](REFERENCE_GOVERNOR_PLAN.md) retains the three controller
+options and records the standalone implementation/validation milestones.
+[Package, installation and limitations](reference_governor/README.md).
+Position-action PPO with existing internal impedance is the first-demo direction.
+
+## Hardware control contract request (2026-09-25)
+
+The real-time host response is in
+[hardware_control_audit/2026-09-25/FINDINGS.md](hardware_control_audit/2026-09-25/FINDINGS.md),
+with a machine-readable audit contract, source/version evidence, limit equations
+and offline C++/Python parity vectors. The deployment controller and identified
+internal gains remain unresolved; the audit is not hardware acceptance.
+
 ## Return audit from the real-time host (2026-09-24)
 
 The Panda-to-FR3v2 model audit and portable evidence are in

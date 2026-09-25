@@ -117,3 +117,59 @@ are required, which unknowns need lab decisions or authorized measurements,
 and what is still needed before hardware acceptance. Keep large traces outside
 Git. All eventual runtime components remain local to the real-time machine;
 targets and schedules remain YAML-driven with no training-workstation link.
+
+### Real-time host response — 2026-09-25
+
+Read [hardware_control_audit/2026-09-25/FINDINGS.md](hardware_control_audit/2026-09-25/FINDINGS.md)
+and its machine-readable control contract before resuming deployment-oriented
+training. This source-based audit reports verified defaults, recommended choices
+and explicit unknowns. It does not resolve the missing deployed governor,
+identified internal gains or lab commissioning decisions.
+
+Live follow-up: [LIVE_INSPECTION.md](hardware_control_audit/2026-09-25/LIVE_INSPECTION.md).
+First deployment will preserve the robot's existing internal settings. The FCI
+model now supplies corrected fr3v2.1 COM/mass data; numeric internal gains and
+dynamic response remain unmeasured.
+
+## Controller choices and shared reference governor — 2026-09-25
+
+Retain all three options:
+
+1. **First-deployment direction:** PPO joint-position targets → shared 1 kHz
+   governor → robot's existing internal impedance controller; preserve defaults.
+2. **Alternative:** PPO joint-position targets → shared governor → explicit
+   host-side PD/impedance → FCI torques. The policy still outputs positions.
+3. **Research alternative:** PPO outputs torques directly, requiring a new torque
+   action contract and separate torque command processing/validation.
+
+Do not substitute wide arbitrary PD randomization for measured controller-response
+coverage. Read [REFERENCE_GOVERNOR_PLAN.md](REFERENCE_GOVERNOR_PLAN.md) for the next
+implementation milestone, state/timing contract, feasibility and stopping design,
+shared-core strategy and parity tests. The governor algorithm and deployment
+thresholds remain to be validated; this is a plan, not a working controller.
+Offline governor development and simulation validation may proceed. Freeze the
+command path and resolve response-model assumptions before further deployment-
+oriented training. Existing bundles and the no-motion authorization boundary remain.
+
+### Governor implementation and shipment — 2026-09-25
+
+The canonical core now lives in `franka-rl/deployment/reference_governor/`, not
+franka_ros2. Read [its README](reference_governor/README.md) and the updated plan.
+Version 0.1.0 ships as a standalone wheel/source archive plus CMake target. The
+simulation workstation needs no ROS repo. `Franka-FR3v2-Governed-Reach-v0` is an
+opt-in task targeting Isaac Sim 6.0.1 / Isaac Lab v3.0.0-beta2.patch1.
+
+The implemented conservative quintic governor uses a cached bounded continuation
+to rest; it is not time-optimal. Native, Python and adapter API-stub tests are local
+evidence only. First run a small actual Isaac smoke test, validate the corrected
+live-model asset and benchmark throughput before large PPO jobs. The supplied
+simulation config is explicitly synthetic, not approved deployment settings.
+Governor-aware simulation experiments can now proceed with these limitations;
+hardware-equivalence claims still need identified response and reviewed limits.
+
+Validated local release: `/home/chen-lab/yifan/governor_releases/0.1.0-validated/`.
+Transfer its wheel/source archive, integration files, manifest and checksums out
+of band. The installed wheel passes 32 tests; native CTest, 5,000-tick bounds/
+allocation checks and downstream CMake consumption pass. No actual Isaac runtime
+or hardware test was performed. Use this clean release rather than earlier
+`0.1.0-rc1` / `0.1.0` build directories.

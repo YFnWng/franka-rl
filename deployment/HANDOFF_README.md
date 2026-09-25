@@ -32,6 +32,24 @@ the target files, and identical trial schedules. It prints the resolved trials
 without launching ROS or touching hardware. Source instructions and scripts
 must be reviewed before execution; hashes establish identity, not code safety.
 
+## Controller choices and governor planning
+
+The current first-demo direction is **position-action PPO with the robot's
+existing internal joint-impedance settings**, preceded by a shared reference
+governor. Preserve two alternatives: position-action PPO with an explicit
+host-side PD torque controller, and direct torque-output PPO. These are distinct
+control contracts; choosing a torque interface does not necessarily mean the
+policy itself outputs torques.
+
+The [shared reference governor plan](REFERENCE_GOVERNOR_PLAN.md) specifies the
+30 Hz → 1 kHz path, state initialization, timing/freshness, trajectory feasibility,
+stop/fault handling, simulation reuse and offline validation milestones. The standalone core and Python/Isaac adapter are now implemented in
+[reference_governor](reference_governor/README.md), with wheel/sdist shipment from
+this repo; the simulation workstation does not need franka_ros2. Actual Isaac
+runtime validation and the ROS controller remain open. No hardware motion is
+authorized by this implementation. New training should use the frozen command
+path and an evidence-based response model, not assumed broad PD coverage.
+
 ## Runtime inputs and next implementation
 
 - `run_request.yaml` selects the nominal shadow suite and disables hardware.

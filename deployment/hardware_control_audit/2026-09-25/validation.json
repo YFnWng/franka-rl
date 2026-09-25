@@ -1,0 +1,8 @@
+{
+  "limiter_cases": 6,
+  "observation_cases": 26,
+  "observation_action_cpp_python": "float32 exact match",
+  "limiter_absolute_tolerance": 1e-12,
+  "hardware_accessed": false,
+  "closed_loop_governor_verified": false
+}

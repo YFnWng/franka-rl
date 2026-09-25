@@ -1,0 +1,12 @@
+{
+  "isaac_sim": "6.0.1",
+  "isaac_lab_tag": "v3.0.0-beta2.patch1",
+  "source": "https://github.com/isaac-sim/IsaacLab/tree/v3.0.0-beta2.patch1",
+  "inspected_file_sha256": {
+    "manager_based_rl_env.py": "a963cfcdb4cd60955cd022ed709d27c99a6935685b69180bb29d74f8983f6566",
+    "action_manager.py": "2facb9eaee7722509603b0794c57bf760f8b6eb7290830d4899b413bbd40109d",
+    "actions_cfg.py": "e4161d768bb6c86f7ae4d0106553381d7ad33f72e13738ae70cd2c6afedb1e3b",
+    "joint_actions.py": "a3dd734ca4ca4dd2a8991e4eee221cd01ca460655d3366c07f50007f587d9f05"
+  },
+  "runtime_tested": false
+}

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["scikit-build-core==0.11.6", "pybind11==3.0.1"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "franka-reference-governor"
+version = "0.1.0"
+description = "Standalone bounded-segment reference governor for FR3 simulation and C++ integration"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+
+[tool.scikit-build]
+wheel.packages = ["python/franka_governor"]
+cmake.args = ["-DGOVERNOR_PYTHON=ON", "-DBUILD_TESTING=OFF"]
+sdist.include = ["include/**", "src/**", "cmake/**", "tests/*.py", "tests/*.cpp", "configs/**", "python/franka_governor/*.py", "CMakeLists.txt", "README.md", "ISAAC_API.json", "fixtures/**"]
+
+sdist.exclude = ["**/__pycache__/**", "**/.pytest_cache/**", "**/*.pyc"]

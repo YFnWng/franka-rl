@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "algorithm": "bounded_quintic_v1",
+  "purpose": "reviewed_operating_config",
+  "note": "Fill and review all operating values; this incomplete template is rejected.",
+  "core": {
+    "lower": [
+      -2.9007400166666666,
+      -1.8360900166666667,
+      -2.9007400166666666,
+      -3.077020016666667,
+      -2.87630335,
+      0.43982265,
+      -3.05083335
+    ],
+    "upper": [
+      2.9007400166666666,
+      1.8360900166666667,
+      2.9007400166666666,
+      -0.11693708333333333,
+      2.87630335,
+      4.62163335,
+      3.05083335
+    ],
+    "envelope_velocity": [
+      2.62,
+      2.62,
+      2.62,
+      2.62,
+      5.26,
+      4.18,
+      5.26
+    ],
+    "envelope_offset": [
+      0.6520000381679385,
+      0.2499685851463105,
+      0.20053055661577582,
+      0.3542181933842238,
+      0.5738321197718637,
+      0.4884649342105264,
+      0.4591952376425851
+    ],
+    "envelope_deceleration": [
+      6.0,
+      2.585,
+      3.5,
+      4.0,
+      17.0,
+      5.5,
+      17.0
+    ],
+    "margin": null,
+    "max_velocity": null,
+    "max_acceleration": null,
+    "max_jerk": null,
+    "default_position": [
+      0,
+      -0.569,
+      0,
+      -2.81,
+      0,
+      3.037,
+      0.741
+    ],
+    "tracking_error": null,
+    "desired_error": null,
+    "max_segment_distance": null,
+    "max_projection": null,
+    "horizon_ticks": null,
+    "max_blocked_ticks": null,
+    "max_projected_ticks": null,
+    "action_timeout_ns": null,
+    "observation_timeout_ns": null,
+    "tick_tolerance_ns": null,
+    "desired_velocity_error": null,
+    "desired_acceleration_error": null
+  },
+  "review_record": null
+}

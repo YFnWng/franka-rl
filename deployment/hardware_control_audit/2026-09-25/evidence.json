@@ -1,0 +1,125 @@
+{
+  "date": "2026-09-25",
+  "hardware_accessed": false,
+  "simulation_repo_revision": "fd4bfac7089e9b856c53259c4af468585bce62cc",
+  "kernel": "5.15.133-rt69",
+  "ros_distribution": "humble",
+  "debian_packages": "ros-humble-controller-manager\t2.54.2-1jammy.20260908.115549\nros-humble-hardware-interface\t2.54.2-1jammy.20260908.110122\nros-humble-realtime-tools\t2.15.1-1jammy.20260907.224545\nros-humble-ros2-control\t2.35.0-1jammy.20231117.213008",
+  "repositories": {
+    "/home/chen-lab/franka_ros2_ws/src/franka_ros2": {
+      "revision": "7ef0ab00964a0d2b5e19e9292bbcef9f32dda811",
+      "status": "?? docs/HARDWARE_INVENTORY.md\n?? docs/MODEL_AUDIT.md\n?? docs/OFFLINE_VERIFICATION.md\n?? tools/"
+    },
+    "/home/chen-lab/franka_ros2_ws/src/franka_description": {
+      "revision": "1ccde30d5a30a710f335c9f6545528447a04bc7c",
+      "status": ""
+    },
+    "/home/chen-lab/libfranka-0.19.0": {
+      "revision": "4df37dd2b527f41ef34b76d6d4d3805864b09993",
+      "status": ""
+    }
+  },
+  "franky": {
+    "distribution": "franky-control",
+    "version": "1.1.3",
+    "scope": "system Python 3.10 user site metadata; not selected for ROS deployment",
+    "source_revision": null,
+    "ldd": "linux-vdso.so.1 (0x00007ffc589fa000)\n\tlibfranka-f8b8b8be.so.0.18.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libfranka-f8b8b8be.so.0.18.0 (0x00007fb3045e2000)\n\tlibfmt-677b7a5c.so.8.1.1 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libfmt-677b7a5c.so.8.1.1 (0x00007fb3045bf000)\n\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007fb304364000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007fb30427d000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007fb30425b000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fb304033000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007fb304a0e000)\n\tlibPocoNet-be2dcb81.so.95 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libPocoNet-be2dcb81.so.95 (0x00007fb303e41000)\n\tlibtinyxml2-ea209083.so.9.0.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libtinyxml2-ea209083.so.9.0.0 (0x00007fb303e25000)\n\tlibPocoFoundation-6a561680.so.95 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libPocoFoundation-6a561680.so.95 (0x00007fb303b8c000)\n\tlibpinocchio_parsers-406143fb.so.3.4.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libpinocchio_parsers-406143fb.so.3.4.0 (0x00007fb303b0e000)\n\tlibpinocchio_default-bb4f7082.so.3.4.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libpinocchio_default-bb4f7082.so.3.4.0 (0x00007fb3035d7000)\n\tlibboost_serialization-f65e1afb.so.1.75.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libboost_serialization-f65e1afb.so.1.75.0 (0x00007fb30358b000)\n\tlibboost_filesystem-767d8b53.so.1.75.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libboost_filesystem-767d8b53.so.1.75.0 (0x00007fb303569000)\n\tliburdfdom_sensor-011819fa.so.1.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/liburdfdom_sensor-011819fa.so.1.0 (0x00007fb303562000)\n\tliburdfdom_model_state-01125232.so.1.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/liburdfdom_model_state-01125232.so.1.0 (0x00007fb303559000)\n\tliburdfdom_model-9ec0392f.so.1.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/liburdfdom_model-9ec0392f.so.1.0 (0x00007fb303535000)\n\tliburdfdom_world-4d53bc81.so.1.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/liburdfdom_world-4d53bc81.so.1.0 (0x00007fb303511000)\n\tlibconsole_bridge-acce180d.so.1.0 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libconsole_bridge-acce180d.so.1.0 (0x00007fb30350a000)\n\tlibtinyxml-69e5f0dd.so.0.2.6.2 => /home/chen-lab/.local/lib/python3.10/site-packages/franky/../franky_control.libs/libtinyxml-69e5f0dd.so.0.2.6.2 (0x00007fb3034eb000)"
+  },
+  "ros_hardware_ldd": "linux-vdso.so.1 (0x00007ffe76df1000)\n\tlibrclcpp_action.so => /opt/ros/humble/lib/librclcpp_action.so (0x00007fed3997f000)\n\tlibfranka_msgs__rosidl_typesupport_cpp.so => /home/chen-lab/franka_ros2_ws/install_v220/franka_msgs/lib/libfranka_msgs__rosidl_typesupport_cpp.so (0x00007fed39966000)\n\tlibfranka.so.0.19 => /home/chen-lab/local/libfranka-0.19.0/lib/libfranka.so.0.19 (0x00007fed39839000)\n\tlibclass_loader.so => /opt/ros/humble/lib/libclass_loader.so (0x00007fed39826000)\n\tlibconsole_bridge.so.1.0 => /lib/x86_64-linux-gnu/libconsole_bridge.so.1.0 (0x00007fed397ef000)\n\tlibrclcpp_lifecycle.so => /opt/ros/humble/lib/librclcpp_lifecycle.so (0x00007fed397ac000)\n\tlibrclcpp.so => /opt/ros/humble/lib/librclcpp.so (0x00007fed395b5000)\n\tlibrcl_action.so => /opt/ros/humble/lib/librcl_action.so (0x00007fed395a2000)\n\tlibrcl.so => /opt/ros/humble/lib/librcl.so (0x00007fed39564000)\n\tlibtracetools.so => /opt/ros/humble/lib/libtracetools.so (0x00007fed3955f000)\n\tlibrcutils.so => /opt/ros/humble/lib/librcutils.so (0x00007fed39545000)\n\tlibfmt.so.8 => /lib/x86_64-linux-gnu/libfmt.so.8 (0x00007fed39524000)\n\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007fed392f8000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007fed39211000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007fed391f1000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fed38fc9000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007fed39a56000)\n\tlibaction_msgs__rosidl_typesupport_cpp.so => /opt/ros/humble/lib/libaction_msgs__rosidl_typesupport_cpp.so (0x00007fed38fc1000)\n\tlibrosidl_typesupport_cpp.so => /opt/ros/humble/lib/librosidl_typesupport_cpp.so (0x00007fed38fbb000)\n\tlibtinyxml2.so.9 => /lib/x86_64-linux-gnu/libtinyxml2.so.9 (0x00007fed38fa3000)\n\tlibPocoNet.so.80 => /lib/x86_64-linux-gnu/libPocoNet.so.80 (0x00007fed38e6b000)\n\tlibPocoFoundation.so.80 => /lib/x86_64-linux-gnu/libPocoFoundation.so.80 (0x00007fed38cc0000)\n\tlibpinocchio_parsers.so.4.0.0 => /opt/ros/humble/lib/x86_64-linux-gnu/libpinocchio_parsers.so.4.0.0 (0x00007fed38be5000)\n\tliburdfdom_world.so.3.0 => /opt/ros/humble/lib/x86_64-linux-gnu/liburdfdom_world.so.3.0 (0x00007fed38bc7000)\n\tlibpinocchio_default.so.4.0.0 => /opt/ros/humble/lib/x86_64-linux-gnu/libpinocchio_default.so.4.0.0 (0x00007fed385fc000)\n\tlibrcpputils.so => /opt/ros/humble/lib/librcpputils.so (0x00007fed385ee000)\n\tlibrcl_lifecycle.so => /opt/ros/humble/lib/librcl_lifecycle.so (0x00007fed385e4000)\n\tliblifecycle_msgs__rosidl_typesupport_cpp.so => /opt/ros/humble/lib/liblifecycle_msgs__rosidl_typesupport_cpp.so (0x00007fed385dc000)\n\tliblifecycle_msgs__rosidl_typesupport_c.so => /opt/ros/humble/lib/liblifecycle_msgs__rosidl_typesupport_c.so (0x00007fed385d3000)\n\tliblibstatistics_collector.so => /opt/ros/humble/lib/liblibstatistics_collector.so (0x00007fed385cc000)\n\tlibrcl_interfaces__rosidl_typesupport_cpp.so => /opt/ros/humble/lib/librcl_interfaces__rosidl_typesupport_cpp.so (0x00007fed385c1000)\n\tlibrcl_yaml_param_parser.so => /opt/ros/humble/lib/librcl_yaml_param_parser.so (0x00007fed385b5000)\n\tlibrosgraph_msgs__rosidl_typesupport_cpp.so => /opt/ros/humble/lib/librosgraph_msgs__rosidl_typesupport_cpp.so (0x00007fed385b0000)\n\tlibstatistics_msgs__rosidl_typesupport_cpp.so => /opt/ros/humble/lib/libstatistics_msgs__rosidl_typesupport_cpp.so (0x00007fed385a9000)\n\tlibrmw_implementation.so => /opt/ros/humble/lib/librmw_implementation.so (0x00007fed3859c000)\n\tlibament_index_cpp.so => /opt/ros/humble/lib/libament_index_cpp.so (0x00007fed38591000)\n\tlibrcl_logging_interface.so => /opt/ros/humble/lib/librcl_logging_interface.so (0x00007fed3858c000)\n\tlibrmw.so => /opt/ros/humble/lib/librmw.so (0x00007fed38580000)\n\tlibrcl_logging_spdlog.so => /opt/ros/humble/lib/librcl_logging_spdlog.so (0x00007fed38577000)\n\tlibrcl_interfaces__rosidl_typesupport_c.so => /opt/ros/humble/lib/librcl_interfaces__rosidl_typesupport_c.so (0x00007fed3856e000)\n\tlibrcl_interfaces__rosidl_generator_c.so => /opt/ros/humble/lib/librcl_interfaces__rosidl_generator_c.so (0x00007fed38552000)\n\tlibrosidl_runtime_c.so => /opt/ros/humble/lib/librosidl_runtime_c.so (0x00007fed38547000)\n\tlibpcre.so.3 => /lib/x86_64-linux-gnu/libpcre.so.3 (0x00007fed384d1000)\n\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007fed384b3000)\n\tlibboost_filesystem.so.1.74.0 => /lib/x86_64-linux-gnu/libboost_filesystem.so.1.74.0 (0x00007fed38493000)\n\tlibcoal.so.3.0.3 => /opt/ros/humble/lib/x86_64-linux-gnu/libcoal.so.3.0.3 (0x00007fed37f5f000)\n\tliburdfdom_model.so.3.0 => /opt/ros/humble/lib/x86_64-linux-gnu/liburdfdom_model.so.3.0 (0x00007fed37f43000)\n\tlibtinyxml.so.2.6.2 => /lib/x86_64-linux-gnu/libtinyxml.so.2.6.2 (0x00007fed37f2c000)\n\tliblifecycle_msgs__rosidl_generator_c.so => /opt/ros/humble/lib/liblifecycle_msgs__rosidl_generator_c.so (0x00007fed37f1a000)\n\tlibrosidl_typesupport_c.so => /opt/ros/humble/lib/librosidl_typesupport_c.so (0x00007fed37f14000)\n\tlibyaml.so => /opt/ros/humble/lib/libyaml.so (0x00007fed37ef2000)\n\tlibspdlog.so.1 => /lib/x86_64-linux-gnu/libspdlog.so.1 (0x00007fed37e77000)\n\tlibbuiltin_interfaces__rosidl_generator_c.so => /opt/ros/humble/lib/libbuiltin_interfaces__rosidl_generator_c.so (0x00007fed37e72000)\n\tlibassimp.so.5 => /lib/x86_64-linux-gnu/libassimp.so.5 (0x00007fed3772a000)\n\tlibboost_serialization.so.1.74.0 => /lib/x86_64-linux-gnu/libboost_serialization.so.1.74.0 (0x00007fed376e8000)\n\tliboctomap.so.1.9 => /opt/ros/humble/lib/x86_64-linux-gnu/liboctomap.so.1.9 (0x00007fed376ac000)\n\tliboctomath.so.1.9 => /opt/ros/humble/lib/x86_64-linux-gnu/liboctomath.so.1.9 (0x00007fed376a4000)\n\tlibdraco.so.4 => /lib/x86_64-linux-gnu/libdraco.so.4 (0x00007fed37437000)\n\tlibminizip.so.1 => /lib/x86_64-linux-gnu/libminizip.so.1 (0x00007fed37200000)",
+  "sources": {
+    "ros_robot_cpp": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_hardware/src/robot.cpp",
+      "sha256": "502a3b30c9e72a9f7c55978530b2da2bfa264d6a054ffad97b9f5b29fd5bb4aa",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_hardware/src/robot.cpp"
+    },
+    "ros_robot_hpp": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_hardware/include/franka_hardware/robot.hpp",
+      "sha256": "9d1d82402a023cb3842f6daa43d500cf769da6d2c5ddd35d1be39dd982deab26",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_hardware/include/franka_hardware/robot.hpp"
+    },
+    "ros_hardware": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_hardware/src/franka_hardware_interface.cpp",
+      "sha256": "dbf6d04f78146f3eab6c9282dde35c553b4a28836f46ea0667bb917bf081dbf3",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_hardware/src/franka_hardware_interface.cpp"
+    },
+    "ros_controllers": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_bringup/config/controllers.yaml",
+      "sha256": "833a2fe14bbcb8396b4dac328eb8a09aa72fb14498cefbde111cc507235a6dbd",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_bringup/config/controllers.yaml"
+    },
+    "ros_launch_config": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_bringup/config/franka.config.yaml",
+      "sha256": "12e88e5d8bdd8755e40e08ed78c8493d55d22b2f84d9725615ea20305f11f379",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_bringup/config/franka.config.yaml"
+    },
+    "ros_launch": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_bringup/launch/franka.launch.py",
+      "sha256": "3ae009962910c83357864ed447b038e9e1929a70e99dc958dfdb9de97b70c917",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_bringup/launch/franka.launch.py"
+    },
+    "ros_impedance_example": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/franka_example_controllers/src/joint_impedance_example_controller.cpp",
+      "sha256": "58a66acb6c5e3722ae26f4884dd2088d2b0b757886b1a887c31760d3d920bc8d",
+      "url": "https://github.com/frankarobotics/franka_ros2/blob/7ef0ab00964a0d2b5e19e9292bbcef9f32dda811/franka_example_controllers/src/joint_impedance_example_controller.cpp"
+    },
+    "lib_robot_h": {
+      "path": "/home/chen-lab/libfranka-0.19.0/include/franka/robot.h",
+      "sha256": "9d4b8290c716e105fce329a9230c5d276ff5e5e317ff0ccf87586b896c9e6765",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/include/franka/robot.h"
+    },
+    "lib_state_h": {
+      "path": "/home/chen-lab/libfranka-0.19.0/include/franka/robot_state.h",
+      "sha256": "1fe6786683c6c1813b5e585d872c48431243976a1f7f265c7e8c15c0ff503243",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/include/franka/robot_state.h"
+    },
+    "lib_robot_impl": {
+      "path": "/home/chen-lab/libfranka-0.19.0/src/robot_impl.cpp",
+      "sha256": "f3aeb1346c176f8fa6702222100726f2b06ecc8f24c4716800c3994748b9d171",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/src/robot_impl.cpp"
+    },
+    "lib_active_motion": {
+      "path": "/home/chen-lab/libfranka-0.19.0/src/active_motion_generator.cpp",
+      "sha256": "4c2278c61856be944935539acb674d77a7d0d3d103951e04161b0e74e7b37ca5",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/src/active_motion_generator.cpp"
+    },
+    "lib_limits_h": {
+      "path": "/home/chen-lab/libfranka-0.19.0/include/franka/rate_limiting.h",
+      "sha256": "e980cb08a957bc08ab180316d9f75734c0e9a3019a961cf93e8ae6f1c69a5ea6",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/include/franka/rate_limiting.h"
+    },
+    "lib_limits_cpp": {
+      "path": "/home/chen-lab/libfranka-0.19.0/src/rate_limiting.cpp",
+      "sha256": "76497732a22ceb782bc09e0bb403bae31b5be54d8fefb5237a252d3ad263cf65",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/src/rate_limiting.cpp"
+    },
+    "lib_velocity_cpp": {
+      "path": "/home/chen-lab/libfranka-0.19.0/src/joint_velocity_limits.cpp",
+      "sha256": "087194e90e4b19fd1f424274567f4205433b1fa1a7329dbc908ab22578fe2e57",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/src/joint_velocity_limits.cpp"
+    },
+    "lib_filter_cpp": {
+      "path": "/home/chen-lab/libfranka-0.19.0/src/lowpass_filter.cpp",
+      "sha256": "a4ba5da85aa53b2bbcd672ec73b9f82859632122b465f463f12635fbee89d7ff",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/src/lowpass_filter.cpp"
+    },
+    "lib_errors_h": {
+      "path": "/home/chen-lab/libfranka-0.19.0/include/franka/errors.h",
+      "sha256": "b8af6514aa2d6e78440fc2430856c927fe06a80082007049d062c5cb1f2c58ed",
+      "url": "https://github.com/frankarobotics/libfranka/blob/4df37dd2b527f41ef34b76d6d4d3805864b09993/include/franka/errors.h"
+    },
+    "description_limits": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_description/robots/fr3v2/joint_limits.yaml",
+      "sha256": "34b78a3c1d500cfff3912750f6b4c19c677a223b03c22a074e49f0d5f1c1314c"
+    },
+    "inventory": {
+      "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/docs/HARDWARE_INVENTORY.md",
+      "sha256": "2e29f1bba1e841e1852e5b49192db49594bdf05339a3f8c179dc97b131fc8117",
+      "url": null
+    },
+    "franky_metadata": {
+      "path": "/home/chen-lab/.local/lib/python3.10/site-packages/franky_control-1.1.3.dist-info/METADATA",
+      "sha256": "40a03a4464d88ccd604a50a6cffe54e3b208ca2eb6017ecfacd06359fe647dee"
+    }
+  }
+}

@@ -1,0 +1,307 @@
+{
+  "schema_version": 1,
+  "captured_utc": "2026-09-25T16:04:40Z",
+  "read_only": true,
+  "control_started": false,
+  "settings_changed": false,
+  "sample_count": 500,
+  "distinct_robot_timestamps": 500,
+  "robot_time_span_ms": 499,
+  "robot_interval_ms_unique": [
+    1
+  ],
+  "robot_modes": [
+    "Idle"
+  ],
+  "all_current_and_last_errors_empty": true,
+  "q_peak_to_peak_rad": [
+    9.881332516670227e-06,
+    1.1563301086425781e-05,
+    8.42980807647109e-06,
+    1.1920928955078125e-05,
+    8.897855877876282e-06,
+    7.987022399902344e-06,
+    1.2363307178020477e-05
+  ],
+  "max_abs_dq_rad_s": [
+    0.002238297136500478,
+    0.0020327644888311625,
+    0.0015154059510678053,
+    0.0026733437553048134,
+    0.0017117380630224943,
+    0.0017623691819608212,
+    0.003435899503529072
+  ],
+  "mass_ee_kg": 0,
+  "mass_load_kg": 0,
+  "robot_model_name": "fr3v2.1",
+  "description_limits_exact_match": true,
+  "joint_origins_axes_numeric_match": true,
+  "link_inertia_tensor_attributes_numeric_match": true,
+  "inertial_differences": [
+    {
+      "link": 2,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          -0.01063,
+          -0.184739,
+          -0.010479
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.004541,
+          -0.180691,
+          -0.010479
+        ]
+      }
+    },
+    {
+      "link": 3,
+      "field": "mass",
+      "robot": {
+        "value": [
+          2.196382
+        ]
+      },
+      "description_1_3_0": {
+        "value": [
+          2.193082
+        ]
+      }
+    },
+    {
+      "link": 3,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.091995,
+          0.023003,
+          0.047348
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.08254,
+          0.019082,
+          0.042027
+        ]
+      }
+    },
+    {
+      "link": 4,
+      "field": "mass",
+      "robot": {
+        "value": [
+          2.186422
+        ]
+      },
+      "description_1_3_0": {
+        "value": [
+          2.181537
+        ]
+      }
+    },
+    {
+      "link": 4,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          -0.084334,
+          0.096836,
+          0.006248
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          -0.087533,
+          0.096335,
+          0.01012
+        ]
+      }
+    },
+    {
+      "link": 5,
+      "field": "mass",
+      "robot": {
+        "value": [
+          2.190783
+        ]
+      },
+      "description_1_3_0": {
+        "value": [
+          2.186881
+        ]
+      }
+    },
+    {
+      "link": 5,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          3.9e-05,
+          0.011821,
+          -0.054936
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.008383,
+          0.01018,
+          -0.053265
+        ]
+      }
+    },
+    {
+      "link": 6,
+      "field": "mass",
+      "robot": {
+        "value": [
+          1.583583
+        ]
+      },
+      "description_1_3_0": {
+        "value": [
+          1.579681
+        ]
+      }
+    },
+    {
+      "link": 6,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.069627,
+          -0.016716,
+          -0.037235
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          0.070391,
+          -0.016074,
+          -0.035025
+        ]
+      }
+    },
+    {
+      "link": 7,
+      "field": "mass",
+      "robot": {
+        "value": [
+          0.698686
+        ]
+      },
+      "description_1_3_0": {
+        "value": [
+          0.694841
+        ]
+      }
+    },
+    {
+      "link": 7,
+      "field": "origin",
+      "robot": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          -0.014555,
+          0.00923,
+          0.065858
+        ]
+      },
+      "description_1_3_0": {
+        "rpy": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "xyz": [
+          -0.009108,
+          0.018151,
+          0.064946
+        ]
+      }
+    }
+  ],
+  "robot_model_dynamics_attributes": {
+    "D": "1",
+    "K": "7000",
+    "damping": "0.003",
+    "friction": "0.2",
+    "mu_coulomb": "0",
+    "mu_viscous": "16"
+  },
+  "active_internal_gains": null,
+  "response_identified": false,
+  "caveats": [
+    "Idle-only data cannot identify controller dynamics, gains or friction.",
+    "Robot timestamps are not host receive timestamps; buffering and read-call duration are not actuator latency or FCI control-loop qualification.",
+    "URDF K/D/friction metadata is not a gain readback.",
+    "User selects existing default controller settings; no proof they equal factory-reset values."
+  ],
+  "raw_evidence_directory": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-25/controller_readonly_20260925T160440Z",
+  "sha256": {
+    "velocity_limits.json": "3977ad42b752e2a692d6e384382531e1eefe9ade0775a59e8ab864a3ae5892ff",
+    "robot_model.urdf": "a4e4443caa57eb96dd06fd64f8dab36969a65a333799a37f6982bd41966160c3",
+    "states.jsonl": "a8379c7e5fde3d49351ce8b7e83d8dbdce45b66b59850dd9d9c9fac642308743"
+  },
+  "collector_source": {
+    "path": "/home/chen-lab/franka_ros2_ws/src/franka_ros2/tools/read_only_inventory/inspect_controller.cpp",
+    "sha256": "e0b730692900886770776a5206747de1e5a1ecc7b65797695430907e956eea19"
+  }
+}

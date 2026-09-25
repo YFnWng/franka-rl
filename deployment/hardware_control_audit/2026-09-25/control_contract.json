@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "contract_id": "fr3v2_control_audit_2026-09-25_v2",
+  "status": "audit_only_incomplete_not_deployable",
+  "hardware_acceptance": false,
+  "hardware_accessed": true,
+  "platform": {
+    "robot_model": {
+      "value": "FR3 Arm3Rv2 rev 02.01",
+      "status": "verified_from_existing_operator_inventory"
+    },
+    "system_image": {
+      "value": "5.9.2",
+      "status": "verified_from_existing_operator_inventory"
+    },
+    "libfranka": "0.19.0 local",
+    "franka_ros2": "2.2.0",
+    "franka_description": "1.3.0",
+    "franky": "1.1.3 bundles libfranka 0.18.0; not selected",
+    "robot_returned_model": "fr3v2.1"
+  },
+  "interface": {
+    "status": "recommended_not_implemented_as_policy_controller",
+    "command": "position",
+    "api": "startJointPositionControl(kJointImpedance) -> ActiveControlBase::writeOnce(JointPositions)",
+    "hardware_plugin": "franka_hardware/FrankaHardwareInterface",
+    "manager_executable": "controller_manager/ros2_control_node",
+    "policy_controller_plugin": null,
+    "deployable_launch_and_config": null,
+    "update_hz_configured": 1000,
+    "thread_priority_configured": 98,
+    "sustained_hardware_timing_verified": false
+  },
+  "installed_position_adapter": {
+    "status": "verified_source",
+    "finite_check": true,
+    "filter_enabled": false,
+    "filter_cutoff_parameter_Hz_if_enabled": 100.0,
+    "rate_limit_enabled": false,
+    "optional_order": [
+      "lowpass from current_state.q_d",
+      "legacy-velocity-limit limitRate from q_d,dq_d,ddq_d",
+      "active writeOnce"
+    ],
+    "host_processing_default": "finite q_cmd copied directly to motion_command.q_c",
+    "first_position_command": "measured robot_state.q on first read after position interface activation",
+    "automatic_error_recovery_on_start_exception": true,
+    "policy_staleness_watchdog": null
+  },
+  "policy_contract": {
+    "status": "recommended_FR3_binding_of_existing_math; new_FR3_export_not_yet_verified",
+    "dtype": "float32",
+    "size_observation": 24,
+    "size_action": 7,
+    "policy_period_s": 0.03333333333333333,
+    "joint_aliases": {
+      "panda_joint1": "fr3v2_joint1",
+      "panda_joint2": "fr3v2_joint2",
+      "panda_joint3": "fr3v2_joint3",
+      "panda_joint4": "fr3v2_joint4",
+      "panda_joint5": "fr3v2_joint5",
+      "panda_joint6": "fr3v2_joint6",
+      "panda_joint7": "fr3v2_joint7"
+    },
+    "q_default_rad": [
+      0,
+      -0.569,
+      0,
+      -2.81,
+      0,
+      3.037,
+      0.741
+    ],
+    "observation_layout": [
+      "q_measured - q_default [0:7] rad",
+      "dq_measured [7:14] rad/s",
+      "target_base - flange_position_base [14:17] m",
+      "previous_raw_actor_output [17:24]"
+    ],
+    "normalization": false,
+    "reset_previous_action": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "action_mapping": "q_target = q_default + 0.5 * raw_action",
+    "raw_action_clip": null,
+    "tracked_frame": "FR3 flange F / fr3v2_link8 / simulation fr3_flange",
+    "base_frame": "O / fr3v2_link0"
+  },
+  "frames": {
+    "transform_storage": "column_major",
+    "flange_formula": "O_T_F = O_T_EE * inverse(F_T_EE)",
+    "source": "same RobotState packet for q,dq,O_T_EE,F_T_EE,time",
+    "additional_observation_filter": false,
+    "firmware_q_dq_filtering": "unknown",
+    "snapshot_tool_transforms": "identity; must validate per run"
+  },
+  "required_future_command_path": {
+    "status": "proposal_unimplemented",
+    "order": [
+      "coherent measured state snapshot with robot time and local monotonic receive time",
+      "30 Hz deterministic inference outside RT with sequence and state timestamp",
+      "finite/shape/freshness checks",
+      "default-offset mapping without raw-action clipping",
+      "position margins and reference governor at 1 kHz",
+      "write joint position via installed adapter"
+    ],
+    "policy_scheduling": "timestamp driven; 1000/30 is noninteger, do not assume 33 ticks is exact",
+    "interpolation": null,
+    "governor": null,
+    "position_margins": null,
+    "stale_timeout": null,
+    "stopping_trajectory": null,
+    "startup": "no jump to training default; initialize future governor from robot desired q_d,dq_d,ddq_d after readiness checks; raw previous action zero",
+    "fault_policy": "terminal suite; no automatic recovery/restart; stock wrapper must be changed before acceptance"
+  },
+  "dynamics": {
+    "internal_stiffness_Nm_per_rad": null,
+    "internal_damping_Nm_s_per_rad": null,
+    "stiffness_setter": "setJointImpedance; ROS SetJointStiffness; seven values [0,14250] per API",
+    "damping": "internally derived; no independent setter found",
+    "gravity_friction_compensation": "FCI torque interface documented compensated; retain robot compensation",
+    "coriolis_internal_law": "unknown; model.coriolis API is not proof of firmware controller formula",
+    "armature_hardware_kg_m2": null,
+    "sim_PD_80_4_equivalence": false,
+    "measured_inference_latency_or_jitter": null
+  },
+  "installation": {
+    "evidence": "live_state_snapshot.json plus existing operator inventory",
+    "attachment": "operator reported bare flange 2026-09-24",
+    "configured_m_ee_kg": 0,
+    "configured_m_load_kg": 0,
+    "configured_COM_and_inertia": "all zero at saved snapshot",
+    "mounting_orientation": "unknown, requires operator inspection",
+    "base_gravity_snapshot": [
+      0,
+      0,
+      -9.8100004196167
+    ],
+    "base_gravity_caveat": "libfranka header documents hard-coded vector; not independent mounting measurement",
+    "calibration_offsets": "unknown"
+  },
+  "acceptance_blockers": [
+    "no policy controller/governor/watchdog implementation",
+    "internal gains/response not identified",
+    "lab operating limits/workspace/stop procedure not approved",
+    "stock start path auto recovery conflicts with terminal fault requirement",
+    "new FR3 bundle export and C++ parity not performed",
+    "no sustained FCI timing/identification/closed-loop qualification",
+    "live fr3v2.1 COM/mass differences must be reconciled with simulation"
+  ],
+  "provenance": "evidence.json and FINDINGS.md; null means unresolved, never a runtime default",
+  "latest_inspection": "live_inspection.json",
+  "deployment_settings_decision": {
+    "source": "user 2026-09-25",
+    "mode": "robot internal joint impedance with existing default settings",
+    "override_stiffness": false,
+    "override_damping": false,
+    "reset_to_factory_defaults": false,
+    "numeric_internal_gains_known": false
+  }
+}
