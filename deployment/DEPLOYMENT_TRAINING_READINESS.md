@@ -8,6 +8,12 @@ actuator family: uniform K=50/100/200 Nm/rad with D=2*sqrt(K), K=100 nominal,
 current Isaac task is not yet deployment-faithful, so nominal/DR production
 training should not start from the existing task unchanged.
 
+The limits and their distinct semantics are consolidated in
+`LIMITS_AND_TIMING.md`. For new training, the recommended candidate is a 1 kHz
+physics/controller clock and a 50 Hz policy clock. This replaces the 3 kHz
+common clock needed by 30 Hz, but must be replay-validated and its sub-20 ms
+hardware inference/scheduling budget qualified before the interface is frozen.
+
 ## Available inputs
 
 - validated FR3v2.1 bare-flange mass, COM, inertia, kinematics and joint limits;
