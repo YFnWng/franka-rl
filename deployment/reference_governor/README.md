@@ -198,6 +198,8 @@ A ROS controller must use the core directly, not call Python. It still needs
 validated mailbox/observation collection, inference, command_valid handling and
 terminal-fault integration, including removal of automatic startup recovery.
 
+After reset, the core may hold its coherent desired state with accepted sequence 0 while an operator completes the explicit start gate. The action watchdog becomes active when sequence 1 is accepted; every later command gap uses the configured bounded stop. State, timing, and tracking checks remain active throughout the armed hold.
+
 ## Tests
 
 ```bash

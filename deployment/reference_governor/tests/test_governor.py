@@ -103,6 +103,23 @@ def test_hardware_fault_is_invalid_command(kind):
     assert advance(g,3*TICK_NS).status==Status.FAULT
 
 
+
+def test_armed_hold_does_not_timeout_before_first_action():
+    g = fresh()
+    for tick in range(1, 501):
+        output = advance(g, tick * TICK_NS)
+        assert output.status == Status.RUNNING
+        assert output.accepted_sequence == 0
+        assert output.command_valid
+    now = 501 * TICK_NS
+    assert g.submit(message(1, now, [0.0] * 7), now)
+    assert advance(g, now).accepted_sequence == 1
+    for tick in range(502, 603):
+        advance(g, tick * TICK_NS)
+    assert g.output.status == Status.STOPPING
+    assert g.output.reason == Reason.STALE_ACTION
+
+
 def test_nonzero_activation_and_infeasible_boundary():
     g=fresh(velocity=[.01]*7)
     g.stop()

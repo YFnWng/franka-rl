@@ -137,7 +137,7 @@ class Governor {
         if(o_.projection>c_.max_projection) stop(Reason::Intervention);
       }
     }
-    if(o_.status==Status::Running && now-last_action_>c_.action_timeout_ns) stop(Reason::StaleAction);
+    if(o_.status==Status::Running && o_.accepted_sequence!=0 && now-last_action_>c_.action_timeout_ns) stop(Reason::StaleAction);
     if(o_.status==Status::Running) {
       projected_=o_.projection>0 ? projected_+1:0;
       if(projected_>=c_.max_projected_ticks) stop(Reason::Intervention);

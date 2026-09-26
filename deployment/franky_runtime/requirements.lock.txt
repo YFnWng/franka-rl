@@ -1,0 +1,4 @@
+# Coordinator process; Franky wheel includes its own native libfranka.
+franky-control==2.0.1.dev58+gf88f0e9b.libfranka.0.21.2
+numpy==2.5.3
+PyYAML==6.0.3

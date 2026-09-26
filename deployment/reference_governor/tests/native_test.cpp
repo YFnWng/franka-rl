@@ -28,7 +28,20 @@ Feedback feedback(const Output& o,std::int64_t t) {
  Feedback f;f.session=1;f.observed_ns=t;f.q=f.desired_q=o.q;f.dq=f.desired_dq=o.dq;f.desired_ddq=o.ddq;return f;
 }
 int main(int argc,char**) {
- Config c=config();Governor g(c);Feedback f;f.q=f.desired_q=c.default_position;f.session=1;
+ Config c=config();
+ // Activation may precede the explicit operator start. Hold the coherent desired
+ // state without arming the action watchdog until sequence 1 is accepted.
+ Governor idle(c);Feedback idle_f;idle_f.q=idle_f.desired_q=c.default_position;idle_f.session=1;
+ CHECK(idle.reset(1,0,idle_f));
+ for(int tick=1;tick<=500;++tick) {
+  auto before=idle.output();auto o=idle.step(tick*tick_ns,feedback(before,tick*tick_ns));
+  CHECK(o.status==Status::Running);CHECK(o.accepted_sequence==0);CHECK(o.command_valid);
+ }
+ Message first;first.session=1;first.sequence=1;first.observation_ns=first.completed_ns=501*tick_ns;
+ CHECK(idle.submit(first,501*tick_ns));
+ CHECK(idle.step(501*tick_ns,feedback(idle.output(),501*tick_ns)).accepted_sequence==1);
+
+ Governor g(c);Feedback f;f.q=f.desired_q=c.default_position;f.session=1;
  CHECK(g.reset(1,0,f));const bool trace=argc>1;
  std::uint64_t seq=0;double maximum_jerk=0;
  for(int tick=1;tick<=5000;++tick) {

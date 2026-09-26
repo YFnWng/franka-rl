@@ -1,0 +1,115 @@
+schema_version: 1
+suite_id: fr3_joint_position_response_v1
+status: pending_lab_review
+executable: false
+motion_authorized: false
+purpose: identify_effective_closed_loop_response
+controller_path: internal_joint_impedance_with_shared_governor
+
+approval:
+  approved_by: null
+  approved_at: null
+  physical_stop_procedure: null
+  workspace_review: null
+  start_configurations_review: null
+
+robot_assumptions:
+  robot_model: fr3v2.1
+  arm_revision: Arm3Rv2_02.01
+  end_effector: none
+  external_load_kg: 0.0
+  external_load_com_m: [0.0, 0.0, 0.0]
+  preserve_existing_joint_impedance: true
+  change_collision_behavior: false
+  automatic_error_recovery: false
+
+# These are proposals for lab review, not approved limits. Null workspace and
+# start configurations intentionally keep every trial non-executable.
+proposed_operating_limits:
+  joint_position_margin_rad: [0.20, 0.20, 0.20, 0.25, 0.20, 0.25, 0.20]
+  max_reference_velocity_rad_s: [0.08, 0.08, 0.08, 0.06, 0.10, 0.08, 0.10]
+  max_reference_acceleration_rad_s2: [0.40, 0.40, 0.40, 0.30, 0.50, 0.40, 0.50]
+  max_reference_jerk_rad_s3: [4.0, 4.0, 4.0, 3.0, 5.0, 4.0, 5.0]
+  max_measured_tracking_error_rad: [0.08, 0.08, 0.08, 0.08, 0.08, 0.08, 0.08]
+  max_robot_state_age_ms: 3.0
+  max_rt_cycle_gap_ms: 2.0
+  max_consecutive_late_cycles: 0
+  command_watchdog_ms: 50.0
+  total_trial_timeout_s: 45.0
+  allowed_workspace_base_frame_m: null
+  forbidden_regions: null
+
+reference_family:
+  waveform: smooth_sine_with_quintic_ramp
+  amplitudes_rad: [0.005, 0.010]
+  fitting_frequencies_hz: [0.25, 0.50]
+  validation_frequencies_hz: [0.35, 0.70]
+  warmup_hold_s: 3.0
+  ramp_s: 2.0
+  cycles_per_trial: 4
+  post_hold_s: 3.0
+  repetitions: 3
+  one_joint_at_a_time: true
+  return_to_start_between_trials: true
+  randomized_trial_order_after_first_pass: true
+  note: >-
+    For a 0.010 rad, 0.50 Hz sine, unconstrained peaks are approximately
+    0.0314 rad/s, 0.0987 rad/s^2, and 0.310 rad/s^3. The shared governor remains
+    authoritative if a proposed waveform conflicts with reviewed bounds.
+
+configurations:
+  - id: nominal_demo_pose
+    joint_positions_rad: null
+    approved: false
+  - id: alternate_gravity_pose_a
+    joint_positions_rad: null
+    approved: false
+  - id: alternate_gravity_pose_b
+    joint_positions_rad: null
+    approved: false
+
+trial_templates:
+  - id: fit_each_joint
+    split: fit
+    joint_indices: [1, 2, 3, 4, 5, 6, 7]
+    configuration_ids: [nominal_demo_pose, alternate_gravity_pose_a]
+    amplitudes_rad: [0.005, 0.010]
+    frequencies_hz: [0.25, 0.50]
+    enabled: false
+  - id: validate_each_joint
+    split: validation
+    joint_indices: [1, 2, 3, 4, 5, 6, 7]
+    configuration_ids: [nominal_demo_pose, alternate_gravity_pose_b]
+    amplitudes_rad: [0.0075]
+    frequencies_hz: [0.35, 0.70]
+    enabled: false
+
+preconditions:
+  - operator_and_estop_present
+  - fci_enabled_and_robot_status_ok
+  - bare_flange_and_load_match_assumptions
+  - approved_collision_free_start_and_swept_workspace
+  - shared_governor_source_config_and_binary_hashes_match
+  - controller_is_inactive_before_explicit_operator_start
+  - all_clocks_and_sequence_counters_initialized
+  - logger_ready_with_sufficient_disk_space
+  - robot_near_stationary_and_desired_measured_state_coherent
+
+stop_conditions:
+  immediate_terminal_fault:
+    - robot_mode_not_move_during_active_trial
+    - robot_state_invalid_or_stale
+    - governor_command_valid_false
+    - governor_fault_or_terminal_before_planned_end
+    - nonfinite_signal
+    - sequence_or_session_mismatch
+    - rt_cycle_gap_over_budget
+    - measured_tracking_error_over_bound
+    - joint_or_workspace_guard_violation
+    - operator_or_estop_request
+  behavior:
+    - retain_faulted_log
+    - cease_normal_reference_publication
+    - no_automatic_error_recovery
+    - no_automatic_reactivation
+    - require_operator_disposition

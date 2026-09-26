@@ -257,3 +257,67 @@ and hashes. Clearly distinguish planned, offline-tested and hardware-measured
 results. All experiment components remain local to the RT machine, YAML-driven,
 with no training-workstation runtime connection. The objective is matched hardware
 response, not forcing hardware to reproduce the simulator's assumed PD equation.
+
+### RT-host offline response — 2026-09-25
+
+The offline controller-response audit is returned in
+[`hardware_control_audit/2026-09-25-response-identification/`](hardware_control_audit/2026-09-25-response-identification/README.md).
+It confirms the joint-position/joint-impedance path and unavailable firmware gains,
+provides a pending-only identification YAML, synchronized signal schema, analysis
+tooling, reconciled governor hashes, offline validation evidence, and explicit
+remaining blockers. No response-identification motion has been run and no fitted
+hardware response or deployment DR range exists yet.
+
+
+Coordinator follow-up: the same audit directory now includes
+[`EXPERIMENT_COORDINATOR.md`](hardware_control_audit/2026-09-25-response-identification/EXPERIMENT_COORDINATOR.md).
+The RT host has implemented one local YAML-driven coordinator for identification
+and PPO experiments, coherent non-RT observation/status topics, isolated ONNX
+inference, sticky terminal supervision, and FR3 flange-contract rejection of the
+existing Panda bundles. Full fake ros2_control update/fault testing, an exported
+FR3 bundle, reviewed runtime YAML, and authorized measurements remain open.
+
+Coordinator preparation follow-up: the RT host now includes a direct encoded
+Franka state/model configure/activate/update/deactivate harness, deterministic
+approved controller-YAML generation, and a fail-closed deployment preflight with
+immutable staging. The canonical governor now permits a sequence-0 armed hold
+before explicit operator start and activates the action watchdog after accepting
+sequence 1; state, timing, and tracking checks remain active during the hold.
+Native governor tests (including C++/Python parity) and ROS package tests pass.
+Portable matching governor release: `/home/chen-lab/yifan/governor_releases/0.1.0-armed-hold-20260925/`, manifest SHA-256 `fcc058d13ee5a14b547e60d3845bec12557bc2df1769b9aee81bb13eae9aa222`. See [`HARDWARE_IDENTIFICATION_PREP.md`](hardware_control_audit/2026-09-25-response-identification/HARDWARE_IDENTIFICATION_PREP.md)
+for the remaining lab decisions and later authorized operator sequence. No
+response-identification motion was performed.
+
+### Direct Franky experiment coordinator — 2026-09-25
+
+A direct Franky runtime is now implemented at
+[`deployment/franky_runtime/`](franky_runtime/README.md) as an alternative to the
+ROS 2 controller path. One YAML-driven coordinator runs both response-identification
+references and FR3 PPO targets. It reuses the ROS coordinator's reference schedule,
+24-value observation/action contract, immutable ONNX worker, approval gates,
+sticky-fault lifecycle, and artifact layout.
+
+The selected direct path explicitly uses `ControllerMode.JointImpedance` and sends
+absolute `JointWaypointMotion` targets at 30 Hz. Franky's Ruckig generator produces
+the 1 kHz position command with 5% velocity/acceleration/jerk factors; libfranka's
+100 Hz command filter remains enabled and its separate rate limiter is disabled.
+An independent 75 ms host watchdog submits `JointStopMotion` if target
+replacement stalls. The runtime records Franky's actual
+per-cycle command together with robot desired/measured state and torque signals,
+so the identification experiment measures the path that later PPO execution uses.
+It does not call impedance/load setters or automatic recovery.
+
+Seven offline tests and an additional pinned-environment fake CLI run pass. This is
+implementation evidence only: pending YAML remains non-executable, no Franky motion
+or response-identification experiment has run, controller response is still
+unknown, and a verified FR3 PPO bundle is still required. Because this path uses
+Franky's own Ruckig target replacement, simulation should reproduce that command
+path rather than assuming the standalone shared governor is active for these runs.
+
+Franky hardware smoke follow-up: session `20260925193000` ran for 0.459 s and
+logged 460 callbacks with maximum per-joint `|q-q_d|` below 0.000322 rad, then
+failed closed with Ruckig synchronization error `-111` during repeated identical
+home-target replacement. `JointStopMotion` completed and no samples were dropped.
+The runtime now treats unchanged 30 Hz targets as watchdog keepalives and only
+preempts Franky when the target vector changes. Eight offline tests and the exact
+26-second fake reference schedule pass; no corrected hardware retry has run.

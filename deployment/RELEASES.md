@@ -21,3 +21,11 @@ The portable verifier passed in a fresh process without importing Isaac, ROS, Py
 Tests: six offline tests passed. These releases contain synthetic verification vectors; no recorded observations were supplied. C++ parity and hardware commissioning remain pending.
 
 Earlier `dr_v2_model_999_v1`, `dr_v2_model_999_v2`, and `nominal_model_299_v1` directories are intermediate exports retained on the data volume; use the `release_1` directories listed here.
+
+## Reference governor 0.1.0 armed-hold — 2026-09-25
+
+Local transfer directory: `/home/chen-lab/yifan/governor_releases/0.1.0-armed-hold-20260925`
+
+Manifest SHA-256: `fcc058d13ee5a14b547e60d3845bec12557bc2df1769b9aee81bb13eae9aa222`
+
+This release adds the explicit-start-compatible sequence-0 armed hold. The action watchdog starts after sequence 1; state, timing, and tracking guards remain active before it. Native tests and 34 Python tests passed. Isaac runtime and hardware motion remain untested.
