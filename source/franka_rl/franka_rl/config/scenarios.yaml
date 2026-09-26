@@ -368,3 +368,28 @@ scenarios:
       action_delay_range: [0, 1]
     reset:
       joint_position_range: [-0.125, 0.125]
+
+  fr3_velocity_dr_train_v1:
+    type: random
+    description: Conservative reset-time DR for the provisional FR3 joint-velocity controller.
+    resampling: reset
+    physics:
+      damping_scale: {distribution: uniform, low: 0.80, high: 1.20}
+      joint_friction_add: {distribution: uniform, low: 0.00, high: 0.10}
+      joint_armature_scale: {distribution: uniform, low: 0.80, high: 1.20}
+      link_inertia_scale: {distribution: uniform, low: 0.90, high: 1.10}
+      payload_mass_kg: {distribution: uniform, low: 0.00, high: 1.00}
+      payload_com_offset_m:
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: 0.00, high: 0.10}
+    observations:
+      joint_position_noise: {distribution: uniform, low: -0.002, high: 0.002}
+      joint_velocity_noise: {distribution: uniform, low: -0.02, high: 0.02}
+      ee_position_error_noise: {distribution: uniform, low: -0.002, high: 0.002}
+    control:
+      action_delay_range: [0, 1]
+      velocity_target_scale_range: [0.85, 1.15]
+      acceleration_scale_range: [0.75, 1.25]
+    reset:
+      joint_position_range: [-0.125, 0.125]

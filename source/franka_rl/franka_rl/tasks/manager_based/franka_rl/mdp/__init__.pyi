@@ -9,6 +9,12 @@ __all__ = [
     "SustainedPositionSuccess",
     "EvaluationStateMetrics",
     "non_finite_joint_state",
+    "GovernedJointVelocityActionCfg",
+    "accepted_velocity_action",
+    "governed_velocity_l2",
+    "governed_velocity_rate_l2",
+    "near_target_joint_velocity_l2",
+    "velocity_action_fault",
 ]
 
 # Forward stable MDP terms lazily, then override with environment-specific terms below.
@@ -16,6 +22,14 @@ from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .observations import ee_position_error_b
 from .rewards import position_tracking_exp
+from .velocity_actions_cfg import GovernedJointVelocityActionCfg
+from .velocity_metrics import (
+    accepted_velocity_action,
+    governed_velocity_l2,
+    governed_velocity_rate_l2,
+    near_target_joint_velocity_l2,
+    velocity_action_fault,
+)
 from .terminations import (
     EvaluationStateMetrics,
     SustainedPositionSuccess,

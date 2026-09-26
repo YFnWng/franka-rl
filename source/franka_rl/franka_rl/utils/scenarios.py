@@ -83,6 +83,8 @@ class ControlSpec:
 
     action_delay_steps: int | None = None
     action_delay_range: tuple[int, int] | None = None
+    velocity_target_scale_range: tuple[float, float] | None = None
+    acceleration_scale_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +228,7 @@ class ScenarioModifier:
             raise ValueError(f"Unsupported scenario type: {self.spec.type}")
 
         self._apply_observation_noise(env_cfg)
+        self._apply_control_variation(env_cfg)
         self._apply_reset_variation(env_cfg)
         payload_event = getattr(env_cfg.events, "scenario_payload_mass", None)
         if payload_event is not None:
@@ -235,6 +238,31 @@ class ScenarioModifier:
             )
             self._configured_values["payload_body"] = self._hand_body_pattern
         return self.metadata
+
+    def _apply_control_variation(self, env_cfg) -> None:
+        """Configure reset-sampled parameters owned by an action term.
+
+        Action delay remains an environment wrapper concern. Velocity target
+        and acceleration response are sampled by the governed velocity action
+        itself, so they remain GPU-resident and can vary per environment.
+        """
+
+        control = self.spec.control
+        ranges = {
+            "velocity_target_scale_range": control.velocity_target_scale_range,
+            "acceleration_scale_range": control.acceleration_scale_range,
+        }
+        for attribute, value in ranges.items():
+            if value is None:
+                continue
+            action_cfg = env_cfg.actions.arm_action
+            if not hasattr(action_cfg, attribute):
+                raise ValueError(
+                    f"Scenario {self.spec.name!r} defines {attribute}, but task "
+                    f"action {type(action_cfg).__name__} does not support it."
+                )
+            setattr(action_cfg, attribute, value)
+            self._configured_values[attribute] = value
 
     def _apply_specified_physics(self, env_cfg) -> None:
         physics = self.spec.physics
@@ -1044,7 +1072,12 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
     mapping = _require_mapping(value, f"control for scenario {scenario_name!r}")
     _reject_unknown_keys(
         mapping,
-        {"action_delay_steps", "action_delay_range"},
+        {
+            "action_delay_steps",
+            "action_delay_range",
+            "velocity_target_scale_range",
+            "acceleration_scale_range",
+        },
         f"control for scenario {scenario_name!r}",
     )
     delay = mapping.get("action_delay_steps")
@@ -1072,7 +1105,28 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
         if delay_range[0] < 0 or delay_range[0] > delay_range[1]:
             raise ValueError(f"{scenario_name}.action_delay_range must be ordered and nonnegative.")
         parsed_range = (delay_range[0], delay_range[1])
-    return ControlSpec(action_delay_steps=delay, action_delay_range=parsed_range)
+    continuous_ranges: dict[str, tuple[float, float] | None] = {}
+    for name in ("velocity_target_scale_range", "acceleration_scale_range"):
+        raw_range = mapping.get(name)
+        if raw_range is None:
+            continuous_ranges[name] = None
+            continue
+        if scenario_type != "random":
+            raise ValueError(f"Only random scenarios may define {name}.")
+        if not isinstance(raw_range, list) or len(raw_range) != 2:
+            raise TypeError(f"{scenario_name}.{name} must be a two-element list.")
+        low = _require_number(raw_range[0], f"{scenario_name}.{name}[0]")
+        high = _require_number(raw_range[1], f"{scenario_name}.{name}[1]")
+        if low <= 0.0 or low > high:
+            raise ValueError(
+                f"{scenario_name}.{name} must be ordered and strictly positive."
+            )
+        continuous_ranges[name] = (low, high)
+    return ControlSpec(
+        action_delay_steps=delay,
+        action_delay_range=parsed_range,
+        **continuous_ranges,
+    )
 
 
 def _parse_reset(value: Any, scenario_type: ScenarioType, scenario_name: str) -> ResetSpec:

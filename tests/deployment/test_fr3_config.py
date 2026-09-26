@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from franka_rl.tasks.manager_based.franka_rl.fr3_env_cfg import Fr3BareFlangeEnvCfg
 from franka_rl.tasks.manager_based.franka_rl.franka_rl_env_cfg import FrankaRlEnvCfg
+from franka_rl.tasks.manager_based.franka_velocity.velocity_env_cfg import Fr3JointVelocityEnvCfg
 from franka_rl.utils.scenarios import ScenarioCatalog, ScenarioModifier
 
 
@@ -42,3 +43,22 @@ def test_payload_scenarios_use_flange_origin(fr3):
     panda = FrankaRlEnvCfg()
     ScenarioModifier(catalog.get("fr3_payload_050"), catalog).apply(panda)
     assert panda.events.scenario_payload_mass.params["reference_body_origin"] is False
+
+
+def test_velocity_dr_configures_only_velocity_relevant_controls(tmp_path, monkeypatch):
+    asset = tmp_path / "test.usda"
+    asset.write_text("#usda 1.0\n")
+    monkeypatch.setenv("FRANKA_RL_FR3_USD", str(asset))
+    cfg = Fr3JointVelocityEnvCfg()
+    catalog = ScenarioCatalog.from_yaml()
+    modifier = ScenarioModifier(catalog.get("fr3_velocity_dr_train_v1"), catalog)
+
+    metadata = modifier.apply(cfg)
+
+    assert cfg.actions.arm_action.velocity_target_scale_range == (0.85, 1.15)
+    assert cfg.actions.arm_action.acceleration_scale_range == (0.75, 1.25)
+    assert getattr(cfg.events, "scenario_damping") is not None
+    assert getattr(cfg.events, "scenario_actuator_gains", None) is None
+    assert getattr(cfg.events, "scenario_effort_limits", None) is None
+    assert metadata["configured_values"]["velocity_target_scale_range"] == (0.85, 1.15)
+    assert metadata["configured_values"]["acceleration_scale_range"] == (0.75, 1.25)
