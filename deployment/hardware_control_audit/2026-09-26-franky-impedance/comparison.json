@@ -1,0 +1,260 @@
+{
+  "schema_version": 1,
+  "robot": "FR3v2.1 Arm3Rv2 bare flange",
+  "controller": "Franky JointImpedanceTrackingMotion over libfranka torque interface",
+  "reference_frequency_hz": 0.1,
+  "reference_amplitude_deg": {
+    "J1-J4": 2.0,
+    "J5-J6": 1.5,
+    "J7": 1.0
+  },
+  "controller_common": {
+    "damping_rule": "D_i = 2*sqrt(K_i)",
+    "compensate_coriolis": true,
+    "firmware_gravity_compensation": "libfranka torque-control convention; reproduce and verify in simulation",
+    "max_delta_tau_nm_per_ms": 1.0,
+    "position_error_clip_rad": [
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      0.5
+    ],
+    "reference_update_hz": 30,
+    "torque_callback_hz": 1000,
+    "reference_velocity_rad_s": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "cases": {
+    "50": {
+      "stiffness_nm_rad": [
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0,
+        50.0
+      ],
+      "damping_nms_rad": [
+        14.142135623730951,
+        14.142135623730951,
+        14.142135623730951,
+        14.142135623730951,
+        14.142135623730951,
+        14.142135623730951,
+        14.142135623730951
+      ],
+      "role": "compliant_endpoint",
+      "joints": [
+        {
+          "joint": 1,
+          "amplitude_ratio": 0.6869658080032094,
+          "phase_deg": -34.421566831577174,
+          "tracking_error_rms_rad": 0.01491059968997322,
+          "tracking_error_peak_rad": 0.026301886047409438
+        },
+        {
+          "joint": 2,
+          "amplitude_ratio": 0.5103331397271736,
+          "phase_deg": -41.36621958384584,
+          "tracking_error_rms_rad": 0.02441071990515589,
+          "tracking_error_peak_rad": 0.0409980295322373
+        },
+        {
+          "joint": 3,
+          "amplitude_ratio": 0.4559387921520013,
+          "phase_deg": -46.953008782722854,
+          "tracking_error_rms_rad": 0.018982807318311888,
+          "tracking_error_peak_rad": 0.029072185004557556
+        },
+        {
+          "joint": 4,
+          "amplitude_ratio": 0.5143264559349311,
+          "phase_deg": -41.76816620823636,
+          "tracking_error_rms_rad": 0.021014673832457087,
+          "tracking_error_peak_rad": 0.035575170781705356
+        },
+        {
+          "joint": 5,
+          "amplitude_ratio": 0.4905623015403655,
+          "phase_deg": -45.422435102807164,
+          "tracking_error_rms_rad": 0.013947865972245338,
+          "tracking_error_peak_rad": 0.01962801124206958
+        },
+        {
+          "joint": 6,
+          "amplitude_ratio": 0.6230776258538405,
+          "phase_deg": -37.66093679538851,
+          "tracking_error_rms_rad": 0.011818399828663657,
+          "tracking_error_peak_rad": 0.016820561399540468
+        },
+        {
+          "joint": 7,
+          "amplitude_ratio": 0.4448831605668848,
+          "phase_deg": -41.82935021035488,
+          "tracking_error_rms_rad": 0.009059133709455353,
+          "tracking_error_peak_rad": 0.012349160727152074
+        }
+      ]
+    },
+    "100": {
+      "stiffness_nm_rad": [
+        100.0,
+        100.0,
+        100.0,
+        100.0,
+        100.0,
+        100.0,
+        100.0
+      ],
+      "damping_nms_rad": [
+        20.0,
+        20.0,
+        20.0,
+        20.0,
+        20.0,
+        20.0,
+        20.0
+      ],
+      "role": "nominal",
+      "joints": [
+        {
+          "joint": 1,
+          "amplitude_ratio": 0.8846136201357785,
+          "phase_deg": -19.740181250142825,
+          "tracking_error_rms_rad": 0.008724700497494648,
+          "tracking_error_peak_rad": 0.015171166741259649
+        },
+        {
+          "joint": 2,
+          "amplitude_ratio": 0.8162617565974746,
+          "phase_deg": -23.97358094398314,
+          "tracking_error_rms_rad": 0.01305864706347762,
+          "tracking_error_peak_rad": 0.02324387012033946
+        },
+        {
+          "joint": 3,
+          "amplitude_ratio": 0.7630545006676775,
+          "phase_deg": -27.816640224046715,
+          "tracking_error_rms_rad": 0.01201810626055163,
+          "tracking_error_peak_rad": 0.017594227809624184
+        },
+        {
+          "joint": 4,
+          "amplitude_ratio": 0.821462627007681,
+          "phase_deg": -24.225745519333735,
+          "tracking_error_rms_rad": 0.011788063055232587,
+          "tracking_error_peak_rad": 0.020308419598425775
+        },
+        {
+          "joint": 5,
+          "amplitude_ratio": 0.7840255520407675,
+          "phase_deg": -26.25342893522844,
+          "tracking_error_rms_rad": 0.008552243130025693,
+          "tracking_error_peak_rad": 0.01185072940380964
+        },
+        {
+          "joint": 6,
+          "amplitude_ratio": 0.8443126156077654,
+          "phase_deg": -21.704769136087123,
+          "tracking_error_rms_rad": 0.007130575446144293,
+          "tracking_error_peak_rad": 0.0100267097489799
+        },
+        {
+          "joint": 7,
+          "amplitude_ratio": 0.696639747662,
+          "phase_deg": -25.309170203374226,
+          "tracking_error_rms_rad": 0.005933425952336969,
+          "tracking_error_peak_rad": 0.007750309985141753
+        }
+      ]
+    },
+    "200": {
+      "stiffness_nm_rad": [
+        200.0,
+        200.0,
+        200.0,
+        200.0,
+        200.0,
+        200.0,
+        200.0
+      ],
+      "damping_nms_rad": [
+        28.284271247461902,
+        28.284271247461902,
+        28.284271247461902,
+        28.284271247461902,
+        28.284271247461902,
+        28.284271247461902,
+        28.284271247461902
+      ],
+      "role": "stiff_endpoint",
+      "joints": [
+        {
+          "joint": 1,
+          "amplitude_ratio": 0.9543473987897917,
+          "phase_deg": -11.442771098612223,
+          "tracking_error_rms_rad": 0.005086848514059581,
+          "tracking_error_peak_rad": 0.008872035437142193
+        },
+        {
+          "joint": 2,
+          "amplitude_ratio": 0.9075553525615756,
+          "phase_deg": -13.207821069921481,
+          "tracking_error_rms_rad": 0.007330787333884721,
+          "tracking_error_peak_rad": 0.012741016902093394
+        },
+        {
+          "joint": 3,
+          "amplitude_ratio": 0.8867924969769104,
+          "phase_deg": -15.727166547017548,
+          "tracking_error_rms_rad": 0.007065340939783212,
+          "tracking_error_peak_rad": 0.010366212106623956
+        },
+        {
+          "joint": 4,
+          "amplitude_ratio": 0.933664978242454,
+          "phase_deg": -13.86944740010555,
+          "tracking_error_rms_rad": 0.006694198922988819,
+          "tracking_error_peak_rad": 0.011405025233964139
+        },
+        {
+          "joint": 5,
+          "amplitude_ratio": 0.9065291448743009,
+          "phase_deg": -14.970499974970869,
+          "tracking_error_rms_rad": 0.0049871915647793945,
+          "tracking_error_peak_rad": 0.0069455625351986724
+        },
+        {
+          "joint": 6,
+          "amplitude_ratio": 0.9271667609475118,
+          "phase_deg": -12.752784927358054,
+          "tracking_error_rms_rad": 0.004265896937005445,
+          "tracking_error_peak_rad": 0.006066392680681876
+        },
+        {
+          "joint": 7,
+          "amplitude_ratio": 0.8307843438633499,
+          "phase_deg": -16.461853281062453,
+          "tracking_error_rms_rad": 0.00391093307766599,
+          "tracking_error_peak_rad": 0.005944338361154522
+        }
+      ]
+    }
+  },
+  "limitations": [
+    "single 0.1 Hz sequential-joint operating point at the home pose",
+    "J1/J2 K=100 and K=200 excitation sessions held J3-J7 at K=50; validate final coupled behavior in simulation and with a held-out hardware trajectory",
+    "raw 1 kHz traces remain on RT host and are not committed to the training repo"
+  ]
+}

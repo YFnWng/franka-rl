@@ -14,6 +14,9 @@ JOINTS = 7
 MODES = {"reference", "ppo"}
 TERMINAL = {"complete", "fault", "stopped"}
 EXPECTED_JOINTS = [f"fr3_joint{i}" for i in range(1, 8)]
+FR3_MAX_VELOCITY = [2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]
+FR3_MAX_ACCELERATION = [15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0]
+FR3_MAX_JERK = [7500.0, 3750.0, 5000.0, 6250.0, 7500.0, 10000.0, 10000.0]
 
 
 class ConfigError(ValueError):
@@ -59,7 +62,8 @@ def _approval(data: dict[str, Any], require_approved: bool) -> None:
 
 def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool) -> None:
     require(data.get("schema_version") == 1, "unsupported schema_version")
-    require(data.get("runtime") == "franky_joint_position_v1", "runtime must be franky_joint_position_v1")
+    require(data.get("runtime") == "franky_joint_impedance_tracking_v1",
+            "runtime must be franky_joint_impedance_tracking_v1")
     require(data.get("mode") in MODES, "mode must be reference or ppo")
     require(data.get("execution_context") in {"fake", "hardware"}, "execution_context must be fake or hardware")
     require(isinstance(data.get("session_id"), int) and data["session_id"] > 0, "positive session_id required")
@@ -72,8 +76,9 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     require(float(robot.get("external_load_kg", math.nan)) == 0.0, "robot.external_load_kg must be zero")
     require(robot.get("require_identity_f_t_ee") is True, "identity F_T_EE must be required")
     require(isinstance(robot.get("host"), str) and robot["host"], "robot.host required")
-    require(robot.get("controller_mode") == "joint_impedance",
-            "robot.controller_mode must be joint_impedance")
+    require(robot.get("control_interface") == "torque", "robot.control_interface must be torque")
+    require(robot.get("controller_mode") == "franky_joint_impedance_tracking",
+            "robot.controller_mode must be franky_joint_impedance_tracking")
     expected = robot.get("expected_franky_version")
     require(isinstance(expected, str) and expected, "robot.expected_franky_version required")
     collision = robot.get("constructor_collision_behavior", {})
@@ -82,10 +87,33 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
             "Franky constructor joint threshold must match source default 20 Nm")
     require(float(collision.get("cartesian_force_threshold_n", 0)) == 30.0,
             "Franky constructor force threshold must match source default 30 N")
-    dynamics = robot.get("relative_dynamics_factor", {})
-    for key in ("velocity", "acceleration", "jerk"):
-        value = float(dynamics.get(key, 0))
-        require(0.0 < value <= 1.0, f"robot.relative_dynamics_factor.{key} must be in (0,1]")
+    impedance = robot.get("impedance_controller", {})
+    for key in ("stiffness_nm_rad", "damping_nms_rad", "constant_torque_offset_nm",
+                "expected_error_clip_rad"):
+        impedance[key] = vector(impedance.get(key), JOINTS, f"robot.impedance_controller.{key}")
+    require(all(v > 0 for v in impedance["stiffness_nm_rad"]), "impedance stiffness must be positive")
+    require(all(v >= 0 for v in impedance["damping_nms_rad"]), "impedance damping must be nonnegative")
+    require(all(v > 0 for v in impedance["expected_error_clip_rad"]), "impedance error clip must be positive")
+    require(impedance.get("compensate_coriolis") is True, "Coriolis compensation must be enabled")
+    for key in ("max_delta_tau_nm_per_ms", "gains_time_constant_s", "joint_limit_activation_distance_rad",
+                "joint_limit_stiffness_nm", "joint_limit_damping_nms_rad", "joint_limit_max_torque_nm"):
+        require(float(impedance.get(key, 0)) > 0, f"robot.impedance_controller.{key} must be positive")
+    friction = impedance.get("friction", {})
+    for key in ("coulomb_nm", "viscous_nms_rad", "max_torque_nm"):
+        friction[key] = vector(friction.get(key), JOINTS, f"robot.impedance_controller.friction.{key}")
+    require(all(v == 0 for v in friction["coulomb_nm"] + friction["viscous_nms_rad"]),
+            "friction compensation must remain disabled for initial deployment")
+    require(all(v > 0 for v in friction["max_torque_nm"]), "friction max torque must be positive")
+    require(float(friction.get("velocity_epsilon_rad_s", 0)) > 0, "friction velocity epsilon must be positive")
+    impedance["friction"] = friction
+    robot["impedance_controller"] = impedance
+    stop = robot.get("torque_stop", {})
+    stop["damping_nms_rad"] = vector(stop.get("damping_nms_rad"), JOINTS, "robot.torque_stop.damping_nms_rad")
+    require(all(v > 0 for v in stop["damping_nms_rad"]), "torque stop damping must be positive")
+    require(stop.get("compensate_coriolis") is True, "torque stop Coriolis compensation must be enabled")
+    for key in ("ramp_duration_s", "velocity_epsilon_rad_s", "max_duration_s", "max_delta_tau_nm_per_ms"):
+        require(float(stop.get(key, 0)) > 0, f"robot.torque_stop.{key} must be positive")
+    robot["torque_stop"] = stop
     data["robot"] = robot
 
     mapping = data.get("action_mapping", {})
@@ -124,6 +152,8 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     upper = [hi - m for hi, m in zip(safety["joint_upper_rad"], safety["position_margin_rad"])]
     require(all(lo < hi for lo, hi in zip(lower, upper)), "position margins eliminate the usable range")
     safety["soft_lower_rad"], safety["soft_upper_rad"] = lower, upper
+    factor = float(safety.get("reference_derivative_limit_factor", 0))
+    require(0.0 < factor <= 1.0, "safety.reference_derivative_limit_factor must be in (0,1]")
     data["safety"] = safety
 
     artifacts = data.get("artifacts", {})
@@ -155,10 +185,29 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                 require(float(trial.get(key, 0)) > 0, f"{name}.{key} must be positive")
             joint = int(trial["joint"]) - 1
             amplitude = float(trial["amplitude_rad"])
+            frequency = float(trial["frequency_hz"])
+            ramp = float(trial["ramp_s"])
             q0 = source["start_position_rad"][joint]
             require(q0 - amplitude >= data["safety"]["soft_lower_rad"][joint] and
                     q0 + amplitude <= data["safety"]["soft_upper_rad"][joint],
                     f"{name} exceeds soft joint bounds")
+            # Conservative absolute derivative bounds for A*e(t)*sin(w*t),
+            # reusing the prior ROS coordinator's quintic-envelope analysis.
+            omega = 2.0 * math.pi * frequency
+            e1, e2, e3 = 1.875 / ramp, 5.774 / ramp**2, 60.0 / ramp**3
+            demanded = (
+                amplitude * (e1 + omega),
+                amplitude * (e2 + 2.0 * e1 * omega + omega**2),
+                amplitude * (e3 + 3.0 * e2 * omega + 3.0 * e1 * omega**2 + omega**3),
+            )
+            factor = float(data["safety"]["reference_derivative_limit_factor"])
+            available = (
+                factor * FR3_MAX_VELOCITY[joint],
+                factor * FR3_MAX_ACCELERATION[joint],
+                factor * FR3_MAX_JERK[joint],
+            )
+            require(all(actual <= limit for actual, limit in zip(demanded, available)),
+                    f"{name} conservative waveform derivative bound exceeds Franky dynamics")
         require(float(source.get("inter_trial_hold_s", 0)) >= 0, "reference.inter_trial_hold_s must be nonnegative")
         data["reference"] = source
     else:

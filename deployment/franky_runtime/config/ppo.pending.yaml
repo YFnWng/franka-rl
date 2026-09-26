@@ -1,5 +1,8 @@
+# Pending PPO deployment template using the measured nominal Franky profile.
+# The current runtime holds 30 Hz position targets directly; no shared governor is active.
+# Keep non-executable until a new policy bundle, path/targets, and lab review are complete.
 schema_version: 1
-runtime: franky_joint_position_v1
+runtime: franky_joint_impedance_tracking_v1
 execution_context: hardware
 mode: ppo
 session_id: 0
@@ -18,12 +21,89 @@ robot:
   end_effector: none
   external_load_kg: 0.0
   require_identity_f_t_ee: true
-  controller_mode: joint_impedance
+  control_interface: torque
+  controller_mode: franky_joint_impedance_tracking
   expected_franky_version: 2.0.1.dev58+gf88f0e9b.libfranka.0.21.2
-  relative_dynamics_factor:
-    velocity: 0.05
-    acceleration: 0.05
-    jerk: 0.05
+  impedance_controller:
+    stiffness_nm_rad:
+    - 100.0
+    - 100.0
+    - 100.0
+    - 100.0
+    - 100.0
+    - 100.0
+    - 100.0
+    damping_nms_rad:
+    - 20.0
+    - 20.0
+    - 20.0
+    - 20.0
+    - 20.0
+    - 20.0
+    - 20.0
+    compensate_coriolis: true
+    constant_torque_offset_nm:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    max_delta_tau_nm_per_ms: 1.0
+    gains_time_constant_s: 0.1
+    expected_error_clip_rad:
+    - 0.5
+    - 0.5
+    - 0.5
+    - 0.5
+    - 0.5
+    - 0.5
+    - 0.5
+    joint_limit_activation_distance_rad: 0.1
+    joint_limit_stiffness_nm: 4.0
+    joint_limit_damping_nms_rad: 1.0
+    joint_limit_max_torque_nm: 5.0
+    friction:
+      coulomb_nm:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      viscous_nms_rad:
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      - 0.0
+      max_torque_nm:
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 1.0
+      velocity_epsilon_rad_s: 0.03
+  torque_stop:
+    damping_nms_rad:
+    - 2.0
+    - 2.0
+    - 2.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 0.5
+    ramp_duration_s: 0.2
+    velocity_epsilon_rad_s: 0.02
+    max_duration_s: 2.0
+    compensate_coriolis: true
+    max_delta_tau_nm_per_ms: 1.0
   constructor_collision_behavior:
     acknowledged: true
     joint_torque_threshold_nm: 20.0
@@ -48,6 +128,7 @@ timing:
   trial_timeout_s: 10.0
   suite_timeout_s: 3600.0
 safety:
+  reference_derivative_limit_factor: 0.2
   joint_lower_rad:
   - -2.9007400166666666
   - -1.8360900166666667
@@ -72,16 +153,14 @@ safety:
   - 0.287630335
   - 0.209090535
   - 0.305083335
-  # Provisional trial values: 10% of each full joint range.
   start_tolerance_rad:
-  - 0.5801480033333334
-  - 0.3672180033333334
-  - 0.5801480033333334
-  - 0.2960082933333334
-  - 0.57526067
-  - 0.41818107
-  - 0.61016667
-  # Provisional trial values: 5% of each model maximum joint velocity.
+  - 0.005
+  - 0.005
+  - 0.005
+  - 0.005
+  - 0.005
+  - 0.005
+  - 0.005
   max_start_velocity_rad_s:
   - 0.10875
   - 0.10875
@@ -90,15 +169,14 @@ safety:
   - 0.1305
   - 0.1305
   - 0.1305
-  # Provisional trial values: 10% of each full joint range; not hardware-qualified.
   max_tracking_error_rad:
-  - 0.5801480033333334
-  - 0.3672180033333334
-  - 0.5801480033333334
-  - 0.2960082933333334
-  - 0.57526067
-  - 0.41818107
-  - 0.61016667
+  - 0.08
+  - 0.08
+  - 0.08
+  - 0.08
+  - 0.06
+  - 0.06
+  - 0.04
 ppo:
   bundle_path: null
   manifest_sha256: null

@@ -76,46 +76,24 @@ stdio isolation remain the same.
 
 ### Command path
 
-At 30 Hz, the coordinator either evaluates the reference schedule or consumes one
-policy result. PPO actions map as
+At 30 Hz, the coordinator evaluates the reference schedule or consumes one policy result and updates a `franky.JointReference`. One `JointImpedanceTrackingMotion` remains alive for the complete session and computes torque at 1 kHz. No `JointMotion` is created or preempted after startup.
+
+The first reviewed profile uses Franka ROS 2's compliant example gains:
 
 ```text
-q_target[i] = q_default[i] + scale[i] * raw_action[i]
+K = [24, 24, 24, 24, 10, 6, 2] Nm/rad
+D = [2, 2, 2, 1, 1, 1, 0.5] Nms/rad
 ```
 
-There is no raw-action clipping. A non-finite action or mapped target outside the
-5%-margin joint bounds terminates the session. The target is submitted as an
-absolute `franky.JointMotion(return_when_finished=False)`. Franky generates its
-1 kHz jerk-limited position command with Ruckig using the robot-level relative
-dynamics factor (0.05 velocity, acceleration, and jerk). A same-signal asynchronous
-move replaces the running joint-position motion seamlessly; the non-finishing mode
-holds a reached target without cycling FCI. An independent host thread submits
-`JointStopMotion` if no target is submitted for `command_watchdog_ms`, including
-when the 30 Hz coordinator thread stalls. Target updates use `limit_rate=False`
-and Franky's/libfranka's 100 Hz command filter. The backend explicitly selects Franky's default
-`ControllerMode.JointImpedance`; the firmware's internal joint impedance controller
-remains in use. No impedance or load setter and no automatic
-error recovery is called by this runtime.
+The YAML also fixes Coriolis compensation, torque slew, gain interpolation time constant, zero friction/feedforward torque, Franky's expected 0.5 rad error clip, soft-limit repulsion, and torque-stop parameters. See `IMPEDANCE_PARAMETER_SURVEY.md` for alternatives and provenance.
 
-This path deliberately differs from the standalone shared governor. Its purpose is
-to identify and then simulate the complete Franky `JointMotion` response. The
-recorded `q_ref/dq_ref/ddq_ref` columns describe Franky's generated command;
-`q_d/dq_d/ddq_d` are robot desired state, and `q/dq` are measured state.
+PPO actions still map as `q_target = q_default + scale * raw_action`. The velocity reference is zero, matching a position-target PD actuator. The 1 kHz log records the held `q_ref/dq_ref`, controller `tau_command`, robot desired torque, measured torque, measured state, and external-torque estimate.
 
-### Constant-target keepalives
+The independent 75 ms host watchdog remains active. A missed 30 Hz update replaces the tracking controller with `TorqueStopMotion`; normal completion and operator stop use the same torque-mode stop. No automatic error recovery is called.
 
-Franky motion replacement reinitializes a synchronized Ruckig trajectory from the
-current desired state. Replanning an already reached, exactly identical seven-joint
-target can fail with Ruckig `ErrorSynchronizationCalculation` (`-111`). The runtime
-therefore submits a new `JointMotion` only when the target vector changes exactly.
-At 30 Hz constant-target ticks it refreshes the independent command watchdog while
-the active motion continues holding and emitting 1 kHz callbacks. `target_held`
-events make these keepalives explicit. This preserves the requested waveform and
-does not relax limits or change the controller.
+### Retired JointMotion backend
 
-The behavior was added after session `20260925193000` reached home with good
-tracking and then faulted during its constant warmup after 0.459 s of callbacks.
-That session stopped cleanly and must not be reused.
+Sessions through `20260926151901` used repeated position-only `JointMotion` preemption. Session `20260926153859` demonstrated that this is unsafe as a general 30 Hz PPO interface: Franky's generated acceleration switched from about +3.0 to -3.53 rad/s^2 at one target replacement and triggered the FR3 acceleration-discontinuity reflex. The analytic sine bound was only 0.318 rad/s^2. That backend and its identification grid are retired.
 
 ### Safety and lifecycle
 
@@ -130,7 +108,7 @@ Faults are sticky. It never recovers or resumes automatically.
 Hardware execution always pauses after preflight and requires the operator to type
 `start`. `--auto-start` and `--max-runtime-s` are rejected for hardware configs.
 On completion, fault, signal, or operator stop, the coordinator submits
-`JointStopMotion` and joins it before disconnecting. The E-stop remains the
+`TorqueStopMotion` and joins it before disconnecting. The E-stop remains the
 independent physical stop.
 
 Constructing `franky.Robot` writes Franky's default collision behavior (20 Nm joint

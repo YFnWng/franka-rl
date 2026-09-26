@@ -321,3 +321,101 @@ home-target replacement. `JointStopMotion` completed and no samples were dropped
 The runtime now treats unchanged 30 Hz targets as watchdog keepalives and only
 preempts Franky when the target vector changes. Eight offline tests and the exact
 26-second fake reference schedule pass; no corrected hardware retry has run.
+
+Franky response data follow-up: hardware session `20260926145004` completed the
+0.005 rad, 0.25 Hz joint-1 schedule with 25,992 callbacks, no robot errors or
+dropped samples, and a clean stop. In the four-cycle active window, measured over
+generated-reference amplitude gain was 0.9964 and phase lag was 0.01951 rad
+(about 12.4 ms); this is one small-signal point, not a gain/bandwidth model. The
+trace and audit live under the RT host hardware inventory. A pending one-joint-at-
+a-time seven-joint ±20 degree suite uses 0.03 Hz, 16 s quintic ramps, and two cycles
+per joint; its conservative 0.1067 rad/s bound is within the 5% Franky cap. Expanded
+swept-workspace review remains required before that suite is executable. Before the
+full sweep, a separate pending pilot limits the same schedule to joints 1 and 2
+(`reference.2joint-20deg.20260926150714.pending.yaml`, about 3.52 minutes) so the
+frequency, ramp, and cycle count can be assessed from hardware data first. The two-joint
+pilot session `20260926150714` subsequently completed with 211,325 callbacks, no
+robot errors or dropped samples, and a clean stop. At 0.03 Hz the target-to-Franky-
+command lag was about 46 ms on joint 1 and 83 ms on joint 2, while Franky-command-
+to-measured lag was about 6-7 ms. A pending 20% dynamics pilot therefore uses
+0.10 Hz and 4 s ramps for the same joints and amplitude; it remains subject to a
+fresh workspace review and operator authorization. The 20% session
+`20260926151901` then completed with 69,994 callbacks, no robot errors or dropped
+samples, and a clean stop. At 0.10 Hz, measured-over-Franky-command gain was
+0.99998/0.99995 and lag was 5.46/5.62 ms for joints 1/2; end-to-end target lag
+was 45.75/76.50 ms. These are effective response points, not firmware gains. The next pending
+experiment is a 20% dynamics grid for joints 1 and 2: 0.10 Hz at +/-2 and +/-10
+degrees, 0.25 Hz at +/-10 degrees, 0.50 Hz at +/-4 degrees, and 1.00 Hz at
++/-1.5 degrees. It lasts about 4.9 minutes and retains the 1 kHz callback trace;
+lower-rate training data will be filtered and derived offline. The grid faulted in trial 2 with `joint_motion_generator_acceleration_discontinuity`. At a 30 Hz target replacement, generated acceleration changed from about +3.0 to -3.53 rad/s^2 in one millisecond although the analytic sine bound was 0.318 rad/s^2. This confirms that repeated position-only `JointMotion` preemption is not a robust 30 Hz PPO interface. The config is retired against rerun. Franky joint-impedance tracking with explicit gains or a continuous 1 kHz position generator must replace this backend before more motion.
+
+### Franky impedance-tracking migration — 2026-09-26
+
+The fault-prone 30 Hz `JointMotion` preemption backend has been replaced offline by one long-lived `JointImpedanceTrackingMotion`. Policy/reference updates now publish `JointReference(q, dq=0)` into the same 1 kHz torque-control session. The watchdog and normal shutdown use `TorqueStopMotion`; the runtime contains no `JointMotion` or `JointStopMotion` construction. Logs add the actual controller `tau_command` and retain held q/dq references, robot desired/measured torque, state, and external torque.
+
+The first explicit gain profile is Franka ROS 2's compliant `JointImpedanceExampleController`: K `[24,24,24,24,10,6,2]` Nm/rad and D `[2,2,2,1,1,1,0.5]` Nms/rad. Coriolis compensation, 1 Nm/ms torque slew, zero friction/feedforward, the pinned Franky 0.5 rad error clip, soft-limit repulsion, and torque-stop values are all config-validated and recorded. Alternative public profiles and provenance are in `deployment/franky_runtime/IMPEDANCE_PARAMETER_SURVEY.md`.
+
+Ten offline tests pass and the hardware path was not opened. Runtime source SHA-256 is `a263da7724c9943361838b60d0fb037a2536779122ab7377d76e901700154a70`. A structurally valid but non-executable joints-1/2 ±2 degree smoke config is staged at `/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-25/franky_reference/reference.2joint-impedance-tracker-smoke.20260926160714.pending.yaml`. It requires a fresh torque-control review and live pose within 0.02 rad of home.
+
+Hardware impedance follow-up: sessions `20260926160714` and `20260926163104`
+both completed the same J1/J2 +/-2 degree, 0.1 Hz reference with zero dropped
+samples, no robot errors, and clean torque stops. The first used the Franka
+compliant example gains; the second used Franky's default K `[50]*7` and D
+`[14.1421]*7`. Franky's defaults improved measured/reference amplitude ratio
+from 0.299 to 0.687 on J1 and from 0.054 to 0.510 on J2. RMS tracking errors fell
+from 0.0241/0.0396 rad to 0.0149/0.0244 rad. Closed-loop phase was -34.4 degrees
+on J1 and -41.4 degrees on J2 with the defaults. These gains are the provisional
+minimum deployment profile, not a tight position servo. Isaac Lab must simulate
+the explicit torque controller and should not replace its targets with achieved
+joint positions. Full results and the profile decision are in
+`deployment/franky_runtime/IMPEDANCE_PARAMETER_SURVEY.md`; the raw 1 kHz records
+and detailed audits remain in the RT host hardware inventory.
+
+The incremental J1/J2 K=100, D=20 smoke, session `20260926164144`, also
+completed normally with 61,993 callbacks, no robot errors or drops, and a clean
+stop. At 0.1 Hz, amplitude ratios improved to 0.885/0.816 and closed-loop phase
+to -19.7/-24.0 degrees for J1/J2. RMS errors were 0.00872/0.01306 rad. Peak
+command torque magnitude was 2.135 Nm and the largest one-millisecond torque
+change was 0.138 Nm, well below the configured 1 Nm/ms slew limit. K=100/D=20
+is therefore the selected tested J1/J2 profile for the first deployment pass.
+This does not select J3-J7 gains; test those joints separately before freezing
+the seven-joint Isaac/Franky actuator configuration.
+
+A nominal-versus-gain-DR flange-path demo is planned in
+`deployment/franky_runtime/GAIN_DR_EE_PATH_DEMO.md`. Hardware cases are defined
+as multipliers 0.5/1/2 around a commissioned per-joint nominal gain vector, not
+uniform gains on every joint. This gives J1/J2 K=50/100/200 while avoiding an
+unsupported K=200 extrapolation on distal joints. The DR policy samples the
+same multiplier log-uniformly per episode without observing it; the nominal
+policy uses multiplier 1. All other training randomization and runtime settings
+must match between policies. J1/J2 K=200 has a pending-only small smoke config;
+J3-J7 and the complete seven-joint endpoint profiles must be commissioned before
+PPO hardware evaluation.
+
+The J1/J2 K=200, D=28.284 endpoint, session `20260926165740`, completed with no
+errors or drops. Amplitude ratios were 0.954/0.908, phase -11.4/-13.2 degrees,
+and RMS errors 0.00509/0.00733 rad. Peak command torque magnitude was 2.098 Nm;
+the largest one-millisecond torque change was 0.265 Nm. K=200 is validated as
+the J1/J2 stiff endpoint while K=100 remains the nominal center. A pending
+sequential J3-J7 suite applies K=200 to all joints but reduces reference
+amplitude from 2 degrees on J3/J4 to 1.5 degrees on J5/J6 and 1 degree on J7,
+with correspondingly tighter tracking thresholds.
+
+The all-joint K=200 endpoint was extended to sequential J3-J7 motion in session
+`20260926170459`. It completed 157,995 callbacks with no errors or drops.
+J3-J7 amplitude ratios were 0.887/0.934/0.907/0.927/0.831 and phase was between
+-12.8 and -16.5 degrees. The largest command-torque magnitude was 1.850 Nm and
+the largest one-millisecond change 0.252 Nm. Matching pending K=100 and K=50
+suites preserve the exact schedule and complete the nominal/DR endpoint data.
+
+The K=100 and K=50 J3-J7 suites, sessions `20260926171741` and
+`20260926171742`, both completed with 157,994 callbacks, no errors or drops, and
+clean stops. Across J3-J7, amplitude ratios were 0.763--0.844 at K=100 and
+0.445--0.623 at K=50, versus 0.831--0.934 at K=200. Portable seven-joint metrics
+are in `deployment/hardware_control_audit/2026-09-26-franky-impedance/`.
+Hardware characterization now defines the K=50/100/200 controller family, but
+production training remains blocked on the explicit torque/gravity model,
+correlated gain DR, governor/direct-hold decision, continuous flange-path task,
+and Isaac-to-hardware response validation listed in
+`deployment/DEPLOYMENT_TRAINING_READINESS.md`.
+

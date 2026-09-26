@@ -23,7 +23,7 @@ VERSION = "2.0.1.dev58+gf88f0e9b.libfranka.0.21.2"
 
 def approved_reference(tmp_path, session_id=42):
     return {
-        "schema_version": 1, "runtime": "franky_joint_position_v1",
+        "schema_version": 1, "runtime": "franky_joint_impedance_tracking_v1",
         "execution_context": "fake", "mode": "reference", "session_id": session_id,
         "status": "approved", "executable": True, "motion_authorized": True,
         "approval": {"approved_by": "test", "approved_at": "2026-09-25T00:00:00Z",
@@ -31,19 +31,36 @@ def approved_reference(tmp_path, session_id=42):
         "robot": {"host": "127.0.0.1", "model": "fr3v2.1",
                   "arm_revision": "Arm3Rv2_02.01", "end_effector": "none",
                   "external_load_kg": 0.0, "require_identity_f_t_ee": True,
-                  "controller_mode": "joint_impedance", "expected_franky_version": VERSION,
-                  "relative_dynamics_factor": {"velocity": 0.05, "acceleration": 0.05, "jerk": 0.05},
+                  "control_interface": "torque",
+                  "controller_mode": "franky_joint_impedance_tracking",
+                  "expected_franky_version": VERSION,
+                  "impedance_controller": {
+                    "stiffness_nm_rad": [24.0, 24.0, 24.0, 24.0, 10.0, 6.0, 2.0],
+                    "damping_nms_rad": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.5],
+                    "compensate_coriolis": True, "constant_torque_offset_nm": [0.0] * 7,
+                    "max_delta_tau_nm_per_ms": 1.0, "gains_time_constant_s": 0.1,
+                    "expected_error_clip_rad": [0.5] * 7,
+                    "joint_limit_activation_distance_rad": 0.1,
+                    "joint_limit_stiffness_nm": 4.0, "joint_limit_damping_nms_rad": 1.0,
+                    "joint_limit_max_torque_nm": 5.0,
+                    "friction": {"coulomb_nm": [0.0] * 7, "viscous_nms_rad": [0.0] * 7,
+                                 "max_torque_nm": [1.0] * 7, "velocity_epsilon_rad_s": 0.03}},
+                  "torque_stop": {"damping_nms_rad": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.5],
+                                  "ramp_duration_s": 0.2, "velocity_epsilon_rad_s": 0.02,
+                                  "max_duration_s": 2.0, "compensate_coriolis": True,
+                                  "max_delta_tau_nm_per_ms": 1.0},
                   "constructor_collision_behavior": {"acknowledged": True,
                     "joint_torque_threshold_nm": 20.0, "cartesian_force_threshold_n": 30.0}},
         "action_mapping": {"default_position_rad": HOME, "scale_rad": 0.5, "clip": None},
         "timing": {"command_hz": 30, "state_timeout_ms": 50.0, "callback_gap_ms": 50.0,
                    "command_watchdog_ms": 75.0, "suite_timeout_s": 2.0},
-        "safety": {"joint_lower_rad": LOWER, "joint_upper_rad": UPPER,
+        "safety": {"reference_derivative_limit_factor": 0.2,
+                   "joint_lower_rad": LOWER, "joint_upper_rad": UPPER,
                    "position_margin_rad": MARGIN, "start_tolerance_rad": [0.02] * 7,
                    "max_start_velocity_rad_s": [0.01] * 7,
                    "max_tracking_error_rad": [0.05] * 7},
         "reference": {"start_position_rad": HOME, "inter_trial_hold_s": 0.0,
-                      "trials": [{"id": "j1", "joint": 1, "amplitude_rad": 0.001,
+                      "trials": [{"id": "j1", "joint": 1, "amplitude_rad": 0.00001,
                                   "frequency_hz": 1.0, "warmup_s": 0.02,
                                   "ramp_s": 0.02, "cycles": 0.05, "post_hold_s": 0.02}]},
         "artifacts": {"root": str(tmp_path / "runs")},
@@ -75,6 +92,15 @@ def test_action_mapping_rejects_soft_limit_violation(tmp_path):
     assert action_to_target(config, [0.0] * 7) == pytest.approx(HOME)
     with pytest.raises(ConfigError, match="soft joint bounds"):
         action_to_target(config, [20.0] * 7)
+
+
+
+def test_reference_rejects_waveform_faster_than_reviewed_derivative_limits(tmp_path):
+    value = approved_reference(tmp_path)
+    value["reference"]["trials"][0].update({
+        "amplitude_rad": math.radians(20.0), "frequency_hz": 0.25, "ramp_s": 2.0})
+    with pytest.raises(ConfigError, match="derivative bound exceeds Franky dynamics"):
+        load_experiment(write_config(tmp_path, value))
 
 
 def test_collision_constructor_contract_is_exact(tmp_path):
@@ -211,3 +237,11 @@ def test_fake_ppo_runtime_uses_24d_observation_and_worker(tmp_path):
     assert final["terminal_state"] == "stopped"
     assert final["terminal_reason"] == "max_runtime"
     assert final["last_policy_sequence"] >= 1
+
+
+def test_hardware_backend_uses_one_tracking_motion_not_joint_motion_preemption():
+    source = (Path(__file__).parents[1] / "franky_experiment" / "backend.py").read_text()
+    assert "JointImpedanceTrackingMotion" in source
+    assert "JointReference" in source
+    assert "JointMotion(" not in source
+    assert "TorqueStopMotion" in source

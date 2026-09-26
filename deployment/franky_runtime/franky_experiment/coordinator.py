@@ -114,7 +114,7 @@ class CommandMeta:
 class SampleWriter:
     VECTOR_FIELDS = (
         "raw_action", "mapped_target", "q_ref", "dq_ref", "ddq_ref", "q_d", "dq_d", "ddq_d",
-        "q", "dq", "tau_J_d", "tau_J", "tau_ext_hat_filtered",
+        "q", "dq", "tau_command", "tau_J_d", "tau_J", "tau_ext_hat_filtered",
     )
 
     def __init__(self, path: Path, session_id: int):
@@ -267,13 +267,8 @@ class Coordinator:
         self.last_callback_ns = record.host_monotonic_ns
         self.last_callback_robot_time_s = record.robot_time_s
         self.callback_started = True
-        dt = record.time_step_s if record.time_step_s > 0 else 0.001
-        if self.previous_q_ref is None:
-            dq_ref = (0.0,) * 7
-            ddq_ref = (0.0,) * 7
-        else:
-            dq_ref = tuple((record.q_command[i] - self.previous_q_ref[i]) / dt for i in range(7))
-            ddq_ref = tuple((dq_ref[i] - self.previous_dq_ref[i]) / dt for i in range(7))
+        dq_ref = record.dq_command
+        ddq_ref = (0.0,) * 7
         self.previous_q_ref, self.previous_dq_ref = record.q_command, dq_ref
         row: dict[str, Any] = {
             "session_id": self.config["session_id"], "trial_id": meta.trial_id,
@@ -295,7 +290,8 @@ class Coordinator:
             "raw_action": meta.raw_action, "mapped_target": meta.mapped_target,
             "q_ref": record.q_command, "dq_ref": dq_ref, "ddq_ref": ddq_ref,
             "q_d": record.q_d, "dq_d": record.dq_d, "ddq_d": record.ddq_d,
-            "q": record.q, "dq": record.dq, "tau_J_d": record.tau_joint_desired,
+            "q": record.q, "dq": record.dq, "tau_command": record.tau_command,
+            "tau_J_d": record.tau_joint_desired,
             "tau_J": record.tau_joint, "tau_ext_hat_filtered": record.tau_external,
         }
         for name, vector in values.items():
@@ -331,7 +327,7 @@ class Coordinator:
             self.backend.send_target(q_target, callback)
             self.last_submitted_target = q_target_tuple
         returned = raw_ns()
-        self.event("target_submitted", trial_id=trial_id, policy_sequence=self.sequence,
+        self.event("impedance_reference_updated", trial_id=trial_id, policy_sequence=self.sequence,
                    observation_sequence=observation_sequence, command_consumed_ns=consumed,
                    command_submitted_ns=submitted, command_api_returned_ns=returned,
                    target=q_target)
