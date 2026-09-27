@@ -1,0 +1,31 @@
+version: 1
+name: fr3_yz_circle_calibration_v1
+path_catalog: ../path_catalogs/yz_circle_candidates_v1.yaml
+paths:
+  - circle_yz_r050_t1
+  - circle_yz_r050_t2
+  - circle_yz_r050_t3
+  - circle_yz_r075_t1
+  - circle_yz_r075_t2
+  - circle_yz_r075_t3
+  - circle_yz_r100_t1
+  - circle_yz_r100_t2
+  - circle_yz_r100_t3
+scenario_file: fr3_hardware_calibration_scenarios_v1.yaml
+scenarios: [hw_nominal_k050, hw_nominal_k100, hw_nominal_k200, hw_dr_k050, hw_dr_k100, hw_dr_k200]
+seeds: [123]
+policies:
+  position_nominal:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt
+  position_dr:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_23-42-59_fr3_incremental_6d_position_dr_v1_recovered/model_199.pt
+evaluation:
+  task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+  num_envs: 64
+  episodes_per_job: 128
+  success_threshold: 0.01
+  success_steps: 1
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+baseline_policy: position_nominal

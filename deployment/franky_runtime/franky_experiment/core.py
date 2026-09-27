@@ -43,6 +43,10 @@ def vector(value: Any, size: int, name: str) -> list[float]:
     return result
 
 
+def vectors_close(left: list[float], right: list[float], *, atol: float = 1.0e-10) -> bool:
+    return len(left) == len(right) and all(abs(a - b) <= atol for a, b in zip(left, right))
+
+
 def resolved(base: Path, value: Any, name: str) -> Path:
     require(isinstance(value, str) and value, f"{name} is required")
     path = Path(os.path.expanduser(value))
@@ -254,6 +258,9 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         contract_path = bundle / "policy_contract.yaml"
         require(contract_path.is_file(), "PPO policy contract missing")
         contract = yaml.safe_load(contract_path.read_text())
+        require(contract.get("schema_version") == 2, "PPO contract schema_version must be 2")
+        require(contract.get("contract_id") == "fr3_incremental_position_29d_v1",
+                "unsupported PPO contract_id")
         require(contract.get("robot_model") == "fr3", "PPO contract robot_model must be fr3")
         require(contract.get("joint_names") == EXPECTED_JOINTS, "PPO contract joint order/model is not FR3")
         require(contract.get("frames", {}).get("base") == "fr3_link0", "PPO base frame mismatch")
@@ -261,19 +268,60 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         require(abs(float(contract.get("policy_period_s", 0)) - 1.0 / 50.0) < 1e-12,
                 "PPO policy period is not 50 Hz")
         action_contract = contract.get("action", {})
+        require(action_contract.get("inference") == "deterministic_tanh",
+                "PPO contract must use deterministic tanh inference")
         require(action_contract.get("type") == "normalized_position_increment",
                 "PPO contract action type mismatch")
         policy_joint_count = data["action_mapping"]["policy_joint_count"]
         require(int(action_contract.get("size", 0)) == policy_joint_count,
                 "PPO contract action size mismatch")
-        require(vector(action_contract.get("max_reference_velocity_rad_s"), policy_joint_count,
-                       "bundle max reference velocity") ==
-                data["action_mapping"]["max_reference_velocity_rad_s"],
+        require(vectors_close(
+                vector(action_contract.get("max_reference_velocity_rad_s"), policy_joint_count,
+                       "bundle max reference velocity"),
+                data["action_mapping"]["max_reference_velocity_rad_s"]),
                 "PPO reference velocity mismatch")
-        require(vector(action_contract.get("max_position_increment_rad"), policy_joint_count,
-                       "bundle max position increment") ==
-                data["action_mapping"]["max_position_increment_rad"],
+        require(vectors_close(
+                vector(action_contract.get("max_position_increment_rad"), policy_joint_count,
+                       "bundle max position increment"),
+                data["action_mapping"]["max_position_increment_rad"]),
                 "PPO position increment mismatch")
+        require(action_contract.get("controlled_joint_names") == data["action_mapping"]["controlled_joint_names"],
+                "PPO controlled joint names mismatch")
+        require(action_contract.get("held_joint_names") == data["action_mapping"]["held_joint_names"],
+                "PPO held joint names mismatch")
+        require(action_contract.get("integration") == data["action_mapping"]["integration"],
+                "PPO integration mismatch")
+        require(action_contract.get("initial_reference") == data["action_mapping"]["initial_reference"],
+                "PPO reference initialization mismatch")
+        require(action_contract.get("soft_limit_projection") is True,
+                "PPO bundle must require soft-limit projection")
+        require(vectors_close(
+                vector(action_contract.get("soft_lower_rad"), JOINTS, "bundle soft lower"),
+                data["safety"]["soft_lower_rad"]), "PPO soft lower bounds mismatch")
+        require(vectors_close(
+                vector(action_contract.get("soft_upper_rad"), JOINTS, "bundle soft upper"),
+                data["safety"]["soft_upper_rad"]), "PPO soft upper bounds mismatch")
+        require(vectors_close(
+                vector(contract.get("default_joint_position_rad"), JOINTS, "bundle q_default"),
+                source["start_position_rad"]), "PPO q_default/start position mismatch")
+        require(int(contract.get("observation", {}).get("size", 0)) == 29,
+                "PPO observation size must be 29")
+        controller = contract.get("controller", {})
+        impedance = data["robot"]["impedance_controller"]
+        require(all(float(value) == float(controller.get("nominal_stiffness_nm_rad", 0))
+                    for value in impedance["stiffness_nm_rad"]),
+                "PPO nominal stiffness mismatch")
+        require(all(float(value) == float(controller.get("nominal_damping_nms_rad", 0))
+                    for value in impedance["damping_nms_rad"]),
+                "PPO nominal damping mismatch")
+        require(float(controller.get("position_error_clip_rad", 0)) ==
+                impedance["expected_error_clip_rad"][0],
+                "PPO position error clip mismatch")
+        require(float(controller.get("torque_slew_rate_nm_s", 0)) ==
+                1000.0 * float(impedance["max_delta_tau_nm_per_ms"]),
+                "PPO torque slew mismatch")
+        require(controller.get("coriolis_compensation") is impedance["compensate_coriolis"],
+                "PPO Coriolis compensation mismatch")
         expressions = [item.get("expression") for item in contract.get("observation_layout", [])]
         require(expressions == ["q_measured - q_default", "dq_measured",
                                 "target_base - fr3_flange_base", "q_reference_normalized",

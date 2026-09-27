@@ -41,6 +41,8 @@ class EvaluationSettings:
     device: str
     deterministic: bool = True
     visualizer: str = "none"
+    path_name: str | None = None
+    path_file: Path | None = None
     target_replay: TargetReplaySettings | None = None
 
 
@@ -108,7 +110,7 @@ class EvaluationSuiteConfig:
             _safe_name(scenario, "scenario name")
         seeds = _integer_tuple(root.get("seeds"), "seeds")
 
-        evaluation = _parse_evaluation(root.get("evaluation"))
+        evaluation = _parse_evaluation(root.get("evaluation"), source.parent)
         baseline_policy = root.get("baseline_policy", policies[0].name)
         if baseline_policy not in {policy.name for policy in policies}:
             raise ValueError(f"Unknown baseline policy {baseline_policy!r}.")
@@ -138,12 +140,14 @@ class EvaluationSuiteConfig:
         result = asdict(self)
         result["source"] = str(self.source)
         result["scenario_file"] = str(self.scenario_file) if self.scenario_file else None
+        if result["evaluation"]["path_file"] is not None:
+            result["evaluation"]["path_file"] = str(result["evaluation"]["path_file"])
         for policy in result["policies"]:
             policy["checkpoint"] = str(policy["checkpoint"])
         return result
 
 
-def _parse_evaluation(value: Any) -> EvaluationSettings:
+def _parse_evaluation(value: Any, source_dir: Path) -> EvaluationSettings:
     mapping = _mapping(value, "evaluation")
     allowed = {
         "task",
@@ -155,6 +159,8 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
         "deterministic",
         "visualizer",
         "target_replay",
+        "path",
+        "path_file",
     }
     _unknown(mapping, allowed, "evaluation")
     task = mapping.get("task")
@@ -176,6 +182,19 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
     if not isinstance(deterministic, bool):
         raise TypeError("evaluation.deterministic must be boolean.")
     target_replay = _parse_target_replay(mapping.get("target_replay"))
+    path_name = mapping.get("path")
+    path_file_value = mapping.get("path_file")
+    if path_name is not None:
+        path_name = _safe_name(path_name, "evaluation path")
+    if path_file_value is not None:
+        if path_name is None:
+            raise ValueError("evaluation.path_file requires evaluation.path.")
+        if not isinstance(path_file_value, str) or not path_file_value:
+            raise TypeError("evaluation.path_file must be a non-empty path string.")
+        raw_path = Path(path_file_value).expanduser()
+        path_file = (source_dir / raw_path).resolve() if not raw_path.is_absolute() else raw_path.resolve()
+    else:
+        path_file = None
     return EvaluationSettings(
         task=task,
         num_envs=num_envs,
@@ -185,6 +204,8 @@ def _parse_evaluation(value: Any) -> EvaluationSettings:
         device=device,
         deterministic=deterministic,
         visualizer=visualizer,
+        path_name=path_name,
+        path_file=path_file,
         target_replay=target_replay,
     )
 

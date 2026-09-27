@@ -29,10 +29,10 @@ class Fr3FrankyIncremental6DCirclePathEnvCfg(
         super().__post_init__()
         self.configure_path(self.path_name)
 
-    def configure_path(self, path_name: str) -> None:
+    def configure_path(self, path_name: str, path_file: str | None = None) -> None:
         """Replace the command and episode limits with a named YAML path."""
 
-        catalog = PathCatalog.from_yaml()
+        catalog = PathCatalog.from_yaml(path_file)
         path = catalog.get(path_name)
         self.path_name = path_name
         self.path_metadata = {

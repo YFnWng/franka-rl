@@ -153,11 +153,28 @@ def test_hardware_backend_has_no_recovery_call():
 
 
 def approved_ppo(tmp_path, session_id=43):
+    value = approved_reference(tmp_path, session_id)
+    value["robot"]["impedance_controller"]["stiffness_nm_rad"] = [100.0] * 7
+    value["robot"]["impedance_controller"]["damping_nms_rad"] = [20.0] * 7
+    soft_lower = [
+        lower + margin
+        for lower, margin in zip(
+            value["safety"]["joint_lower_rad"], value["safety"]["position_margin_rad"]
+        )
+    ]
+    soft_upper = [
+        upper - margin
+        for upper, margin in zip(
+            value["safety"]["joint_upper_rad"], value["safety"]["position_margin_rad"]
+        )
+    ]
     bundle = tmp_path / "fr3_bundle"
     bundle.mkdir()
     manifest = bundle / "manifest.json"
     manifest.write_text("{}\n")
     (bundle / "policy_contract.yaml").write_text(yaml.safe_dump({
+        "schema_version": 2,
+        "contract_id": "fr3_incremental_position_29d_v1",
         "robot_model": "fr3",
         "joint_names": [f"fr3_joint{i}" for i in range(1, 8)],
         "frames": {"base": "fr3_link0", "tracked_body": "fr3_flange"},
@@ -165,8 +182,25 @@ def approved_ppo(tmp_path, session_id=43):
         "action": {
             "type": "normalized_position_increment",
             "size": 6,
+            "inference": "deterministic_tanh",
+            "controlled_joint_names": [f"fr3_joint{i}" for i in range(1, 7)],
+            "held_joint_names": ["fr3_joint7"],
+            "integration": "forward_euler",
+            "initial_reference": "measured_start_position",
+            "soft_limit_projection": True,
+            "soft_lower_rad": soft_lower,
+            "soft_upper_rad": soft_upper,
             "max_reference_velocity_rad_s": [0.435] * 4 + [0.522] * 2,
             "max_position_increment_rad": [0.0087] * 4 + [0.01044] * 2,
+        },
+        "default_joint_position_rad": HOME,
+        "observation": {"size": 29},
+        "controller": {
+            "nominal_stiffness_nm_rad": 100.0,
+            "nominal_damping_nms_rad": 20.0,
+            "position_error_clip_rad": 0.5,
+            "torque_slew_rate_nm_s": 1000.0,
+            "coriolis_compensation": True,
         },
         "observation_layout": [
             {"expression": "q_measured - q_default"},
@@ -176,7 +210,6 @@ def approved_ppo(tmp_path, session_id=43):
             {"expression": "previous_normalized_position_increment"},
         ],
     }, sort_keys=False))
-    value = approved_reference(tmp_path, session_id)
     value["mode"] = "ppo"
     value.pop("reference")
     value["timing"].update({"command_hz": 50, "callback_gap_ms": 30.0,

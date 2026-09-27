@@ -31,6 +31,20 @@ METRICS = (
     "mean_peak_action_magnitude",
     "mean_min_joint_limit_margin_rad",
     "worst_joint_limit_margin_rad",
+    "velocity_envelope_exceedance_rate",
+    "mean_peak_joint_velocity_ratio",
+    "worst_peak_joint_velocity_ratio",
+    "mean_command_difference_norm_rad",
+    "mean_peak_command_difference_norm_rad",
+    "worst_command_difference_norm_rad",
+    "mean_action_clipping_fraction",
+    "worst_action_clipping",
+    "mean_peak_applied_torque_norm_nm",
+    "worst_applied_torque_norm_nm",
+    "mean_tracking_error_norm_rad",
+    "worst_tracking_error_norm_rad",
+    "mean_reference_projection_norm_rad",
+    "worst_reference_projection_norm_rad",
 )
 
 

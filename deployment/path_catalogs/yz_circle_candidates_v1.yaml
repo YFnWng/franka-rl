@@ -1,0 +1,50 @@
+version: 1
+
+# Immutable simulation calibration candidates requested by the receiving machine.
+# All paths start at [0.475, 0.0, 0.500] m and use identical geometric sampling.
+paths:
+  circle_yz_r050_t1: &r050
+    type: circle
+    description: YZ hardware-demo candidate, radius 0.050 m, 1 s per waypoint.
+    center_m: [0.475, 0.0, 0.450]
+    orientation_rpy_deg: [0.0, 90.0, 0.0]
+    radius_m: 0.050
+    waypoint_count: 24
+    phase_deg: 180.0
+    target_orientation_xyzw: [0.0, 1.0, 0.0, 0.0]
+    waypoint_timeout_s: 1.0
+    position_threshold_m: 0.01
+  circle_yz_r050_t2:
+    <<: *r050
+    description: YZ hardware-demo candidate, radius 0.050 m, 2 s per waypoint.
+    waypoint_timeout_s: 2.0
+  circle_yz_r050_t3:
+    <<: *r050
+    description: YZ hardware-demo candidate, radius 0.050 m, 3 s per waypoint.
+    waypoint_timeout_s: 3.0
+  circle_yz_r075_t1: &r075
+    <<: *r050
+    description: YZ hardware-demo candidate, radius 0.075 m, 1 s per waypoint.
+    center_m: [0.475, 0.0, 0.425]
+    radius_m: 0.075
+  circle_yz_r075_t2:
+    <<: *r075
+    description: YZ hardware-demo candidate, radius 0.075 m, 2 s per waypoint.
+    waypoint_timeout_s: 2.0
+  circle_yz_r075_t3:
+    <<: *r075
+    description: YZ hardware-demo candidate, radius 0.075 m, 3 s per waypoint.
+    waypoint_timeout_s: 3.0
+  circle_yz_r100_t1: &r100
+    <<: *r050
+    description: YZ hardware-demo candidate, radius 0.100 m, 1 s per waypoint.
+    center_m: [0.475, 0.0, 0.400]
+    radius_m: 0.100
+  circle_yz_r100_t2:
+    <<: *r100
+    description: YZ hardware-demo candidate, radius 0.100 m, 2 s per waypoint.
+    waypoint_timeout_s: 2.0
+  circle_yz_r100_t3:
+    <<: *r100
+    description: YZ hardware-demo candidate, radius 0.100 m, 3 s per waypoint.
+    waypoint_timeout_s: 3.0

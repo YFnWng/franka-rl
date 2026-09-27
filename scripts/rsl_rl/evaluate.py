@@ -118,6 +118,12 @@ parser.add_argument(
     help="Named path from paths.yaml. Only valid for waypoint-path evaluation tasks.",
 )
 parser.add_argument(
+    "--path-file",
+    type=Path,
+    default=None,
+    help="Immutable path catalog YAML. Requires --path; defaults to the packaged catalog.",
+)
+parser.add_argument(
     "--output-dir",
     type=Path,
     default=None,
@@ -178,11 +184,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
     scenario = scenario_catalog.get(args_cli.scenario)
     scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
+    if args_cli.path_file is not None and args_cli.path is None:
+        raise ValueError("--path-file requires --path")
     if args_cli.path is not None:
         configure_path = getattr(env_cfg, "configure_path", None)
         if configure_path is None:
             raise ValueError("--path is only valid for a waypoint-path evaluation task")
-        configure_path(args_cli.path)
+        configure_path(args_cli.path, args_cli.path_file)
     evaluation_protocol = getattr(env_cfg, "evaluation_protocol", "random_point")
     evaluates_z_axis = (
         getattr(env_cfg.observations.policy, "ee_z_axis_error", None) is not None
@@ -349,6 +357,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "command_difference_norm_rad": evaluation_state_term.command_difference_norm_rad,
                 "action_clipping": evaluation_state_term.action_clipping,
                 "applied_torque_norm_nm": evaluation_state_term.applied_torque_norm_nm,
+                "tracking_error_norm_rad": evaluation_state_term.tracking_error_norm_rad,
+                "reference_projection_norm_rad": evaluation_state_term.reference_projection_norm_rad,
             }
 
         # Install deterministic replay only after SimulationApp and the

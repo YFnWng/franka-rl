@@ -137,6 +137,10 @@ class EvaluationResults:
     action_clipping_fraction: torch.Tensor
     peak_action_clipping: torch.Tensor
     peak_applied_torque_norm_nm: torch.Tensor
+    mean_tracking_error_norm_rad: torch.Tensor
+    peak_tracking_error_norm_rad: torch.Tensor
+    mean_reference_projection_norm_rad: torch.Tensor
+    peak_reference_projection_norm_rad: torch.Tensor
     domain_parameters: dict[str, torch.Tensor]
 
     metadata: dict[str, Any]
@@ -227,6 +231,18 @@ class EvaluationResults:
                 float(self.peak_applied_torque_norm_nm.float().mean()) if count else None
             ),
             "worst_applied_torque_norm_nm": (float(self.peak_applied_torque_norm_nm.float().max()) if count else None),
+            "mean_tracking_error_norm_rad": (
+                float(self.mean_tracking_error_norm_rad.float().mean()) if count else None
+            ),
+            "worst_tracking_error_norm_rad": (
+                float(self.peak_tracking_error_norm_rad.float().max()) if count else None
+            ),
+            "mean_reference_projection_norm_rad": (
+                float(self.mean_reference_projection_norm_rad.float().mean()) if count else None
+            ),
+            "worst_reference_projection_norm_rad": (
+                float(self.peak_reference_projection_norm_rad.float().max()) if count else None
+            ),
         }
 
         if successful_times.numel() > 0:
@@ -346,6 +362,16 @@ class EvaluationResults:
             )
             print(f"Mean action-clipping fraction: {summary['mean_action_clipping_fraction']:.2%}")
             print(f"Worst applied torque-vector norm: {summary['worst_applied_torque_norm_nm']:.3f} Nm")
+            print(
+                "Mean / worst measured-reference tracking error: "
+                f"{summary['mean_tracking_error_norm_rad']:.4f} / "
+                f"{summary['worst_tracking_error_norm_rad']:.4f} rad"
+            )
+            print(
+                "Mean / worst soft-limit reference projection: "
+                f"{summary['mean_reference_projection_norm_rad']:.4f} / "
+                f"{summary['worst_reference_projection_norm_rad']:.4f} rad"
+            )
 
         if summary["mean_z_axis_error_rad"] is not None:
             print(
@@ -434,6 +460,10 @@ class EvaluationResults:
                 "action_clipping_fraction",
                 "peak_action_clipping",
                 "peak_applied_torque_norm_nm",
+                "mean_tracking_error_norm_rad",
+                "peak_tracking_error_norm_rad",
+                "mean_reference_projection_norm_rad",
+                "peak_reference_projection_norm_rad",
             ]
             initial_state_columns: list[tuple[str, str, int]] = []
             for joint_index, joint_name in enumerate(self.metadata.get("initial_joint_names", [])):
@@ -526,6 +556,10 @@ class EvaluationResults:
                     "action_clipping_fraction": float(self.action_clipping_fraction[index]),
                     "peak_action_clipping": float(self.peak_action_clipping[index]),
                     "peak_applied_torque_norm_nm": float(self.peak_applied_torque_norm_nm[index]),
+                    "mean_tracking_error_norm_rad": float(self.mean_tracking_error_norm_rad[index]),
+                    "peak_tracking_error_norm_rad": float(self.peak_tracking_error_norm_rad[index]),
+                    "mean_reference_projection_norm_rad": float(self.mean_reference_projection_norm_rad[index]),
+                    "peak_reference_projection_norm_rad": float(self.peak_reference_projection_norm_rad[index]),
                 }
                 for column_name, parameter_name, joint_index in domain_columns:
                     row[column_name] = float(self.domain_parameters[parameter_name][index, joint_index])
@@ -693,6 +727,10 @@ class PolicyEvaluator:
         action_clipping_fraction = torch.full_like(final_position_error_m, float("nan"))
         peak_action_clipping = torch.full_like(final_position_error_m, float("nan"))
         peak_applied_torque_norm_nm = torch.full_like(final_position_error_m, float("nan"))
+        mean_tracking_error_norm_rad = torch.full_like(final_position_error_m, float("nan"))
+        peak_tracking_error_norm_rad = torch.full_like(final_position_error_m, float("nan"))
+        mean_reference_projection_norm_rad = torch.full_like(final_position_error_m, float("nan"))
+        peak_reference_projection_norm_rad = torch.full_like(final_position_error_m, float("nan"))
         target_positions = torch.zeros((*shape, 3), dtype=torch.float32, device=self.device)
         joint_count = len(self.config.initial_joint_names)
         initial_joint_positions = torch.zeros((*shape, joint_count), dtype=torch.float32, device=self.device)
@@ -717,6 +755,10 @@ class PolicyEvaluator:
         current_clipping_steps = torch.zeros(self.num_envs, device=self.device)
         current_peak_action_clipping = torch.zeros(self.num_envs, device=self.device)
         current_peak_applied_torque = torch.zeros(self.num_envs, device=self.device)
+        current_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
+        current_peak_tracking_error = torch.zeros(self.num_envs, device=self.device)
+        current_reference_projection_sum = torch.zeros(self.num_envs, device=self.device)
+        current_peak_reference_projection = torch.zeros(self.num_envs, device=self.device)
 
         # Start from an explicit reset. This is required for reset-mode domain
         # randomizers to affect the first recorded episode as well as later ones.
@@ -794,6 +836,12 @@ class PolicyEvaluator:
                     z_axis_error = trajectory_state.get(
                         "z_axis_error_rad", torch.full_like(position_error, float("nan"))
                     )
+                    tracking_error = trajectory_state.get(
+                        "tracking_error_norm_rad", torch.full_like(position_error, float("nan"))
+                    )
+                    reference_projection = trajectory_state.get(
+                        "reference_projection_norm_rad", torch.full_like(position_error, float("nan"))
+                    )
                     if self.config.z_axis_threshold_rad is not None and not torch.all(
                         torch.isfinite(z_axis_error[active])
                     ):
@@ -847,6 +895,14 @@ class PolicyEvaluator:
                     current_peak_applied_torque[active] = torch.maximum(
                         current_peak_applied_torque[active],
                         torch.nan_to_num(applied_torque[active]),
+                    )
+                    current_tracking_error_sum[active] += torch.nan_to_num(tracking_error[active])
+                    current_peak_tracking_error[active] = torch.maximum(
+                        current_peak_tracking_error[active], torch.nan_to_num(tracking_error[active])
+                    )
+                    current_reference_projection_sum[active] += torch.nan_to_num(reference_projection[active])
+                    current_peak_reference_projection[active] = torch.maximum(
+                        current_peak_reference_projection[active], torch.nan_to_num(reference_projection[active])
                     )
 
                     terms = self.base_env.termination_manager
@@ -949,6 +1005,16 @@ class PolicyEvaluator:
                     )
                     peak_action_clipping[env_ids, episode_ids] = current_peak_action_clipping[env_ids]
                     peak_applied_torque_norm_nm[env_ids, episode_ids] = current_peak_applied_torque[env_ids]
+                    mean_tracking_error_norm_rad[env_ids, episode_ids] = (
+                        current_tracking_error_sum[env_ids] / current_steps[env_ids]
+                    )
+                    peak_tracking_error_norm_rad[env_ids, episode_ids] = current_peak_tracking_error[env_ids]
+                    mean_reference_projection_norm_rad[env_ids, episode_ids] = (
+                        current_reference_projection_sum[env_ids] / current_steps[env_ids]
+                    )
+                    peak_reference_projection_norm_rad[env_ids, episode_ids] = (
+                        current_peak_reference_projection[env_ids]
+                    )
 
                     completed[env_ids] += 1
                     current_steps[dones] = 0
@@ -971,6 +1037,10 @@ class PolicyEvaluator:
                     current_clipping_steps[dones] = 0.0
                     current_peak_action_clipping[dones] = 0.0
                     current_peak_applied_torque[dones] = 0.0
+                    current_tracking_error_sum[dones] = 0.0
+                    current_peak_tracking_error[dones] = 0.0
+                    current_reference_projection_sum[dones] = 0.0
+                    current_peak_reference_projection[dones] = 0.0
 
                     # env.step() has reset done environments, so this now
                     # reads each environment's next command.
@@ -1041,6 +1111,10 @@ class PolicyEvaluator:
             action_clipping_fraction=action_clipping_fraction,
             peak_action_clipping=peak_action_clipping,
             peak_applied_torque_norm_nm=peak_applied_torque_norm_nm,
+            mean_tracking_error_norm_rad=mean_tracking_error_norm_rad,
+            peak_tracking_error_norm_rad=peak_tracking_error_norm_rad,
+            mean_reference_projection_norm_rad=mean_reference_projection_norm_rad,
+            peak_reference_projection_norm_rad=peak_reference_projection_norm_rad,
             domain_parameters=domain_parameters,
             interrupted=interrupted,
         )
@@ -1130,6 +1204,10 @@ class PolicyEvaluator:
         action_clipping_fraction: torch.Tensor,
         peak_action_clipping: torch.Tensor,
         peak_applied_torque_norm_nm: torch.Tensor,
+        mean_tracking_error_norm_rad: torch.Tensor,
+        peak_tracking_error_norm_rad: torch.Tensor,
+        mean_reference_projection_norm_rad: torch.Tensor,
+        peak_reference_projection_norm_rad: torch.Tensor,
         domain_parameters: dict[str, torch.Tensor],
         interrupted: bool,
     ) -> EvaluationResults:
@@ -1182,6 +1260,10 @@ class PolicyEvaluator:
             action_clipping_fraction=(action_clipping_fraction[recorded].cpu()),
             peak_action_clipping=peak_action_clipping[recorded].cpu(),
             peak_applied_torque_norm_nm=(peak_applied_torque_norm_nm[recorded].cpu()),
+            mean_tracking_error_norm_rad=(mean_tracking_error_norm_rad[recorded].cpu()),
+            peak_tracking_error_norm_rad=(peak_tracking_error_norm_rad[recorded].cpu()),
+            mean_reference_projection_norm_rad=(mean_reference_projection_norm_rad[recorded].cpu()),
+            peak_reference_projection_norm_rad=(peak_reference_projection_norm_rad[recorded].cpu()),
             domain_parameters={name: values[recorded].cpu() for name, values in domain_parameters.items()},
             metadata={
                 "checkpoint": str(checkpoint_path),
@@ -1213,6 +1295,8 @@ class PolicyEvaluator:
                 "command_difference": "L2 norm of consecutive physical held joint-position commands",
                 "action_clipping": "maximum amount outside normalized [-1, 1] before clipping",
                 "applied_torque": "L2 norm of the 1 kHz peak absolute per-joint torque vector",
+                "tracking_error": "L2 norm of measured joint position minus the held seven-joint reference",
+                "reference_projection": "L2 norm removed from the six-joint increment by soft-limit projection",
                 "threshold_overshoot": ("maximum distance outside the success radius after first entering it"),
                 "device": str(self.device),
                 "deterministic": self.config.deterministic,

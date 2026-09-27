@@ -130,7 +130,14 @@ class EvaluationSuiteCoordinator:
                             self._target_sets[seed]["sha256"] if seed in self._target_sets else None
                         ),
                         "seed": seed,
-                        "evaluation": asdict(self.config.evaluation),
+                        "evaluation": {
+                            **asdict(self.config.evaluation),
+                            "path_file": (
+                                str(self.config.evaluation.path_file)
+                                if self.config.evaluation.path_file is not None
+                                else None
+                            ),
+                        },
                     }
                     digest = hashlib.sha256(
                         json.dumps(descriptor, sort_keys=True, separators=(",", ":")).encode()
@@ -231,6 +238,10 @@ class EvaluationSuiteCoordinator:
             command.append("--deterministic")
         if self.config.scenario_file is not None:
             command.extend(("--scenario-file", str(self.config.scenario_file)))
+        if evaluation.path_name is not None:
+            command.extend(("--path", evaluation.path_name))
+        if evaluation.path_file is not None:
+            command.extend(("--path-file", str(evaluation.path_file)))
         if job.target_set_path is not None:
             command.extend(("--target-set", str(job.target_set_path)))
         return command

@@ -1,0 +1,23 @@
+version: 1
+status: simulation_candidates_not_motion_authorized
+contract_id: fr3_incremental_position_29d_v1
+policies:
+  position_nominal:
+    bundle: /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/fr3_incremental_6d_position_nominal_model149_v2
+    manifest_sha256: 9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd
+    checkpoint_sha256: 7568e71a26e981eeefca50f808f2bfd526c42a900a48884071e0afa54318ca37
+    pytorch_onnx_max_abs_error: 1.8477439880371094e-06
+    parity_vectors: 1024
+    transfer_archive: /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/transfer_2026-09-27/fr3_incremental_6d_position_nominal_model149_v2.tar.gz
+    transfer_archive_sha256: 979677ba20d755873c4c779751b6779b405a54fdad1c50ba56bef0050bb1f92d
+    policy_onnx_sha256: b60b3af8e8dcca1650789a406f67d114cd094a0ed1d2fa36154702917ead605a
+  position_dr:
+    bundle: /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/fr3_incremental_6d_position_dr_model199_v2
+    manifest_sha256: 34895a6f0e479e62a72f57678e820473d8f5a350255c1b68a9575700b6378788
+    checkpoint_sha256: a0f844c0fc702f79b6c3291c67eaf2294ce2750aaf4af9cc190089537d85420b
+    pytorch_onnx_max_abs_error: 2.294778823852539e-06
+    parity_vectors: 1024
+    transfer_archive: /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/transfer_2026-09-27/fr3_incremental_6d_position_dr_model199_v2.tar.gz
+    transfer_archive_sha256: b21eba9c3321f3c25f501c2c4f7c98b2c13e31297293437b03f7721f3d633949
+    policy_onnx_sha256: 0f600d9662bdfa662814bbd4e2fb16f2b3efe4ec0f3b237d207b3aa827ed6972
+transfer_note: Replace workstation-absolute bundle paths after copying; preserve and verify manifest hashes.

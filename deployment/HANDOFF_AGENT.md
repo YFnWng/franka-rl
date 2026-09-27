@@ -845,3 +845,55 @@ The simulation workstation's next deliverable is:
 The original `circle_yz` at radius 0.15 m may remain a later expansion target.
 The first hardware catalog must be chosen from simulation evidence and a separate
 swept-workspace review.
+
+## 2026-09-27 simulation-workstation implementation response
+
+The requested 29D position-policy packaging and calibration infrastructure is
+implemented. The transfer index is
+deployment/config/fr3_position_policy_bundles_v1.yaml; its two final v2
+bundles include deterministic tanh, versioned FR3 contract
+fr3_incremental_position_29d_v1, checkpoint/config/source hashes, source
+snapshots, and 1,024 PyTorch/CPU-ONNX parity vectors. Their manifest trust
+anchors are:
+
+- nominal model 149: 9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd
+- position-DR model 199: 34895a6f0e479e62a72f57678e820473d8f5a350255c1b68a9575700b6378788
+
+The immutable YZ candidate grid is
+deployment/path_catalogs/yz_circle_candidates_v1.yaml, SHA-256
+b78b6fa5bbc788f471464c48edefee3d29c5ea0f4cab06c5a7f6d65cae067cae.
+The evaluator and suite coordinator accept an explicit path_file, so the
+catalog path/hash is preserved in artifacts. The nine-path coordinator input is
+deployment/config/yz_circle_calibration_v1.yaml; exact-home K=50/100/200
+nominal/DR scenarios are in
+deployment/config/fr3_hardware_calibration_scenarios_v1.yaml. Point
+qualification uses deployment/config/fr3_point_hardware_calibration_v1.yaml.
+Artifacts now include measured-reference tracking error and soft-limit
+reference projection in addition to the previously recorded path, velocity,
+joint-margin, torque, and action-clipping metrics.
+
+The measured effective shadow-runtime delay is still missing. The calibration
+scenario file therefore declares a provisional zero-step delay. Replace this
+with the measured value and rerun before treating results as final evidence.
+No YZ radius is selected yet, and no motion is authorized. See
+deployment/YZ_CIRCLE_CALIBRATION_STATUS.md for remaining blockers.
+
+An end-to-end four-environment smoke run of circle_yz_r050_t1 at nominal K=100
+validated the new artifact path. All four trials timed out only on the initial
+0.191 m lead-in waypoint and then reached the other 23 waypoints; there were no
+unsafe failures. This confirms that the 1 s first-waypoint deadline is a real
+experimental factor, not a catalog or state-machine bug. It is pipeline evidence
+only and does not select the hardware path.
+
+## 2026-09-27 transfer-ready closure
+
+The workstation phase is now wrapped for transfer. Use
+deployment/FR3_REALTIME_TRANSFER_HANDOFF.md as the authoritative receiving
+checklist. Transfer both complete v2 position-policy bundle archives (nominal
+and DR), not standalone ONNX files. The document records archive, manifest, and
+policy hashes and assigns all remaining fake/shadow/path/timing work to the
+real-time machine. Raw PyTorch checkpoints stay on the training workstation.
+
+The current 31D z-axis policy is explicitly excluded. Neither transferred
+bundle is motion-authorized; receipt and parity verification do not constitute
+approval to move the robot.

@@ -118,6 +118,8 @@ class EvaluationStateMetrics(ManagerTermBase):
         self.command_difference_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.action_clipping = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.applied_torque_norm_nm = torch.full((self.num_envs,), float("nan"), device=self.device)
+        self.tracking_error_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
+        self.reference_projection_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
         self._never_done = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
@@ -170,6 +172,8 @@ class EvaluationStateMetrics(ManagerTermBase):
             self.command_difference_norm_rad.fill_(float("nan"))
             self.action_clipping.fill_(float("nan"))
             self.applied_torque_norm_nm.fill_(float("nan"))
+            self.tracking_error_norm_rad.fill_(float("nan"))
+            self.reference_projection_norm_rad.fill_(float("nan"))
         else:
             action = env.action_manager.get_term(action_name)
             command_difference = getattr(action, "command_difference", None)
@@ -187,6 +191,21 @@ class EvaluationStateMetrics(ManagerTermBase):
                 self.applied_torque_norm_nm.fill_(float("nan"))
             else:
                 self.applied_torque_norm_nm.copy_(torch.linalg.vector_norm(applied_torque, dim=1))
+            mapped_target = getattr(action, "_mapped_target", None)
+            if mapped_target is None:
+                self.tracking_error_norm_rad.fill_(float("nan"))
+            else:
+                measured = robot.data.joint_pos.torch[:, joint_asset_cfg.joint_ids]
+                self.tracking_error_norm_rad.copy_(
+                    torch.linalg.vector_norm(measured - mapped_target, dim=1)
+                )
+            projection = getattr(action, "reference_projection", None)
+            if projection is None:
+                self.reference_projection_norm_rad.fill_(float("nan"))
+            else:
+                self.reference_projection_norm_rad.copy_(
+                    torch.linalg.vector_norm(projection, dim=1)
+                )
 
         return self._never_done
 

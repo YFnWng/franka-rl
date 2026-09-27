@@ -1,0 +1,27 @@
+version: 1
+name: fr3_point_hardware_calibration_v1
+policies:
+  position_nominal:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt
+  position_dr:
+    checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_23-42-59_fr3_incremental_6d_position_dr_v1_recovered/model_199.pt
+scenarios: [hw_nominal_k050, hw_nominal_k100, hw_nominal_k200, hw_dr_k050, hw_dr_k100, hw_dr_k200]
+seeds: [123]
+evaluation:
+  task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+  num_envs: 128
+  episodes_per_job: 512
+  success_threshold: 0.01
+  success_steps: 5
+  device: cuda:0
+  deterministic: true
+  visualizer: none
+  target_replay:
+    enabled: true
+    position_ranges:
+      x: [0.35, 0.60]
+      y: [-0.20, 0.20]
+      z: [0.20, 0.50]
+    extra_episodes_per_env: 32
+baseline_policy: position_nominal
+scenario_file: fr3_hardware_calibration_scenarios_v1.yaml
