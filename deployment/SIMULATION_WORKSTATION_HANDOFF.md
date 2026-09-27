@@ -1,10 +1,35 @@
 # Simulation workstation handoff: velocity-reference impedance PPO
 
-**Status:** ready for workstation implementation and training. This document is
+**Status:** position-only nominal policy trained and exported; receiving-machine qualification pending. This document is
 the canonical next-step contract. It supersedes the earlier custom jerk-limited
 governor proposal and the experimental Franky/Ruckig position-policy adapter.
 Neither the existing position-policy ONNX bundles nor the Ruckig adapter should
 be reused for this training generation.
+
+## Workstation implementation status — 2026-09-27
+
+The parallel simulation route is implemented without changing the completed
+incremental-position tasks:
+
+- training task: `Franka-FR3v2-FrankyVelocityImpedance-Reach-v0`
+- path task: `Franka-FR3v2-FrankyVelocityImpedance-CirclePath-v0`
+- action: `FrankyVelocityReference6DImpedanceAction`
+- bundle contract: `fr3_joint_velocity_impedance_29d_v1`
+
+The task integrates `q_ref` and projects soft limits at every 1 ms controller
+tick, supplies `dq_ref` to the damping term, holds joint 7 at its reset
+reference, and automatically installs the required one-policy-step delay in the
+training and evaluation scripts unless a scenario explicitly overrides it.
+The old position-reference controller retains a zero velocity-reference default.
+
+A four-environment, one-iteration Isaac/RSL-RL smoke run completed with a 29D
+observation, six-action actor, finite rewards, and the delay recorded as
+`source: task_contract`. The complete deployment unit suite passed (34 tests).
+A temporary smoke checkpoint also exported and independently verified as a
+schema-2 ONNX bundle over 64 parity vectors (maximum absolute error
+`1.49e-08`). This validates workstation integration only; production policy
+training, path evaluation, a production bundle, native parity, and hardware
+commissioning remain outstanding.
 
 ## Objective
 
@@ -218,3 +243,49 @@ build the patched Franky wheel in a separate environment, verify the returned
 bundle, run fake and FCI shadow sessions, create a new reviewed motion YAML, and
 commission a reduced initial approach before attempting one `circle_yz`
 traversal.
+
+
+## Workstation return — 2026-09-27
+
+The selected position-only velocity policy is model 149 from run
+`2026-09-27_17-35-37_fr3_velocity_impedance_accel_objective_v2`. Its checkpoint
+SHA-256 is `9b013893830353108534f5d388f308dde6031db0c640e263719febc47f18f01a`.
+Do not substitute either position-plus-z-axis experiment: those policies retained
+roughly 7 cm deterministic position error and are deferred.
+
+Transfer the complete immutable bundle directory
+`fr3_velocity_impedance_position_only_nominal_model149_v1`. Trust anchors:
+
+- manifest: `8d19cb788f43530241dffba708cb47ca964e469ecaa085a51bb4ddc09cb5982c`
+- ONNX actor: `d7c888a926a8ccdd7557880c2926b12f480f6e187fb0fdf492da798776421ef2`
+- policy contract: `d191cca5d5d65de29516c6a7787079f2db2300d33a22712d586455a3e135fe60`
+- native/ONNX parity: 1,024 vectors, maximum absolute error `6.780028343200684e-7`
+
+The contract is schema 2, `fr3_joint_velocity_impedance_29d_v1`, deterministic
+tanh input `[batch,29]` and output `[batch,6]`, 50 Hz actor, 1 kHz integration,
+one policy-step delay, K=100/D=20, J1--J6 normalized velocity action and held J7.
+
+Random-point evaluation passed 5,120/5,120 episodes with no unsafe failure,
+mean final error 0.0241 m and mean success time 2.224 s. Final `circle_yz`
+qualification did **not** pass: 0/16 complete paths, all 16 eventually terminated
+on the simulated joint-position limit after a mean 5.94/24 waypoints. Motion was
+visually smooth, but smoothness is not path qualification. Therefore the bundle
+is released only for offline verification, fake backend, no-motion FCI shadow,
+and a separately reviewed reduced point-to-point commissioning trial. Do not
+approve a full circle traversal from this evidence. Hardware timeout handling
+must remain abort-on-timeout and all faults terminal.
+
+Full workstation evidence:
+
+- random point: data-root `evaluations/2026-09-27_17-43-28-360600_nominal`
+  (`summary.json` SHA-256 `7c94b6d5cefa08116d0c3ec78d2df12b9a6cecfa772a62f4c6796d932e618ed7`)
+- circle: data-root `evaluations/2026-09-27_velocity_position_only_circle_yz_handoff_v1`
+  (`summary.json` SHA-256 `1b3f02408a33bbdc3162e8e5cf1a903159fd307f79cc6a46a50b62a687a8f21c`)
+- active path catalog SHA-256:
+  `39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69`
+
+Receiving gates are: verify the trusted bundle manifest and C++ fixtures; pass
+fake-backend lifecycle, delay, reset, watchdog and terminal-fault tests; pass a
+no-motion FCI shadow using measured-joint libfranka flange FK; then prepare one
+immutable reduced point-to-point YAML for separate lab review and motion
+authorization. This handoff itself authorizes no robot motion.

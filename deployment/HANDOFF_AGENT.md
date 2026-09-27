@@ -1242,3 +1242,31 @@ shape is `deployment/franky_runtime/config/ppo_velocity_impedance_path.pending.y
 The current position-policy bundles are rejected by this contract; the
 simulation workstation must train/export a matching velocity-policy bundle
 before fake, shadow, or hardware qualification.
+
+
+## 2026-09-27 position-only velocity-policy workstation return
+
+The matching bundle is now available. The selected checkpoint is model 149 from
+`2026-09-27_17-35-37_fr3_velocity_impedance_accel_objective_v2`; checkpoint
+SHA-256 is `9b013893830353108534f5d388f308dde6031db0c640e263719febc47f18f01a`.
+Transfer the complete bundle directory
+`fr3_velocity_impedance_position_only_nominal_model149_v1`. Its trusted manifest
+SHA-256 is `8d19cb788f43530241dffba708cb47ca964e469ecaa085a51bb4ddc09cb5982c`;
+the ONNX SHA-256 is
+`d7c888a926a8ccdd7557880c2926b12f480f6e187fb0fdf492da798776421ef2`.
+It passed 1,024 native/ONNX vectors at maximum absolute error `6.78e-7`.
+
+The bundle is position-only contract `fr3_joint_velocity_impedance_29d_v1`:
+29 observations, six normalized J1--J6 velocity actions, held J7, 50 Hz policy,
+1 kHz q-reference integration, fixed one-step delay, and nominal K=100/D=20.
+Do not substitute the deferred 31D position-plus-z-axis experiments.
+
+Random-point evaluation passed 5,120/5,120 episodes without unsafe failures.
+However, the final 16-episode `circle_yz` qualification completed 0/16 paths;
+every environment eventually hit the simulated joint-position termination after
+a mean 5.94 waypoints. Therefore this return supports bundle verification,
+fake-backend testing, no-motion FCI shadow, and preparation of a separately
+reviewed reduced point-to-point commissioning YAML only. It does not authorize
+a full circle or any physical motion. Keep abort-on-timeout and terminal faults.
+Canonical details, evidence paths, and receiving gates are in the updated
+`SIMULATION_WORKSTATION_HANDOFF.md`.

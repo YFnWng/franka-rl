@@ -59,6 +59,39 @@ def _git_metadata() -> dict[str, str | bool | None]:
     return {"root": str(repo_root), "revision": revision, "dirty": dirty}
 
 
+def prime_vector_env_auto_reset(
+    env,
+    base_env,
+    reset_policy: Callable[[torch.Tensor], None] | None = None,
+    *,
+    action_name: str = "arm_action",
+):
+    """Force one unrecorded timeout and return its auto-reset observation.
+
+    This primes Isaac Lab through the same in-step reset transition used
+    between recorded episodes. The reset-safe action is routed through all
+    runtime wrappers, including the configured policy delay.
+    """
+
+    action_term = base_env.action_manager.get_term(action_name)
+    if not hasattr(action_term, "delay_fill_action"):
+        raise ValueError(
+            f"Action term {action_name!r} does not expose a reset-safe delay_fill_action."
+        )
+    if base_env.max_episode_length < 1:
+        raise ValueError("Environment max_episode_length must be positive.")
+
+    base_env.episode_length_buf.fill_(base_env.max_episode_length - 1)
+    reset_action = action_term.delay_fill_action.clone()
+    observations, _, dones, _ = env.step(reset_action)
+    dones = dones.bool()
+    if not torch.all(dones):
+        raise RuntimeError("Startup auto-reset primer did not terminate every environment.")
+    if reset_policy is not None:
+        reset_policy(dones)
+    return observations
+
+
 @dataclass(frozen=True)
 class EvaluationConfig:
     num_episodes: int
@@ -80,6 +113,7 @@ class EvaluationConfig:
     z_axis_threshold_rad: float | None = None
     real_time: bool = False
     deterministic: bool = False
+    startup_auto_reset_prime: bool = False
 
     def __post_init__(self):
         if self.num_episodes <= 0:
@@ -90,6 +124,8 @@ class EvaluationConfig:
             raise ValueError("success_steps must be positive.")
         if self.z_axis_threshold_rad is not None and self.z_axis_threshold_rad <= 0.0:
             raise ValueError("z_axis_threshold_rad must be positive when provided.")
+        if not isinstance(self.startup_auto_reset_prime, bool):
+            raise TypeError("startup_auto_reset_prime must be boolean.")
 
 
 @dataclass
@@ -766,6 +802,12 @@ class PolicyEvaluator:
         obs, _ = self.env.reset()
         if self.reset_policy is not None:
             self.reset_policy(torch.ones(self.num_envs, dtype=torch.bool, device=self.device))
+        if self.config.startup_auto_reset_prime:
+            obs = prime_vector_env_auto_reset(
+                self.env,
+                self.base_env,
+                self.reset_policy,
+            )
 
         # Save the target before stepping. On termination, Isaac Lab may
         # already have reset the environment and sampled its next target.

@@ -390,7 +390,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "joint_velocity": robot.data.joint_vel.torch[:, initial_joint_ids],
             }
 
-        action_delay_steps = scenario.control.action_delay_steps or 0
+        action_delay_steps = scenario.control.action_delay_steps
+        delay_source = "scenario"
+        if action_delay_steps is None:
+            action_delay_steps = int(getattr(env.unwrapped.cfg, "required_action_delay_steps", 0))
+            delay_source = "task_contract"
         if action_delay_steps:
             from franka_rl.utils.action_delay import (
                 FixedActionDelayWrapper,
@@ -405,6 +409,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             )
             scenario_metadata["runtime_control"] = {
                 "action_delay_steps": action_delay_steps,
+                "source": delay_source,
                 "initial_action": (
                     "action_term_reset_command" if delay_fill_provider is not None else "zero"
                 ),
@@ -492,6 +497,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 policy_nn = runner.alg.actor_critic
             reset_policy = policy_nn.reset
 
+        # The primer must not advance deterministic replay cursors. Paired
+        # target/state evaluations retain their existing explicit-reset path.
+        startup_auto_reset_prime = bool(
+            getattr(env.unwrapped.cfg, "evaluation_startup_auto_reset_prime", False)
+        )
+        if startup_auto_reset_prime and args_cli.target_set is not None:
+            startup_auto_reset_prime = False
+            initialization_reason = "disabled_for_paired_target_replay"
+        else:
+            initialization_reason = "task_contract"
+        scenario_metadata["runtime_initialization"] = {
+            "mode": "unrecorded_timeout_auto_reset",
+            "enabled": startup_auto_reset_prime,
+            "source": initialization_reason,
+        }
+
         # initialize evaluator
         evaluation_cfg = EvaluationConfig(
             job_id=args_cli.job_id,
@@ -511,6 +532,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             path=path_metadata,
             real_time=args_cli.real_time,
             deterministic=args_cli.deterministic,
+            startup_auto_reset_prime=startup_auto_reset_prime,
         )
 
         evaluator = PolicyEvaluator(

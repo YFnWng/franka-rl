@@ -1,8 +1,13 @@
 """Robot variant isolation and flange-relative payload scenario tests."""
 
+import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import jsonschema
 import pytest
+import torch
 from franka_rl.tasks.manager_based.franka_impedance.impedance_env_cfg import Fr3FrankyImpedanceEnvCfg
 from franka_rl.tasks.manager_based.franka_impedance.rsl_rl_impedance_ppo_cfg import (
     HOME_ACTION,
@@ -20,10 +25,20 @@ from franka_rl.tasks.manager_based.franka_rl import mdp
 from franka_rl.tasks.manager_based.franka_rl.fr3_env_cfg import Fr3BareFlangeEnvCfg
 from franka_rl.tasks.manager_based.franka_rl.franka_rl_env_cfg import FrankaRlEnvCfg
 from franka_rl.tasks.manager_based.franka_velocity.velocity_env_cfg import Fr3JointVelocityEnvCfg
+from franka_rl.tasks.manager_based.franka_velocity_impedance.rsl_rl_velocity_impedance_ppo_cfg import (
+    VelocityImpedancePPORunnerCfg,
+)
+from franka_rl.tasks.manager_based.franka_velocity_impedance.velocity_impedance_env_cfg import (
+    Fr3FrankyVelocityImpedanceCirclePathEnvCfg,
+    Fr3FrankyVelocityImpedanceEnvCfg,
+)
 from franka_rl.tasks.manager_based.franka_z_axis_tracking.z_axis_env_cfg import (
     Fr3FrankyIncremental6DPositionZAxisEnvCfg,
 )
 from franka_rl.utils.scenarios import ScenarioCatalog, ScenarioModifier
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "deployment"))
+from franka_policy_bundle.contract import extract_contract
 
 
 @pytest.fixture
@@ -172,6 +187,80 @@ def test_incremental_6d_task_removes_joint_7_and_adds_fine_reward(tmp_path, monk
     assert tuple(distribution.initial_action) == (0.0,) * 6
     assert distribution.init_std == pytest.approx(0.50)
     assert runner.experiment_name == "fr3_incremental_6d_impedance_reach"
+
+
+def test_velocity_impedance_task_has_parallel_29d_contract_and_circle_path(tmp_path, monkeypatch):
+    asset = tmp_path / "test.usda"
+    asset.write_text("#usda 1.0\n")
+    monkeypatch.setenv("FRANKA_RL_FR3_USD", str(asset))
+    cfg = Fr3FrankyVelocityImpedanceEnvCfg()
+
+    assert cfg.control_contract == "fr3_joint_velocity_impedance_29d_v1"
+    assert cfg.required_action_delay_steps == 1
+    assert cfg.evaluation_startup_auto_reset_prime is True
+    assert cfg.sim.dt == pytest.approx(0.001)
+    assert cfg.decimation == 20
+    assert cfg.actions.arm_action.class_type.endswith(":FrankyVelocityReference6DImpedanceAction")
+    assert cfg.actions.arm_action.max_reference_velocity == pytest.approx(
+        (0.435, 0.435, 0.435, 0.435, 0.522, 0.522)
+    )
+    assert cfg.actions.arm_action.max_reference_acceleration == pytest.approx(
+        (3.0, 1.5, 2.0, 2.5, 3.0, 3.0)
+    )
+    assert cfg.observations.policy.previous_increment_action is None
+    assert cfg.observations.policy.previous_velocity_action.func is mdp.normalized_joint_velocity_action
+    assert cfg.observations.policy.position_reference.func is mdp.normalized_position_reference
+    assert cfg.rewards.reference_acceleration.func is mdp.normalized_reference_acceleration_l2
+    assert cfg.rewards.reference_acceleration.weight == pytest.approx(-1.0e-2)
+    assert (
+        cfg.rewards.reference_acceleration_excess.func
+        is mdp.normalized_reference_acceleration_excess_l2
+    )
+    assert cfg.rewards.reference_acceleration_excess.weight == pytest.approx(-5.0e-4)
+
+    runner = VelocityImpedancePPORunnerCfg()
+    assert tuple(runner.actor.distribution_cfg.initial_action) == (0.0,) * 6
+    assert runner.experiment_name == "fr3_velocity_impedance_reach"
+    contract = extract_contract(cfg.to_dict(), runner.to_dict())
+    schema = json.loads(
+        (Path(__file__).resolve().parents[2] / "deployment/schemas/policy_contract.schema.json").read_text()
+    )
+    jsonschema.validate(contract, schema)
+    assert contract["schema_version"] == 2
+    assert contract["contract_id"] == "fr3_joint_velocity_impedance_29d_v1"
+    assert contract["observation"]["size"] == 29
+    assert contract["action"]["type"] == "normalized_joint_velocity"
+    assert contract["action"]["integration"] == "controller_1khz_forward_euler"
+    assert "max_position_increment_rad" not in contract["action"]
+
+    path_cfg = Fr3FrankyVelocityImpedanceCirclePathEnvCfg()
+    assert path_cfg.path_name == "circle_yz"
+    assert path_cfg.evaluation_protocol == "waypoint_path"
+    assert path_cfg.commands.ee_pose.first_waypoint_timeout_s > path_cfg.commands.ee_pose.waypoint_timeout_s
+
+
+def test_velocity_reference_acceleration_excess_is_zero_inside_envelope_and_not_dimension_diluted():
+    limits = torch.tensor([[3.0, 1.5, 2.0, 2.5, 3.0, 3.0]])
+    accelerations = torch.tensor(
+        [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 2.87],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 14.355],
+        ]
+    )
+    action = SimpleNamespace(
+        reference_velocity=accelerations * 0.02,
+        previous_reference_velocity=torch.zeros_like(accelerations),
+        max_reference_acceleration=limits,
+    )
+    env = SimpleNamespace(
+        step_dt=0.02,
+        action_manager=SimpleNamespace(get_term=lambda _: action),
+    )
+
+    cost = mdp.normalized_reference_acceleration_excess_l2(env)
+
+    assert cost[0] == pytest.approx(0.0)
+    assert cost[1] == pytest.approx((14.355 / 3.0 - 1.0) ** 2)
 
 
 def test_impedance_dr_scenarios_match_position_and_z_axis_observations(tmp_path, monkeypatch):

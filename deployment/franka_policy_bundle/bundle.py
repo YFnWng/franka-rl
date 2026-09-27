@@ -273,6 +273,14 @@ def export(checkpoint, output, recorded_observations=None, seed=123, count=1024)
             "source/franka_rl/franka_rl/tasks/manager_based/franka_rl/mdp/rewards.py",
             "source/franka_rl/franka_rl/utils/rsl_rl_distributions.py",
         ]
+        if c.get("contract_id") == "fr3_joint_velocity_impedance_29d_v1":
+            source_snapshot.extend(
+                [
+                    "source/franka_rl/franka_rl/tasks/manager_based/franka_velocity_impedance/velocity_impedance_env_cfg.py",
+                    "source/franka_rl/franka_rl/tasks/manager_based/franka_velocity_impedance/rsl_rl_velocity_impedance_ppo_cfg.py",
+                    "source/franka_rl/franka_rl/tasks/manager_based/franka_rl/mdp/impedance_controller.py",
+                ]
+            )
         for relative_name in source_snapshot:
             source = repo / relative_name
             require(source.is_file(), f"Source snapshot file missing: {relative_name}")

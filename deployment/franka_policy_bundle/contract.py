@@ -26,12 +26,26 @@ FR3_INCREMENTAL_POSITION_OBSERVATION_LAYOUT = [
     },
 ]
 
+FR3_VELOCITY_IMPEDANCE_OBSERVATION_LAYOUT = [
+    {"start": 0, "stop": 7, "expression": "q_measured - q_default", "unit": "rad"},
+    {"start": 7, "stop": 14, "expression": "dq_measured", "unit": "rad/s"},
+    {"start": 14, "stop": 17, "expression": "target_base - fr3_flange_base", "unit": "m"},
+    {"start": 17, "stop": 23, "expression": "q_reference_normalized", "unit": "unitless"},
+    {
+        "start": 23,
+        "stop": 29,
+        "expression": "previous_normalized_joint_velocity",
+        "unit": "unitless",
+    },
+]
+
 # Backward-compatible public name used by older tests/importers.
 OBSERVATION_LAYOUT = PANDA_OBSERVATION_LAYOUT
 
 FR3_JOINT_NAMES = [f"fr3_joint{i}" for i in range(1, 8)]
 FR3_SIM_JOINT_NAMES = [f"panda_joint{i}" for i in range(1, 8)]
 FR3_CONTRACT_ID = "fr3_incremental_position_29d_v1"
+FR3_VELOCITY_CONTRACT_ID = "fr3_joint_velocity_impedance_29d_v1"
 
 
 class TrainingLoader(yaml.SafeLoader):
@@ -151,15 +165,17 @@ def _extract_panda_contract(env, agent):
             clip=None,
         ),
         frames=dict(base="panda_link0", tracked_body="panda_hand"),
-        target_workspace_m={axis: ranges[f"pos_{axis}"] for axis in "xyz"},
+        target_workspace_m={axis: list(ranges[f"pos_{axis}"]) for axis in "xyz"},
         deployment_observation_noise=False,
     )
 
 
 def _extract_fr3_incremental_contract(env, agent):
     _validate_actor(agent, squashed=True)
+    is_velocity = env.get("control_contract") == FR3_VELOCITY_CONTRACT_ID
     require(
-        env.get("control_contract") == "fr3_franky_incremental_6d_joint_impedance_v1",
+        is_velocity
+        or env.get("control_contract") == "fr3_franky_incremental_6d_joint_impedance_v1",
         "Unsupported FR3 control contract",
     )
     require(env["sim"]["dt"] == 0.001 and env["decimation"] == 20, "FR3 policy must use 1 kHz/50 Hz timing")
@@ -170,7 +186,7 @@ def _extract_fr3_incremental_contract(env, agent):
         "joint_vel_rel",
         "ee_position_error",
         "position_reference",
-        "previous_increment_action",
+        "previous_velocity_action" if is_velocity else "previous_increment_action",
     ]
     require(terms == expected, f"Unexpected FR3 observation ordering: {terms}")
     require(policy["concatenate_terms"] and not policy.get("history_length"), "Unsupported FR3 observation history")
@@ -179,7 +195,7 @@ def _extract_fr3_incremental_contract(env, agent):
         "joint_vel_rel",
         "ee_position_error_b",
         "normalized_position_reference",
-        "incremental_position_action",
+        "normalized_joint_velocity_action" if is_velocity else "incremental_position_action",
     ]
     for name, function in zip(terms, functions, strict=True):
         _validate_term(policy[name], function, name)
@@ -197,7 +213,11 @@ def _extract_fr3_incremental_contract(env, agent):
     require(list(env["actions"]) == ["arm_action"], "Additional FR3 actions unsupported")
     action = env["actions"]["arm_action"]
     require(
-        action["class_type"].endswith(":FrankyIncremental6DImpedanceAction")
+        action["class_type"].endswith(
+            ":FrankyVelocityReference6DImpedanceAction"
+            if is_velocity
+            else ":FrankyIncremental6DImpedanceAction"
+        )
         and action["joint_names"] == FR3_SIM_JOINT_NAMES
         and action["preserve_order"] is True
         and action["clip"] is None,
@@ -216,44 +236,56 @@ def _extract_fr3_incremental_contract(env, agent):
     require(all(value == 0 for value in init["joint_vel"].values()), "Nonzero FR3 default velocity")
     ranges = env["commands"]["ee_pose"]["ranges"]
     max_velocity = [float(value) for value in action["max_reference_velocity"]]
-    max_increment = [value * 0.02 for value in max_velocity]
+    contract_id = FR3_VELOCITY_CONTRACT_ID if is_velocity else FR3_CONTRACT_ID
+    observation_layout = (
+        FR3_VELOCITY_IMPEDANCE_OBSERVATION_LAYOUT
+        if is_velocity
+        else FR3_INCREMENTAL_POSITION_OBSERVATION_LAYOUT
+    )
+    previous_action = (
+        "bounded_normalized_joint_velocity"
+        if is_velocity
+        else "bounded_normalized_position_increment"
+    )
+    action_contract = dict(
+        type="normalized_joint_velocity" if is_velocity else "normalized_position_increment",
+        size=6,
+        dtype="float32",
+        inference="deterministic_tanh",
+        normalized_bounds=[-1.0, 1.0],
+        integration="controller_1khz_forward_euler" if is_velocity else "forward_euler",
+        initial_reference="measured_start_position",
+        controlled_joint_names=FR3_JOINT_NAMES[:6],
+        held_joint_names=FR3_JOINT_NAMES[6:],
+        max_reference_velocity_rad_s=max_velocity,
+        soft_limit_projection=True,
+        soft_lower_rad=[float(value) for value in action["soft_lower"]],
+        soft_upper_rad=[float(value) for value in action["soft_upper"]],
+    )
+    if not is_velocity:
+        action_contract["max_position_increment_rad"] = [value * 0.02 for value in max_velocity]
     return dict(
         schema_version=2,
-        contract_id=FR3_CONTRACT_ID,
+        contract_id=contract_id,
         robot_model="fr3",
         robot_description="fr3v2.1_bare_flange",
         joint_names=FR3_JOINT_NAMES,
         default_joint_position_rad=[init["joint_pos"][name] for name in FR3_SIM_JOINT_NAMES],
         default_joint_velocity_rad_s=[0.0] * 7,
         policy_period_s=0.02,
-        observation_layout=FR3_INCREMENTAL_POSITION_OBSERVATION_LAYOUT,
+        observation_layout=observation_layout,
         observation=dict(
             size=29,
             dtype="float32",
             terms=expected,
             normalization=False,
-            previous_action="bounded_normalized_position_increment",
+            previous_action=previous_action,
             reset_previous_action=[0.0] * 6,
             reference_initialization="measured_start_position",
         ),
-        action=dict(
-            type="normalized_position_increment",
-            size=6,
-            dtype="float32",
-            inference="deterministic_tanh",
-            normalized_bounds=[-1.0, 1.0],
-            integration="forward_euler",
-            initial_reference="measured_start_position",
-            controlled_joint_names=FR3_JOINT_NAMES[:6],
-            held_joint_names=FR3_JOINT_NAMES[6:],
-            max_reference_velocity_rad_s=max_velocity,
-            max_position_increment_rad=max_increment,
-            soft_limit_projection=True,
-            soft_lower_rad=[float(value) for value in action["soft_lower"]],
-            soft_upper_rad=[float(value) for value in action["soft_upper"]],
-        ),
+        action=action_contract,
         frames=dict(base="fr3_link0", tracked_body="fr3_flange"),
-        target_workspace_m={axis: ranges[f"pos_{axis}"] for axis in "xyz"},
+        target_workspace_m={axis: list(ranges[f"pos_{axis}"]) for axis in "xyz"},
         deployment_observation_noise=False,
         controller=dict(
             nominal_stiffness_nm_rad=float(action["nominal_stiffness"]),
@@ -324,28 +356,41 @@ def _validate_panda_contract(contract):
 
 
 def _validate_fr3_incremental_contract(contract):
-    require(contract.get("contract_id") == FR3_CONTRACT_ID, "Unsupported FR3 contract ID")
+    is_velocity = contract.get("contract_id") == FR3_VELOCITY_CONTRACT_ID
+    require(is_velocity or contract.get("contract_id") == FR3_CONTRACT_ID, "Unsupported FR3 contract ID")
     require(contract.get("robot_model") == "fr3", "Unsupported FR3 robot model")
     require(contract.get("robot_description") == "fr3v2.1_bare_flange", "Unsupported FR3 description")
     require(contract["joint_names"] == FR3_JOINT_NAMES, "Invalid FR3 joint order")
-    require(contract["observation_layout"] == FR3_INCREMENTAL_POSITION_OBSERVATION_LAYOUT, "Invalid FR3 observation layout")
+    expected_layout = (
+        FR3_VELOCITY_IMPEDANCE_OBSERVATION_LAYOUT
+        if is_velocity
+        else FR3_INCREMENTAL_POSITION_OBSERVATION_LAYOUT
+    )
+    require(contract["observation_layout"] == expected_layout, "Invalid FR3 observation layout")
     require(contract["frames"] == dict(base="fr3_link0", tracked_body="fr3_flange"), "Invalid FR3 frames")
     observation_contract = contract["observation"]
     require(
         observation_contract["terms"]
-        == ["joint_pos_rel", "joint_vel_rel", "ee_position_error", "position_reference", "previous_increment_action"]
+        == [
+            "joint_pos_rel",
+            "joint_vel_rel",
+            "ee_position_error",
+            "position_reference",
+            "previous_velocity_action" if is_velocity else "previous_increment_action",
+        ]
         and observation_contract["normalization"] is False
-        and observation_contract["previous_action"] == "bounded_normalized_position_increment"
+        and observation_contract["previous_action"]
+        == ("bounded_normalized_joint_velocity" if is_velocity else "bounded_normalized_position_increment")
         and observation_contract["reset_previous_action"] == [0.0] * 6
         and observation_contract["reference_initialization"] == "measured_start_position",
         "Invalid FR3 observation contract",
     )
     action = contract["action"]
     require(
-        action["type"] == "normalized_position_increment"
+        action["type"] == ("normalized_joint_velocity" if is_velocity else "normalized_position_increment")
         and action["inference"] == "deterministic_tanh"
         and action["normalized_bounds"] == [-1.0, 1.0]
-        and action["integration"] == "forward_euler"
+        and action["integration"] == ("controller_1khz_forward_euler" if is_velocity else "forward_euler")
         and action["initial_reference"] == "measured_start_position"
         and action["controlled_joint_names"] == FR3_JOINT_NAMES[:6]
         and action["held_joint_names"] == FR3_JOINT_NAMES[6:]
@@ -353,11 +398,15 @@ def _validate_fr3_incremental_contract(contract):
         "Invalid FR3 action contract",
     )
     vmax = np.asarray(action["max_reference_velocity_rad_s"], dtype=float)
-    increment = np.asarray(action["max_position_increment_rad"], dtype=float)
+    increment = np.asarray(action.get("max_position_increment_rad", []), dtype=float)
     lower = np.asarray(action["soft_lower_rad"], dtype=float)
     upper = np.asarray(action["soft_upper_rad"], dtype=float)
-    require(vmax.shape == increment.shape == (6,) and np.isfinite(vmax).all() and (vmax > 0).all(), "Invalid FR3 velocity")
-    require(np.allclose(increment, vmax * contract["policy_period_s"], atol=1e-12, rtol=0), "Invalid FR3 increment")
+    require(vmax.shape == (6,) and np.isfinite(vmax).all() and (vmax > 0).all(), "Invalid FR3 velocity")
+    if is_velocity:
+        require(increment.size == 0, "Velocity contract must not contain a 50 Hz position increment")
+    else:
+        require(increment.shape == (6,), "Invalid FR3 increment")
+        require(np.allclose(increment, vmax * contract["policy_period_s"], atol=1e-12, rtol=0), "Invalid FR3 increment")
     require(lower.shape == upper.shape == (7,) and np.isfinite(lower).all() and np.all(lower < upper), "Invalid FR3 soft limits")
     controller = contract["controller"]
     require(
@@ -411,6 +460,9 @@ def action_mapping(raw, contract, *, reference=None):
         return np.asarray(contract["default_joint_position_rad"], dtype=np.float32) + contract["action"]["scale_rad"] * raw
 
     require(raw.shape[-1] == 6 and np.all(raw >= -1.0) and np.all(raw <= 1.0), "Invalid FR3 action")
+    if contract.get("contract_id") == FR3_VELOCITY_CONTRACT_ID:
+        velocity = np.asarray(contract["action"]["max_reference_velocity_rad_s"], dtype=np.float32)
+        return raw * velocity
     reference_array = np.asarray(reference, dtype=np.float32)
     require(reference_array.shape == (*raw.shape[:-1], 7) and np.isfinite(reference_array).all(), "Invalid FR3 reference")
     increment = np.asarray(contract["action"]["max_position_increment_rad"], dtype=np.float32)

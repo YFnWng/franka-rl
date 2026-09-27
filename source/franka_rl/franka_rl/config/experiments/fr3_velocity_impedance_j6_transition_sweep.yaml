@@ -1,0 +1,12 @@
+version: 1
+name: fr3_velocity_impedance_j6_transition_sweep_v1
+task: Franka-FR3v2-FrankyVelocityImpedance-Reach-v0
+joints: [6]
+normalized_amplitudes: [0.45, 0.50, 0.55]
+ramp_down_durations_s: [0.0, 0.1]
+duration_s: 3.0
+step_start_s: 0.5
+step_end_s: 1.5
+target_position_base_m: [0.475, 0.0, 0.5]
+seed: 123
+device: cuda:0

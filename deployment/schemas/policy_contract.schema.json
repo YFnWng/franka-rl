@@ -119,7 +119,12 @@
       "required": ["contract_id", "robot_description", "controller"],
       "properties": {
         "schema_version": {"const": 2},
-        "contract_id": {"const": "fr3_incremental_position_29d_v1"},
+        "contract_id": {
+          "enum": [
+            "fr3_incremental_position_29d_v1",
+            "fr3_joint_velocity_impedance_29d_v1"
+          ]
+        },
         "robot_model": {"const": "fr3"}
       }
     }

@@ -92,3 +92,71 @@ def test_zero_increment_holds_any_reference():
     assert torch.allclose(target[0], reference)
     assert torch.count_nonzero(increment) == 0
     assert torch.count_nonzero(projection) == 0
+
+
+def test_velocity_reference_integrates_at_one_millisecond_and_projects_outward_motion():
+    lower = torch.tensor(LOWER[:6])
+    upper = torch.tensor(UPPER[:6])
+    velocity = torch.tensor([[0.435, -0.435, 0.1, -0.1, 0.522, -0.522]])
+    reference = 0.5 * (lower + upper)
+
+    target, applied, projection = MODULE.integrate_velocity_reference(
+        velocity, reference.unsqueeze(0), 0.001, lower, upper
+    )
+
+    assert torch.allclose(target, reference.unsqueeze(0) + velocity * 0.001)
+    assert torch.equal(applied, velocity)
+    assert torch.count_nonzero(projection) == 0
+
+    at_bounds = torch.stack((upper, lower))
+    outward = torch.stack((torch.ones(6), -torch.ones(6)))
+    target, applied, projection = MODULE.integrate_velocity_reference(
+        outward, at_bounds, 0.001, lower, upper
+    )
+    assert torch.allclose(target, at_bounds)
+    assert torch.count_nonzero(applied) == 0
+    assert torch.all(projection[0] > 0.0)
+    assert torch.all(projection[1] < 0.0)
+
+    inward = -outward
+    target, applied, projection = MODULE.integrate_velocity_reference(
+        inward, at_bounds, 0.001, lower, upper
+    )
+    assert torch.equal(applied, inward)
+    assert torch.count_nonzero(projection) == 0
+
+
+def test_impedance_controller_tracks_velocity_reference_and_defaults_to_zero():
+    kwargs = dict(
+        num_envs=1,
+        num_joints=7,
+        device="cpu",
+        dtype=torch.float32,
+        dt=0.001,
+        nominal_stiffness=100.0,
+        gain_alpha_range=None,
+        position_error_clip=0.5,
+        torque_slew_rate=1.0e9,
+        filter_cutoff_hz=1.0e9,
+        lower=LOWER,
+        upper=UPPER,
+        limit_activation_distance=0.0,
+        limit_stiffness=0.0,
+        limit_damping=0.0,
+        limit_max_torque=0.0,
+    )
+    zeros = torch.zeros((1, 7))
+    desired_velocity = torch.full_like(zeros, 0.2)
+
+    velocity_controller = MODULE.FrankyImpedanceController(**kwargs)
+    velocity_controller.reset(slice(None))
+    velocity_torque = velocity_controller.compute(
+        zeros, zeros, zeros, zeros, zeros, velocity_reference=desired_velocity
+    )
+
+    position_controller = MODULE.FrankyImpedanceController(**kwargs)
+    position_controller.reset(slice(None))
+    position_torque = position_controller.compute(zeros, zeros, zeros, zeros, zeros)
+
+    assert torch.allclose(velocity_torque, torch.full_like(zeros, 4.0), atol=1.0e-4)
+    assert torch.count_nonzero(position_torque) == 0

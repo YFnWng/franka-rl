@@ -100,3 +100,17 @@ class FrankyIncremental6DImpedanceActionCfg(FrankyImpedanceActionCfg):
     max_reference_acceleration: tuple[float, ...] = (
         3.0, 1.5, 2.0, 2.5, 3.0, 4.0,
     )
+
+
+@configclass
+class FrankyVelocityReference6DImpedanceActionCfg(FrankyImpedanceActionCfg):
+    """Six normalized velocity references integrated by the 1 kHz controller."""
+
+    class_type: str = "{DIR}.impedance_actions:FrankyVelocityReference6DImpedanceAction"
+    max_reference_velocity: tuple[float, ...] = (
+        0.435, 0.435, 0.435, 0.435, 0.522, 0.522,
+    )
+    # Reward normalization only; this is deliberately not a hidden limiter.
+    max_reference_acceleration: tuple[float, ...] = (
+        3.0, 1.5, 2.0, 2.5, 3.0, 3.0,
+    )

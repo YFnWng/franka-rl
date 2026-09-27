@@ -104,6 +104,14 @@ def incremental_position_action(env: ManagerBasedRLEnv, action_name: str = "arm_
     return env.action_manager.get_term(action_name).processed_actions
 
 
+def normalized_joint_velocity_action(
+    env: ManagerBasedRLEnv, action_name: str = "arm_action"
+) -> torch.Tensor:
+    """Return the last bounded normalized joint-velocity reference."""
+
+    return env.action_manager.get_term(action_name).processed_actions
+
+
 def normalized_reference_acceleration_l2(
     env: ManagerBasedRLEnv, action_name: str = "arm_action"
 ) -> torch.Tensor:
@@ -112,6 +120,25 @@ def normalized_reference_acceleration_l2(
     action = env.action_manager.get_term(action_name)
     acceleration = (action.reference_velocity - action.previous_reference_velocity) / float(env.step_dt)
     return torch.mean(torch.square(acceleration / action.max_reference_acceleration), dim=1)
+
+
+def normalized_reference_acceleration_excess_l2(
+    env: ManagerBasedRLEnv, action_name: str = "arm_action"
+) -> torch.Tensor:
+    """Strongly penalize reference acceleration outside the reviewed envelope.
+
+    Unlike the small everywhere-active smoothness cost, this hinge is exactly
+    zero inside the per-joint envelope. The joint costs are summed rather than
+    averaged so a dangerous transition on one joint is not diluted by the
+    other five action dimensions.
+    """
+
+    action = env.action_manager.get_term(action_name)
+    acceleration = (action.reference_velocity - action.previous_reference_velocity) / float(env.step_dt)
+    normalized_excess = torch.relu(
+        torch.abs(acceleration) / action.max_reference_acceleration - 1.0
+    )
+    return torch.sum(torch.square(normalized_excess), dim=1)
 
 
 def reference_projection_overshoot_l2(

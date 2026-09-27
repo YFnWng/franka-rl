@@ -36,6 +36,30 @@ def incremental_position_command(
     return bounded, projected, increment, projection
 
 
+def integrate_velocity_reference(
+    velocity_reference: torch.Tensor,
+    position_reference: torch.Tensor,
+    dt: float,
+    lower: torch.Tensor,
+    upper: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Advance a held velocity reference by one controller tick.
+
+    Returns the projected position reference, the velocity actually applied to
+    the integrator, and the signed position projection. At a soft bound an
+    outward velocity is suppressed while an inward velocity remains available.
+    """
+
+    requested = position_reference + velocity_reference * float(dt)
+    projected = torch.maximum(torch.minimum(requested, upper), lower)
+    projection = requested - projected
+    outward = ((position_reference <= lower) & (velocity_reference < 0.0)) | (
+        (position_reference >= upper) & (velocity_reference > 0.0)
+    )
+    applied_velocity = torch.where(outward | (projection != 0.0), 0.0, velocity_reference)
+    return projected, applied_velocity, projection
+
+
 class FrankyImpedanceController:
     """Explicit torque law matching the validated Franky controller contract."""
 
@@ -74,11 +98,13 @@ class FrankyImpedanceController:
         self.limit_max_torque = float(limit_max_torque)
         shape = (num_envs, num_joints)
         self.gain_alpha = torch.ones((num_envs, 1), device=device, dtype=dtype)
+        self.requested_torque = torch.zeros(shape, device=device, dtype=dtype)
         self.previous_limited_torque = torch.zeros(shape, device=device, dtype=dtype)
         self.filtered_torque = torch.zeros_like(self.previous_limited_torque)
         self.applied_torque = torch.zeros_like(self.previous_limited_torque)
 
     def reset(self, env_ids) -> None:
+        self.requested_torque[env_ids] = 0.0
         self.previous_limited_torque[env_ids] = 0.0
         self.filtered_torque[env_ids] = 0.0
         self.applied_torque[env_ids] = 0.0
@@ -98,6 +124,7 @@ class FrankyImpedanceController:
         position_reference: torch.Tensor,
         coriolis: torch.Tensor,
         gravity: torch.Tensor,
+        velocity_reference: torch.Tensor | None = None,
     ) -> torch.Tensor:
         stiffness = self.nominal_stiffness * self.gain_alpha
         damping = 2.0 * torch.sqrt(stiffness)
@@ -107,7 +134,10 @@ class FrankyImpedanceController:
             self.position_error_clip,
         )
         limit_torque = self._limit_torque(position, velocity)
-        requested = stiffness * error - damping * velocity + coriolis + limit_torque
+        if velocity_reference is None:
+            velocity_reference = torch.zeros_like(velocity)
+        requested = stiffness * error + damping * (velocity_reference - velocity) + coriolis + limit_torque
+        self.requested_torque.copy_(requested)
         limited = self.previous_limited_torque + torch.clamp(
             requested - self.previous_limited_torque,
             -self.torque_step,

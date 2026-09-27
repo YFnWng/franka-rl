@@ -250,6 +250,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+        configured_fixed_delay = scenario.control.action_delay_steps
+        if configured_fixed_delay is None:
+            configured_fixed_delay = int(getattr(env.unwrapped.cfg, "required_action_delay_steps", 0))
+
         if scenario.control.action_delay_range is not None:
             from franka_rl.utils.action_delay import (
                 RandomActionDelayWrapper,
@@ -267,6 +271,28 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             scenario_metadata["runtime_control"] = {
                 "action_delay_range": [min_delay, max_delay],
                 "sampling": "uniform_integer_per_environment_per_episode",
+                "initial_action": (
+                    "action_term_reset_command" if delay_fill_provider is not None else "zero"
+                ),
+                "reset_behavior": "refill_done_environment_history",
+            }
+        elif configured_fixed_delay:
+            from franka_rl.utils.action_delay import (
+                FixedActionDelayWrapper,
+                action_term_delay_fill_provider,
+            )
+
+            delay_fill_provider = action_term_delay_fill_provider(env)
+            env = FixedActionDelayWrapper(
+                env,
+                configured_fixed_delay,
+                initial_action_provider=delay_fill_provider,
+            )
+            scenario_metadata["runtime_control"] = {
+                "action_delay_steps": configured_fixed_delay,
+                "source": (
+                    "scenario" if scenario.control.action_delay_steps is not None else "task_contract"
+                ),
                 "initial_action": (
                     "action_term_reset_command" if delay_fill_provider is not None else "zero"
                 ),
