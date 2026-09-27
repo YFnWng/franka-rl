@@ -530,6 +530,7 @@ waypoints_m:
   - [x1, y1, z1]
   - [x2, y2, z2]
 target_orientation_xyzw: [qx, qy, qz, qw]
+first_waypoint_timeout_s: 2.0  # optional; defaults to waypoint_timeout_s
 waypoint_timeout_s: 1.0
 position_threshold_m: 0.01
 ```
@@ -545,6 +546,7 @@ radius_m: 0.075
 waypoint_count: 24
 phase_deg: 0.0
 target_orientation_xyzw: [qx, qy, qz, qw]
+first_waypoint_timeout_s: 2.0  # optional; defaults to waypoint_timeout_s
 waypoint_timeout_s: 1.0
 position_threshold_m: 0.01
 ```
@@ -570,10 +572,11 @@ the final listed point rather than commanding an extra closing segment.
 The current checked-in paths are:
 
 - `circle_xy`: center `[0.475, 0, 0.35]` m, base XY plane, radius 0.075 m,
-  24 waypoints, phase 0 degrees, 1.0 s timeout and 0.01 m threshold;
+  24 waypoints, phase 0 degrees, 2.0 s first-waypoint timeout, 1.0 s later
+  timeout and 0.01 m threshold;
 - `circle_yz`: center `[0.475, 0, 0.35]` m, local plane rotated by
   `[0, 90, 0]` degrees, radius 0.15 m, 24 waypoints, phase 180 degrees,
-  1.0 s timeout and 0.01 m threshold.
+  2.0 s first-waypoint timeout, 1.0 s later timeout and 0.01 m threshold.
 
 Both currently use quaternion `[0, 1, 0, 0]`, so flange +z points along base -z.
 These values are simulation/evaluation definitions, not automatic hardware
@@ -592,7 +595,10 @@ Implement this exact per-path state machine:
    the random-point evaluator's five-sample sustained-success criterion, measured
    velocity, or z-axis error.
 4. If it was not reached, mark it `timed_out` after
-   `ceil(waypoint_timeout_s / 0.020 s)` policy samples.
+   `ceil(first_waypoint_timeout_s / 0.020 s)` policy samples for waypoint 0,
+   or `ceil(waypoint_timeout_s / 0.020 s)` samples for subsequent waypoints.
+   If the optional first-waypoint field is absent, it defaults to the regular
+   waypoint timeout for backward compatibility.
 5. On either outcome, record the waypoint result and immediately select the next
    waypoint without resetting the environment, policy, held joint reference,
    preceding action, or joint 7 reference. Discard any stale inference result
@@ -606,7 +612,8 @@ Implement this exact per-path state machine:
    weaken or bypass those safeguards.
 
 The simulation permits a maximum episode duration of
-`waypoint_count * waypoint_timeout_s + 1 s` for completion bookkeeping. Hardware
+`first_waypoint_timeout_s + (waypoint_count - 1) * waypoint_timeout_s + 1 s`
+for completion bookkeeping. Hardware
 uses monotonic timestamps and the same effective 50 Hz count semantics; do not
 base timeout decisions on delayed logger or worker timestamps.
 
@@ -972,13 +979,16 @@ authorization.
 The deployment path is the existing `circle_yz` definition in
 `source/franka_rl/franka_rl/config/paths.yaml`, not the earlier reduced-radius
 candidate grid. It has center `[0.475, 0, 0.35]` m, radius 0.15 m, 24 waypoints,
-phase 180 degrees, a 1.0 s per-waypoint timeout, and a 0.01 m threshold. Its
-workspace span is x=0.475 m, y `[-0.15,0.15]` m, and z `[0.20,0.50]` m.
+phase 180 degrees, a 2.0 s first-waypoint timeout, a 1.0 s later-waypoint
+timeout, and a 0.01 m threshold. This changes the catalog SHA-256, so the
+immutable hardware YAML trust anchor and clearance review must use the updated
+file rather than the earlier hash. Its workspace span is x=0.475 m,
+y `[-0.15,0.15]` m, and z `[0.20,0.50]` m.
 
 `deployment/config/yz_circle_calibration_v1.yaml` now references `paths.yaml`
 and selects only `circle_yz`. The available robustness matrix is 12 jobs: one
 path, two policies, six K/evaluation-scenario combinations, and one seed. Each
-job runs 128 episodes, for 1,536 total episodes. The separate point suite and
+job runs 16 episodes, for 192 total episodes. The separate point suite and
 the 3-radius by 3-timeout catalog are outside this requested run.
 
 Reuse existing matching evaluation artifacts. The 12 jobs are needed only if a
@@ -989,31 +999,59 @@ workspace review and a separately authorized immutable motion YAML.
 
 ## 2026-09-27 calibration reuse decision
 
-The simulation workstation reports that both transferred position policies have
-already completed `circle_yz` successfully. Do not repeat a full calibration
-solely because hardware shadow timing was measured later. First audit the
-existing artifacts for the exact checkpoint hashes, `circle_yz` catalog/path
-hash, K=100/D=20 controller, deployment-home initialization, fixed one-policy-
-step action delay, and complete path/safety metrics.
-
-If all fields match, the existing evaluation is accepted and no simulation rerun
-is required. If delay 1 is absent or unrecorded, run only two targeted K=100
-nominal-condition confirmations, one for each policy, with fixed
-`action_delay_range: [1, 1]`. The 12-job K=50/100/200 nominal/DR scenario suite
-remains available as optional robustness evidence and is not a first-demo gate.
+Preliminary artifacts indicated that both policies could complete `circle_yz`,
+but they did not close the later fixed-delay comparison. The workstation
+therefore ran the 12-job K=50/100/200 nominal/randomized suite. The final
+selection section below supersedes this preliminary reuse decision: nominal
+passed the intended K=100 conditions, while DR failed the strict path criterion.
 
 
 ## 2026-09-27 `circle_yz` physical-clearance closure
 
-The operator confirmed physical clearance for the exact checked-in `circle_yz`
-geometry: center `[0.475,0,0.35]` m, radius 0.15 m, x=0.475 m, y
-`[-0.15,0.15]` m, and z `[0.20,0.50]` m, with no attached end effector. The
-catalog SHA-256 is
+The operator confirmed physical clearance for the `circle_yz` geometry: center
+`[0.475,0,0.35]` m, radius 0.15 m, x=0.475 m, y `[-0.15,0.15]` m, and z
+`[0.20,0.50]` m, with no attached end effector. That evidence recorded the
+earlier catalog SHA-256
 `e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3`.
 Evidence is in
 `deployment/hardware_control_audit/2026-09-27-circle-yz-clearance/`.
 
-This closes the physical-clearance gate for this immutable geometry. Any path or
-catalog change requires a new clearance review. Policy selection, evidence for
-fixed one-step-delay performance, and separate authorization of the exact
-hardware-motion YAML remain outstanding.
+The active catalog retains exactly that geometry but changes waypoint 0's
+timeout from 1.0 s to 2.0 s, giving active SHA-256
+`39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69`.
+The geometric clearance remains applicable, but the operator must explicitly
+re-acknowledge the new timing and trust anchor in the motion approval.
+
+
+## 2026-09-27 final nominal-policy selection and real-time handoff
+
+The fixed-one-step-delay calibration is complete. Its authoritative index is
+`evaluation_suites/2026-09-27_11-51-48_fr3_circle_yz_calibration_v1/calibration_index.json`
+on the training data volume, SHA-256
+`c3fed116667b39f812d487417a57e85d0e54f9e2623184235ca15f9789ec9290`.
+
+Select `position_nominal`, model 149, for the first active trial. Use its already
+verified v2 bundle manifest
+`9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd`
+and policy SHA-256
+`b60b3af8e8dcca1650789a406f67d114cd094a0ed1d2fa36154702917ead605a`.
+At K=100/D=20 it completed 16/16 `circle_yz` traversals in both nominal and
+randomized evaluation conditions. The position-DR model completed 0/16 in all
+six final scenarios and is not selected.
+
+The selected nominal policy produced no unsafe terminations, action clipping,
+or soft-limit reference projection. Its worst measured/20%-envelope velocity
+ratio was 1.0196 nominal and 1.0462 randomized. The user explicitly treats the
+20% envelope as a monitored qualification metric rather than a hard motion
+limit, so this small exceedance does not block the staged trial. Keep recording
+the ratio; do not introduce an untrained online velocity clamp, interpolation,
+or smoother. All existing Franka, watchdog, controller, tracking, timing,
+collision, non-finite, and emergency-stop protections remain mandatory.
+
+The real-time agent must now synchronize the updated repository, anchor one
+immutable YAML to the nominal manifest and active path hash, select
+`circle_yz`, K=100/D=20, 50 Hz, one delay step, exact reviewed start/workspace,
+and one initial traversal. The path geometry is unchanged from the operator's
+clearance, but waypoint 0 now permits 2.0 s; re-acknowledge that timing/hash.
+Motion requires separate authorization of the exact YAML. No training-workstation
+communication is needed during the run.

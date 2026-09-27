@@ -1,6 +1,9 @@
 # Hardware deployment plan for incremental FR3 policies
 
-Status: implementation plan; this document does not authorize robot motion.
+Status: nominal model 149 selected for staged commissioning; this document does
+not authorize robot motion. The final selection in
+`FR3_REALTIME_TRANSFER_HANDOFF.md` supersedes older candidate-grid guidance
+retained below as history.
 
 ## 1. Frozen deployment contract
 
@@ -24,12 +27,12 @@ in `HANDOFF_AGENT.md`. Limits are indexed by `LIMITS_AND_TIMING.md`.
 
 ## 2. Candidate policy decision
 
-Use the candidates in this order:
+Use the policies as follows:
 
-1. **First shadow and possible first motion:** `position_nominal`,
+1. **Selected first motion:** `position_nominal`,
    checkpoint SHA-256
    `7568e71a26e981eeefca50f808f2bfd526c42a900a48884071e0afa54318ca37`.
-2. **Comparison only after full deterministic evaluation:** `position_dr`,
+2. **Not selected; provenance/comparison only:** `position_dr`,
    checkpoint SHA-256
    `a0f844c0fc702f79b6c3291c67eaf2294ce2750aaf4af9cc190089537d85420b`.
 3. **Blocked from motion:** `position_z_axis_nominal`. Its deterministic
@@ -38,10 +41,10 @@ Use the candidates in this order:
 4. **Rejected candidate:** the current z-axis DR checkpoint. Its deterministic
    success rate is too low for deployment.
 
-No usable bundle for these checkpoints is present on this machine yet. The
-existing `~/yifan/deployment_handoffs/franka_rt_handoff_1` package contains
-older Panda 24D/7D/30 Hz policies and contracts. It must not be loaded by the
-FR3 runtime or reused as a template for the new bundle identifiers.
+Both FR3 bundles are verified and read-only on the real-time machine. The
+nominal v2 bundle manifest SHA-256 is
+`9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd`.
+Older Panda handoff policies must not be loaded by the FR3 runtime.
 
 ## 3. Current receiving-machine implementation status
 
@@ -200,8 +203,12 @@ checkout.
 
 ## 7. Phase D: path and workspace qualification
 
-The checked-in catalog hash is
-`e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3`.
+The active catalog hash is
+`39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69`.
+The earlier physical-clearance evidence used hash
+`e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3`;
+geometry is unchanged, but the operator must re-acknowledge the active hash and
+2 s initial timeout.
 
 Its envelopes are:
 
@@ -211,18 +218,12 @@ Its envelopes are:
 | `circle_yz` | x 0.475, y [-0.150,0.150], z [0.200,0.500] | [0.475,0,0.500] | 0.191 m |
 
 The archived home flange was approximately
-`[0.30647,-0.00591,0.59069]` m. A 1 s first-waypoint timeout is therefore not
-automatically credible. Before hardware use, the simulation workstation must
-evaluate each path from the exact deployment home state and with the same
-inference delay.
-
-The selected demo is a YZ circle using the position-only policy first; the
-orientation-aware z-axis policy remains blocked. Do not use the original 0.15 m
-radius as the first hardware path. The simulation workstation must compare
-radii 0.05/0.075/0.10 m, with centers chosen to keep the first/top waypoint at
-[0.475,0,0.50] m, and 1/2/3 s waypoint timeouts. Select the largest qualified
-variant, or a versioned lead-in derivative, then freeze and approve its catalog
-hash. Do not edit the catalog on the robot after approval.
+`[0.30647,-0.00591,0.59069]` m. The selected path therefore gives waypoint 0 a
+2 s timeout and later waypoints 1 s. Fixed-delay simulation qualified the
+nominal position policy on the original 0.15 m `circle_yz`; the operator has
+cleared that geometry. Freeze and approve the active catalog hash rather than
+editing the catalog on the robot. The orientation-aware z-axis policy remains
+blocked.
 
 Workspace review must cover the complete flange path and intervening motion,
 self-collision, table/base/fixture clearance, cable clearance, and the fact that
@@ -257,11 +258,11 @@ operator authorization, run directory, and post-run review.
    flange pose and inside the policy training box. Use one repetition.
 3. **Small point suite:** add several reviewed points with modest displacement;
    return to the validated start procedure between suites.
-4. **Lead-in path:** run the simulation-qualified hardware derivative at reduced
-   geometric extent or with its reviewed lead-in.
-5. **Qualified YZ circle:** run the smallest simulation-qualified YZ variant
-   once, review it, then repeat. Expand radius only through another reviewed
-   catalog/evaluation gate. Use the 29D position policy; defer orientation control.
+4. **Initial path approach:** run the reviewed 2 s approach to waypoint 0 and
+   stop for review before authorizing the full traversal.
+5. **Qualified YZ circle:** run the selected 0.15 m `circle_yz` once, review it,
+   then repeat only under another authorized YAML. Use the 29D nominal position
+   policy; defer orientation control.
 6. **DR comparison:** only after its full deterministic and shadow gates pass,
    repeat the identical point/path suites from equivalent measured start states.
 

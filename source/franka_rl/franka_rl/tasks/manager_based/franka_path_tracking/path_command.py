@@ -27,9 +27,17 @@ class WaypointPathCommand(UniformPoseCommand):
         waypoints = torch.tensor(cfg.waypoints_m, device=self.device, dtype=torch.float32)
         if waypoints.ndim != 2 or waypoints.shape[1] != 3 or waypoints.shape[0] < 3:
             raise ValueError("WaypointPathCommand requires at least three 3D waypoints")
-        if cfg.waypoint_timeout_s <= 0.0 or cfg.position_threshold_m <= 0.0:
+        if (
+            cfg.waypoint_timeout_s <= 0.0
+            or cfg.first_waypoint_timeout_s <= 0.0
+            or cfg.position_threshold_m <= 0.0
+        ):
             raise ValueError("waypoint timeout and position threshold must be positive")
-        expected_timeout = (cfg.waypoint_timeout_s, cfg.waypoint_timeout_s)
+        # UniformPoseCommand owns the resampling clock. Give it the longer
+        # first-waypoint budget; later waypoints are advanced explicitly by
+        # the per-waypoint step counter below.
+        command_timeout_s = max(cfg.waypoint_timeout_s, cfg.first_waypoint_timeout_s)
+        expected_timeout = (command_timeout_s, command_timeout_s)
         if cfg.resampling_time_range != expected_timeout:
             raise ValueError(
                 "resampling_time_range must equal the fixed waypoint timeout "
@@ -41,6 +49,10 @@ class WaypointPathCommand(UniformPoseCommand):
         self._waypoint_timeout_steps = max(
             1,
             math.ceil(cfg.waypoint_timeout_s / env.step_dt - 1.0e-9),
+        )
+        self._first_waypoint_timeout_steps = max(
+            1,
+            math.ceil(cfg.first_waypoint_timeout_s / env.step_dt - 1.0e-9),
         )
         self._fixed_quaternion = torch.tensor(
             cfg.fixed_quaternion_xyzw, device=self.device, dtype=torch.float32
@@ -139,9 +151,12 @@ class WaypointPathCommand(UniformPoseCommand):
         self._reached_now.copy_(
             active & (self.metrics["position_error"] <= self.cfg.position_threshold_m)
         )
-        timed_out_now = active & ~self._reached_now & (
-            self.waypoint_steps >= self._waypoint_timeout_steps
+        timeout_steps = torch.where(
+            self.waypoint_index == 0,
+            self._first_waypoint_timeout_steps,
+            self._waypoint_timeout_steps,
         )
+        timed_out_now = active & ~self._reached_now & (self.waypoint_steps >= timeout_steps)
         self.time_left[self._reached_now | timed_out_now] = 0.0
         self._update_path_metrics()
 

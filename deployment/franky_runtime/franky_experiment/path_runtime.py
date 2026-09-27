@@ -16,6 +16,7 @@ class PathSpec:
     type: str
     waypoints_m: tuple[tuple[float, float, float], ...]
     waypoint_timeout_s: float
+    first_waypoint_timeout_s: float
     position_threshold_m: float
     target_orientation_xyzw: tuple[float, float, float, float]
     center_m: tuple[float, float, float] | None = None
@@ -77,7 +78,7 @@ def _parse_path(name: str, value: Any) -> PathSpec:
         raise ValueError("path name and mapping required")
     allowed = {"type", "description", "center_m", "orientation_rpy_deg", "radius_m",
                "waypoint_count", "phase_deg", "target_orientation_xyzw", "waypoints_m",
-               "waypoint_timeout_s", "position_threshold_m"}
+               "waypoint_timeout_s", "first_waypoint_timeout_s", "position_threshold_m"}
     unknown = set(value) - allowed
     if unknown:
         raise ValueError(f"path {name!r} has unknown keys: {sorted(unknown)}")
@@ -111,15 +112,17 @@ def _parse_path(name: str, value: Any) -> PathSpec:
     if len(waypoints) < 3:
         raise ValueError("path must have at least three waypoints")
     timeout = float(value.get("waypoint_timeout_s", 0))
+    first_timeout = float(value.get("first_waypoint_timeout_s", timeout))
     threshold = float(value.get("position_threshold_m", 0))
-    if not math.isfinite(timeout) or timeout <= 0 or not math.isfinite(threshold) or threshold <= 0:
+    if (not math.isfinite(timeout) or timeout <= 0 or not math.isfinite(first_timeout)
+            or first_timeout <= 0 or not math.isfinite(threshold) or threshold <= 0):
         raise ValueError("path timeout and threshold must be positive")
     quaternion = _vector(value.get("target_orientation_xyzw"), 4, "target_orientation_xyzw")
     norm = math.sqrt(sum(v * v for v in quaternion))
     if norm <= 1e-12:
         raise ValueError("target quaternion must be nonzero")
     quaternion = tuple(v / norm for v in quaternion)
-    return PathSpec(name, path_type, waypoints, timeout, threshold, quaternion,
+    return PathSpec(name, path_type, waypoints, timeout, first_timeout, threshold, quaternion,
                     center, orientation, radius, len(waypoints), phase,
                     str(value.get("description", "")))
 
@@ -133,6 +136,9 @@ class PathExecution:
         self.spec, self.repetitions = spec, repetitions
         self.policy_hz = float(policy_hz)
         self.timeout_steps = max(1, math.ceil(spec.waypoint_timeout_s * policy_hz - 1e-9))
+        self.first_timeout_steps = max(
+            1, math.ceil(spec.first_waypoint_timeout_s * policy_hz - 1e-9)
+        )
         self.traversal_index = 0
         self.waypoint_index = 0
         self.waypoint_steps = 0
@@ -158,7 +164,8 @@ class PathExecution:
         reason = ""
         if distance <= self.spec.position_threshold_m:
             reason = "reached"
-        elif self.waypoint_steps >= self.timeout_steps:
+        timeout_steps = self.first_timeout_steps if self.waypoint_index == 0 else self.timeout_steps
+        if not reason and self.waypoint_steps >= timeout_steps:
             reason = "timed_out"
         if not reason:
             return None

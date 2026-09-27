@@ -2,21 +2,22 @@
 
 ## Current decision
 
-The first hardware-demo candidates are the transferred 29D/6D position-only
-nominal and domain-randomized policies. The command contract is a 50 Hz,
+The selected first hardware-demo policy is the transferred 29D/6D
+position-only nominal model 149. The command contract is a 50 Hz,
 six-joint bounded position-reference increment feeding the 1 kHz
 `JointImpedanceTrackingMotion` at K=100/D=20, with joint 7 held.
 
 The selected task is the existing `circle_yz` path in
 `source/franka_rl/franka_rl/config/paths.yaml`: a 0.15 m radius vertical circle
-with a 1 s waypoint timeout. No PPO policy is authorized for motion.
+with a 2 s first-waypoint timeout and 1 s subsequent timeout. The policy is
+selected, but the exact hardware-motion YAML is not yet authorized.
 
 ## Candidate status
 
 | Candidate | Status |
 |---|---|
-| `position_nominal` | Bundle verified; fake and real-FCI no-motion shadow runtimes passed; final deterministic selection remains. |
-| `position_dr` | Bundle verified; fake and real-FCI no-motion shadow runtimes passed; final deterministic selection remains. |
+| `position_nominal` | **Selected:** bundle/shadow passed and final fixed-delay K=100 nominal/randomized path runs were 16/16. |
+| `position_dr` | Not selected: bundle/shadow passed, but final strict path success was 0/16 in all six scenarios. |
 | `position_z_axis_nominal` | Blocked by measured-velocity qualification and excluded from this deployment. |
 | z-axis DR | Rejected because deterministic success was poor. |
 
@@ -50,15 +51,11 @@ policy, parity, and fake-runtime evidence is in
 
 ## Remaining blockers
 
-1. Audit the existing successful `circle_yz` evaluations for the exact bundle,
-   path, K=100/D=20, deployment-home, fixed-one-step-delay, and safety-metric
-   contract. Reuse them if complete.
-2. If delay 1 is absent or unrecorded, run two targeted K=100 nominal-condition
-   confirmations, one per policy. The 12-job matrix is optional robustness work.
-3. Select between the nominal and DR policies from complete performance,
-   velocity, tracking, joint-margin, torque, and action/projection evidence.
-4. Obtain separate authorization for the exact immutable hardware-motion YAML.
-5. Defer the 31D z-axis runtime until a replacement policy clears its simulation
+1. Synchronize and verify the nominal bundle, updated path catalog hash, and
+   final calibration evidence on the real-time machine.
+2. Re-acknowledge the unchanged cleared geometry with the 2 s initial timeout.
+3. Obtain separate authorization for the exact immutable hardware-motion YAML.
+4. Defer the 31D z-axis runtime until a replacement policy clears its simulation
    velocity gate.
 
 ## Fixed references

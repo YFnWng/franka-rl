@@ -303,8 +303,9 @@ class EvaluationResults:
             print(
                 "Success criterion: all "
                 f"{len(path['waypoints_m'])} waypoints reached within "
-                f"{path['position_threshold_m']:.4f} m before each "
-                f"{path['waypoint_timeout_s']:.3f} s timeout"
+                f"{path['position_threshold_m']:.4f} m; first/later waypoint "
+                f"timeouts are {path['first_waypoint_timeout_s']:.3f}/"
+                f"{path['waypoint_timeout_s']:.3f} s"
             )
         elif self.metadata["evaluation_protocol"] == "position_z_axis":
             print(
@@ -350,7 +351,7 @@ class EvaluationResults:
             print(f"Mean policy-action magnitude: {summary['mean_action_magnitude']:.4f}")
             print(f"Worst soft joint-limit margin: {summary['worst_joint_limit_margin_rad']:.4f} rad")
             print(
-                "20%-velocity envelope exceeded: "
+                "Simulated measured joint velocity exceeded 20% envelope: "
                 f"{summary['velocity_envelope_exceeded_episodes']} "
                 f"({summary['velocity_envelope_exceedance_rate']:.2%})"
             )

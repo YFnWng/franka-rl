@@ -2,18 +2,21 @@
 
 Date: 2026-09-27
 
-The bundle transfer and real-time fake/shadow acceptance phases are complete
-for the first position-only hardware demo. The simulation workstation now owns
-the fixed-delay calibration rerun; the real-time machine still owns physical
-workspace review and final motion readiness.
+The bundle transfer, real-time fake/shadow acceptance, and fixed-delay
+simulation calibration phases are complete. The nominal position policy is now
+selected for the first active hardware trial. The real-time machine owns the
+immutable motion YAML, final preflight, staged execution, and run artifacts.
 
-## Transfer these two complete bundles
+## Transferred bundles and selected policy
 
-Transfer both archives. Do not transfer only policy.onnx: the manifest,
+Both archives were transferred and verified. Do not use a standalone
+policy.onnx: the manifest,
 contract, test vectors, verification code, schemas, and provenance are part of
 the trusted deployment unit.
 
 ### Position nominal
+
+**Selected for the first hardware trial.**
 
 - archive:
   /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/transfer_2026-09-27/fr3_incremental_6d_position_nominal_model149_v2.tar.gz
@@ -28,6 +31,10 @@ the trusted deployment unit.
 - PyTorch/CPU-ONNX maximum absolute error: 1.8477439880371094e-06
 
 ### Position domain-randomized
+
+Retain for provenance and later comparison; do not select it for the first
+hardware trial. It failed every strict `circle_yz` traversal in the final
+fixed-delay calibration.
 
 - archive:
   /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/deployment_bundles/transfer_2026-09-27/fr3_incremental_6d_position_dr_model199_v2.tar.gz
@@ -59,13 +66,16 @@ Synchronize the current franka-rl source tree, including:
 - deployment/config/fr3_hardware_calibration_scenarios_v1.yaml
 - deployment/config/fr3_point_hardware_calibration_v1.yaml
 - deployment/config/yz_circle_calibration_v1.yaml
+- source/franka_rl/franka_rl/config/paths.yaml
 - deployment/path_catalogs/yz_circle_candidates_v1.yaml
 - deployment/franka_policy_bundle/
 - deployment/franky_runtime/
 
-The candidate path catalog SHA-256 is
-b78b6fa5bbc788f471464c48edefee3d29c5ea0f4cab06c5a7f6d65cae067cae.
-It is calibration input, not yet an approved hardware path catalog.
+The active `paths.yaml` SHA-256 is
+`39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69`.
+Select `circle_yz`: radius 0.15 m, 24 waypoints, 2.0 s for waypoint 0,
+1.0 s thereafter, and a 0.01 m position threshold. The older candidate-grid
+hash is historical input and must not be placed in the final motion YAML.
 
 ## Receiving-machine acceptance
 
@@ -84,25 +94,42 @@ For each archive:
 6. Point a copy of ppo.pending.yaml at one bundle and its manifest hash. Keep
    executable and motion_authorized false.
 
-## Acceptance closure and remaining work
+## Final simulation selection
 
-Bundle verification, YAML path-mode implementation, fake-backend parity, and
-both real-FCI no-motion shadow runs have passed. The measured state-to-reference
-latency maps to one 50 Hz policy step; evidence is in
-`deployment/hardware_control_audit/2026-09-27-shadow-qualification/`.
+The final 12-job calibration used exact-home reset, fixed one-step delay, and
+K=50/100/200 under nominal and randomized conditions. The nominal policy passed
+16/16 traversals at K=100 in both conditions. The DR policy passed 0/16 in all
+six scenarios. Select nominal model 149 with K=100/D=20.
 
-1. On the simulation workstation, audit the existing successful `circle_yz`
-   artifacts against the transferred policy hashes and the measured fixed
-   one-step delay. If that evidence is complete, do not rerun it.
-2. If delay 1 is absent or unrecorded, run only the two K=100 nominal-condition
-   confirmation jobs, one per policy. The checked-in 12-job suite is optional.
-3. Select between the nominal and DR policies using velocity, tracking,
-   joint-margin, torque, action-clipping, and reference-projection margins.
-4. The operator has confirmed physical clearance for the exact checked-in
-   `circle_yz`; any geometry change requires a new review.
-5. Prepare one immutable hardware-motion YAML and request separate motion
-   authorization. Neither bundle nor any path is currently authorized for robot
-   motion.
+For selected-policy K=100, there were no unsafe failures, action clipping, or
+reference projection. Worst measured/20%-envelope velocity ratios were 1.0196
+nominal and 1.0462 randomized. The 20% envelope is a recorded qualification
+metric and action-scale basis, not a hard runtime limit; the operator accepts
+this small exceedance as non-blocking for the staged trial. Continue to log it,
+and do not add an unmodelled clamp or smoother.
 
-Raw PyTorch checkpoints are not required by the real-time runtime. Retain them
-on the training workstation for provenance and future re-export.
+Transfer the calibration directory if it is not already present:
+
+`evaluation_suites/2026-09-27_11-51-48_fr3_circle_yz_calibration_v1/`
+
+Trust anchors include:
+
+- `calibration_index.json`: `c3fed116667b39f812d487417a57e85d0e54f9e2623184235ca15f9789ec9290`
+- `path_scenario_summary.csv`: `fa011d39c2fe1ee08ae434f1b544f13c1ae523e0447f24b51876339dca073dde`
+- compiled `jobs.csv`: `d63351bc409f8deb62e29ddef11afc4cc84799acbe4a540be3ec01c3bdaa65f2`
+
+## Remaining real-time-machine work
+
+1. Synchronize the updated repository files and verify the hashes above.
+2. Create one immutable motion YAML selecting the nominal bundle manifest,
+   active path-catalog hash, `circle_yz`, K=100/D=20, 50 Hz policy execution,
+   one effective delay step, exact reviewed workspace, and one traversal.
+3. Re-acknowledge the updated catalog: its geometry is unchanged from the
+   cleared path, but waypoint 0 now permits 2.0 s rather than 1.0 s.
+4. Run the existing fail-closed preflight, controller hold, and near-home staged
+   check. Preserve all 1 kHz and 50 Hz logs and stop on any existing Franka,
+   watchdog, tracking, collision, timing, or non-finite fault.
+5. Obtain explicit authorization for that exact immutable YAML before motion.
+
+Raw PyTorch checkpoints are not required by the real-time runtime. No further
+training-workstation service or communication is required during experiments.

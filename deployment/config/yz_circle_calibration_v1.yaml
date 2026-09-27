@@ -13,8 +13,8 @@ policies:
     checkpoint: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_23-42-59_fr3_incremental_6d_position_dr_v1_recovered/model_199.pt
 evaluation:
   task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
-  num_envs: 64
-  episodes_per_job: 128
+  num_envs: 16
+  episodes_per_job: 16
   success_threshold: 0.01
   success_steps: 1
   device: cuda:0

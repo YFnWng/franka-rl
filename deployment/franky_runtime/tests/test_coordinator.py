@@ -13,6 +13,7 @@ import yaml
 
 from franky_experiment.coordinator import Coordinator
 from franky_experiment.core import ConfigError, ReferencePlan, action_to_target, load_experiment, sha256
+from franky_experiment.path_runtime import PathCatalog, PathExecution
 
 HOME = [0.0, -math.pi / 4, 0.0, -3 * math.pi / 4, 0.0, math.pi / 2, 0.0]
 LOWER = [-2.9007400166666666, -1.8360900166666667, -2.9007400166666666,
@@ -480,6 +481,35 @@ def test_fake_path_runtime_completes_and_records_waypoints(tmp_path):
     requests = FakePolicyWorker.instances[-1].requests
     assert requests
     assert all(request["trial_id"] in {1, 2, 3} for request in requests)
+
+
+def test_path_runtime_gives_only_waypoint_zero_the_longer_timeout(tmp_path):
+    value, catalog_path = path_ppo(tmp_path, 53)
+    del value
+    document = yaml.safe_load(catalog_path.read_text())
+    path = document["paths"]["stationary_three"]
+    path["first_waypoint_timeout_s"] = 0.08
+    catalog_path.write_text(yaml.safe_dump(document, sort_keys=False))
+    execution = PathExecution(
+        PathCatalog.from_yaml(catalog_path).get("stationary_three"),
+        repetitions=1,
+        policy_hz=50.0,
+    )
+
+    far_away = (0.0, 0.0, 0.0)
+    assert execution.update(far_away) is None
+    assert execution.update(far_away) is None
+    assert execution.update(far_away) is None
+    first = execution.update(far_away)
+    assert first is not None
+    assert first["waypoint_index"] == 0
+    assert first["elapsed_policy_steps"] == 4
+
+    assert execution.update(far_away) is None
+    second = execution.update(far_away)
+    assert second is not None
+    assert second["waypoint_index"] == 1
+    assert second["elapsed_policy_steps"] == 2
 
 
 def test_shadow_is_read_only_and_records_state_to_reference_delay(tmp_path, monkeypatch):

@@ -21,6 +21,7 @@ def test_circle_path_catalog_geometry():
     assert len(path.waypoints_m) == 24
     assert path.position_threshold_m == pytest.approx(0.01)
     assert path.waypoint_timeout_s == pytest.approx(1.0)
+    assert path.first_waypoint_timeout_s == pytest.approx(2.0)
     assert path.center_m == pytest.approx((0.475, 0.0, 0.35))
     assert path.orientation_rpy_deg == pytest.approx((0.0, 0.0, 0.0))
     assert path.radius_m == pytest.approx(0.075)
@@ -77,9 +78,10 @@ def test_circle_path_task_is_separate_from_random_point_task(tmp_path, monkeypat
     assert cfg.path_name == "circle_xy"
     assert len(command.waypoints_m) == 24
     assert command.position_threshold_m == pytest.approx(0.01)
-    assert command.resampling_time_range == (1.0, 1.0)
+    assert command.first_waypoint_timeout_s == pytest.approx(2.0)
+    assert command.resampling_time_range == (2.0, 2.0)
     assert command.fixed_quaternion_xyzw == pytest.approx((0.0, 1.0, 0.0, 0.0))
-    assert cfg.episode_length_s == pytest.approx(25.0)
+    assert cfg.episode_length_s == pytest.approx(26.0)
     assert cfg.terminations.reached_target is not None
     assert cfg.terminations.waypoint_path_failed is not None
     assert cfg.actions.arm_action.class_type.endswith(

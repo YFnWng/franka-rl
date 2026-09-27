@@ -44,8 +44,8 @@ class Fr3FrankyIncremental6DCirclePathEnvCfg(
             asset_name="robot",
             body_name="fr3_flange",
             resampling_time_range=(
-                path.waypoint_timeout_s,
-                path.waypoint_timeout_s,
+                max(path.waypoint_timeout_s, path.first_waypoint_timeout_s),
+                max(path.waypoint_timeout_s, path.first_waypoint_timeout_s),
             ),
             debug_vis=True,
             position_success_threshold=None,
@@ -59,6 +59,7 @@ class Fr3FrankyIncremental6DCirclePathEnvCfg(
             ),
             waypoints_m=path.waypoints_m,
             waypoint_timeout_s=path.waypoint_timeout_s,
+            first_waypoint_timeout_s=path.first_waypoint_timeout_s,
             position_threshold_m=path.position_threshold_m,
             fixed_quaternion_xyzw=path.target_orientation_xyzw,
         )
@@ -79,7 +80,9 @@ class Fr3FrankyIncremental6DCirclePathEnvCfg(
         # Permit every waypoint to consume its full timeout, plus one second
         # for the one-step completion termination and numerical margin.
         self.episode_length_s = (
-            len(path.waypoints_m) * path.waypoint_timeout_s + 1.0
+            path.first_waypoint_timeout_s
+            + (len(path.waypoints_m) - 1) * path.waypoint_timeout_s
+            + 1.0
         )
 
 

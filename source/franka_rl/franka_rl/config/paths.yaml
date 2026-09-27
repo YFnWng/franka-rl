@@ -13,6 +13,9 @@ paths:
     # Fixed flange target orientation, using this Isaac Lab build's xyzw convention.
     # 180 deg about base Y maps the tip-frame +Z axis onto robot-base -Z.
     target_orientation_xyzw: [0.0, 1.0, 0.0, 0.0]
+    # The initial approach starts from the reset/home pose; later waypoints
+    # begin near the preceding point and keep the shorter cadence below.
+    first_waypoint_timeout_s: 2.0
     waypoint_timeout_s: 1.0
     position_threshold_m: 0.01
 
@@ -29,5 +32,6 @@ paths:
     # 180 deg about base Y maps the tip-frame +Z axis onto robot-base -Z.
     # Rotation about the resulting tip Z axis is irrelevant to the policy.
     target_orientation_xyzw: [0.0, 1.0, 0.0, 0.0]
+    first_waypoint_timeout_s: 2.0
     waypoint_timeout_s: 1.0
     position_threshold_m: 0.01

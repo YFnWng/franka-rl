@@ -23,6 +23,7 @@ class PathSpec:
     type: Literal["circle", "waypoints"]
     waypoints_m: tuple[tuple[float, float, float], ...]
     waypoint_timeout_s: float
+    first_waypoint_timeout_s: float
     position_threshold_m: float
     target_orientation_xyzw: tuple[float, float, float, float]
     center_m: tuple[float, float, float] | None = None
@@ -37,6 +38,8 @@ class PathSpec:
             raise ValueError("path must contain at least three waypoints")
         if self.waypoint_timeout_s <= 0.0:
             raise ValueError("waypoint_timeout_s must be positive")
+        if self.first_waypoint_timeout_s <= 0.0:
+            raise ValueError("first_waypoint_timeout_s must be positive")
         if self.position_threshold_m <= 0.0:
             raise ValueError("position_threshold_m must be positive")
         if len(self.target_orientation_xyzw) != 4:
@@ -117,6 +120,7 @@ def _parse_path(name: str, value: Any) -> PathSpec:
         "target_orientation_xyzw",
         "waypoints_m",
         "waypoint_timeout_s",
+        "first_waypoint_timeout_s",
         "position_threshold_m",
     }
     unknown = set(value) - allowed
@@ -148,6 +152,9 @@ def _parse_path(name: str, value: Any) -> PathSpec:
         type=path_type,
         waypoints_m=waypoints,
         waypoint_timeout_s=float(value["waypoint_timeout_s"]),
+        first_waypoint_timeout_s=float(
+            value.get("first_waypoint_timeout_s", value["waypoint_timeout_s"])
+        ),
         position_threshold_m=float(value["position_threshold_m"]),
         target_orientation_xyzw=target_orientation,
         center_m=center,
