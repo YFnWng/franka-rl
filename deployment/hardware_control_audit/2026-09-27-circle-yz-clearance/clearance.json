@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "decision": "operator_confirmed_physically_clear",
+  "motion_authorized": false,
+  "path_name": "circle_yz",
+  "path_catalog": "source/franka_rl/franka_rl/config/paths.yaml",
+  "path_catalog_sha256": "e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3",
+  "geometry": {
+    "center_m": [
+      0.475,
+      0.0,
+      0.35
+    ],
+    "radius_m": 0.15,
+    "plane": "base_yz",
+    "x_m": [
+      0.475,
+      0.475
+    ],
+    "y_m": [
+      -0.15,
+      0.15
+    ],
+    "z_m": [
+      0.2,
+      0.5
+    ],
+    "waypoint_count": 24,
+    "phase_deg": 180.0,
+    "waypoint_timeout_s": 1.0,
+    "position_threshold_m": 0.01
+  },
+  "scope": "Physical clearance confirmation for the exact checked-in path geometry.",
+  "source": "Operator confirmation in deployment session.",
+  "limitations": [
+    "This record does not select a policy.",
+    "This record does not authorize robot motion.",
+    "A changed path catalog or geometry requires a new clearance review."
+  ]
+}

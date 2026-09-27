@@ -17,9 +17,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .backend import CallbackRecord, FakeBackend, FrankyBackend, Snapshot
+from .backend import CallbackRecord, FakeBackend, FrankyBackend, ShadowBackend, Snapshot
 from .core import (ConfigError, ReferencePlan, SessionSupervisor, TERMINAL,
                    action_to_target, assemble_policy_observation, load_experiment)
+from .path_runtime import PathExecution, PathSpec
 
 
 def raw_ns() -> int:
@@ -29,7 +30,7 @@ def raw_ns() -> int:
 def runtime_source_sha256() -> str:
     digest = hashlib.sha256()
     package = Path(__file__).parent
-    for name in ("backend.py", "coordinator.py", "core.py", "policy_worker.py"):
+    for name in ("backend.py", "coordinator.py", "core.py", "path_runtime.py", "policy_worker.py"):
         digest.update(name.encode("utf-8"))
         digest.update(b"\0")
         digest.update((package / name).read_bytes())
@@ -106,6 +107,7 @@ class CommandMeta:
     trial_id: int
     raw_action: tuple[float, ...]
     mapped_target: tuple[float, ...]
+    observation_monotonic_ns: int
     policy_completed_ns: int
     command_consumed_ns: int
     command_written_ns: int
@@ -136,9 +138,15 @@ class SampleWriter:
         for name in cls.VECTOR_FIELDS:
             result.extend(f"{name}_j{i}" for i in range(1, 8))
         result.extend([
-            "flange_x_m", "flange_y_m", "flange_z_m", "robot_mode",
-            "control_command_success_rate", "current_errors", "last_motion_errors",
-            "command_valid", "ring_fill", "dropped_samples",
+            "flange_x_m", "flange_y_m", "flange_z_m",
+            "ee_feedback_x_m", "ee_feedback_y_m", "ee_feedback_z_m",
+            "ee_feedback_qx", "ee_feedback_qy", "ee_feedback_qz", "ee_feedback_qw",
+            "ee_feedback_source", "ee_feedback_base_frame", "ee_feedback_frame",
+            "reported_flange_x_m", "reported_flange_y_m", "reported_flange_z_m",
+            "encoder_fk_reported_position_error_m",
+            "encoder_fk_reported_orientation_error_rad", "encoder_fk_compute_ns",
+            "robot_mode", "control_command_success_rate", "current_errors",
+            "last_motion_errors", "command_valid", "ring_fill", "dropped_samples",
         ])
         return result
 
@@ -196,8 +204,17 @@ class Coordinator:
         self.current_target_index = 0
         self.success_count = 0
         self.plan = ReferencePlan(config) if config["mode"] == "reference" else None
-        self.targets = ([target for _ in range(config.get("ppo", {}).get("repetitions", 1))
-                         for target in config.get("ppo", {}).get("targets", [])])
+        ppo = config.get("ppo", {})
+        self.targets = ([target for _ in range(ppo.get("repetitions", 1))
+                         for target in ppo.get("targets", [])])
+        self.path_execution: PathExecution | None = None
+        if config["mode"] == "ppo" and ppo.get("execution_mode") == "path":
+            selection = ppo["path"]
+            self.path_execution = PathExecution(
+                PathSpec(**selection["resolved_path"]),
+                int(selection["repetitions"]),
+                float(config["timing"]["command_hz"]),
+            )
         self.worker: WorkerBridge | None = None
         self.command_lock = threading.Lock()
         self.current_meta: CommandMeta | None = None
@@ -216,8 +233,10 @@ class Coordinator:
         self.writer = SampleWriter(self.run_dir / "samples.csv", config["session_id"])
         self.backend = None
         try:
-            self.backend = (FakeBackend(config) if config["execution_context"] == "fake"
-                            else FrankyBackend(config))
+            context = config["execution_context"]
+            self.backend = (FakeBackend(config) if context == "fake" else
+                            ShadowBackend(config) if context == "shadow" else
+                            FrankyBackend(config))
             self.event("initialized", mode=config["mode"], execution_context=config["execution_context"],
                        config_sha256=config["_config_sha256"],
                        runtime_source_sha256=self.runtime_source_sha256)
@@ -282,8 +301,30 @@ class Coordinator:
             "host_command_consumed_ns": meta.command_consumed_ns,
             "host_command_written_ns": meta.command_written_ns,
             "period_ns": int(round(record.time_step_s * 1e9)),
-            "flange_x_m": record.flange_position_m[0], "flange_y_m": record.flange_position_m[1],
-            "flange_z_m": record.flange_position_m[2], "robot_mode": record.mode,
+            # Legacy flange columns and explicit EE-feedback columns both carry
+            # measured-joint FK for the contract's physical fr3_flange frame.
+            "flange_x_m": record.flange_position_m[0],
+            "flange_y_m": record.flange_position_m[1],
+            "flange_z_m": record.flange_position_m[2],
+            "ee_feedback_x_m": record.flange_position_m[0],
+            "ee_feedback_y_m": record.flange_position_m[1],
+            "ee_feedback_z_m": record.flange_position_m[2],
+            "ee_feedback_qx": record.flange_orientation_xyzw[0],
+            "ee_feedback_qy": record.flange_orientation_xyzw[1],
+            "ee_feedback_qz": record.flange_orientation_xyzw[2],
+            "ee_feedback_qw": record.flange_orientation_xyzw[3],
+            "ee_feedback_source": record.ee_feedback_source,
+            "ee_feedback_base_frame": record.ee_feedback_base_frame,
+            "ee_feedback_frame": record.ee_feedback_frame,
+            "reported_flange_x_m": record.reported_flange_position_m[0],
+            "reported_flange_y_m": record.reported_flange_position_m[1],
+            "reported_flange_z_m": record.reported_flange_position_m[2],
+            "encoder_fk_reported_position_error_m":
+                record.encoder_fk_reported_position_error_m,
+            "encoder_fk_reported_orientation_error_rad":
+                record.encoder_fk_reported_orientation_error_rad,
+            "encoder_fk_compute_ns": record.encoder_fk_compute_ns,
+            "robot_mode": record.mode,
             "control_command_success_rate": record.command_success_rate,
             "current_errors": record.current_errors, "last_motion_errors": record.last_motion_errors,
             "command_valid": 1,
@@ -302,11 +343,13 @@ class Coordinator:
         self.writer.put(row)
 
     def send_target(self, target: list[float], raw_action: list[float], trial_id: int,
-                    observation_sequence: int, completed_ns: int) -> None:
+                    observation_sequence: int, completed_ns: int,
+                    observation_ns: int | None = None) -> None:
         from .core import check_target
         q_target = check_target(self.config, target)
         q_target_tuple = tuple(q_target)
-        if self.last_submitted_target == q_target_tuple:
+        if (self.last_submitted_target == q_target_tuple and
+                self.config["execution_context"] != "shadow"):
             self.backend.keepalive()
             self.event("target_held", trial_id=trial_id, policy_sequence=self.sequence,
                        observation_sequence=observation_sequence, target=q_target)
@@ -319,8 +362,26 @@ class Coordinator:
         submitted = raw_ns()
         if self.first_command_ns == 0:
             self.first_command_ns = submitted
+        observed = completed_ns if observation_ns is None else observation_ns
         meta = CommandMeta(self.sequence, observation_sequence, trial_id, tuple(raw_action),
-                           tuple(q_target), completed_ns, consumed, submitted)
+                           tuple(q_target), observed, completed_ns, consumed, submitted)
+
+        if self.config["execution_context"] == "shadow":
+            self.current_meta = meta
+            self.last_submitted_target = q_target_tuple
+            self.event("shadow_reference_updated", trial_id=trial_id,
+                       policy_sequence=self.sequence,
+                       observation_sequence=observation_sequence,
+                       observation_monotonic_ns=observed,
+                       policy_completed_ns=completed_ns,
+                       command_consumed_ns=consumed,
+                       inference_latency_ns=max(0, completed_ns - observed),
+                       completion_to_consumption_ns=max(0, consumed - completed_ns),
+                       state_to_reference_consumption_ns=max(0, consumed - observed),
+                       effective_delay_policy_steps=(max(0, consumed - observed) /
+                           (1e9 / float(self.config["timing"]["command_hz"]))),
+                       raw_action=raw_action, target=q_target)
+            return
 
         def callback(record: CallbackRecord, command_meta: CommandMeta = meta) -> None:
             self._on_callback(record, command_meta)
@@ -348,7 +409,33 @@ class Coordinator:
         raw_action = [(point.q_target[i] - default[i]) / scale[i] for i in range(7)]
         self.send_target(list(point.q_target), raw_action, point.trial_id, self.state_sequence, now)
 
+    def _active_ppo_target(self) -> list[float] | None:
+        if self.path_execution is not None:
+            return None if self.path_execution.complete else list(self.path_execution.target)
+        if self.current_target_index >= len(self.targets):
+            return None
+        return list(self.targets[self.current_target_index]["position_base_m"])
+
+    def _active_ppo_trial_id(self) -> int:
+        return self.path_execution.trial_id if self.path_execution is not None else self.current_target_index + 1
+
     def _ppo_success(self, snapshot: Snapshot, now: int) -> None:
+        if self.path_execution is not None:
+            result = self.path_execution.update(snapshot.flange_position_m)
+            if result is None:
+                return
+            self.event("waypoint_resolved", **result)
+            self.trial_started_ns = now
+            if self.path_execution.complete:
+                summary = self.path_execution.summary()
+                self.event("path_complete", **summary)
+                self.supervisor.complete()
+            else:
+                self.event("waypoint_start", trial_id=self.path_execution.trial_id,
+                           traversal_index=self.path_execution.traversal_index,
+                           waypoint_index=self.path_execution.waypoint_index,
+                           target_position_base_m=self.path_execution.target)
+            return
         if self.sequence == 0 or self.current_target_index >= len(self.targets):
             return
         ppo = self.config["ppo"]
@@ -372,7 +459,7 @@ class Coordinator:
         timeout_ns = int(float(self.config["timing"]["inference_timeout_ms"]) * 1e6)
         result = self.worker.poll()
         if result is not None:
-            trial_id = self.current_target_index + 1
+            trial_id = self._active_ppo_trial_id()
             result_trial = int(result["trial_id"])
             if result_trial < trial_id:
                 # Success can be observed while the preceding trial still has one
@@ -388,16 +475,17 @@ class Coordinator:
                     raise RuntimeError("PPO reference was not initialized")
                 target = action_to_target(self.config, action, self.ppo_reference)
                 self.send_target(target, action, trial_id, int(result["observation_sequence"]),
-                                 int(result["completed_monotonic_ns"]))
+                                 int(result["completed_monotonic_ns"]),
+                                 int(result["observation_monotonic_ns"]))
                 self.ppo_reference = target
                 self.previous_action = action
         if self.worker.inflight is not None:
             if now - self.worker.sent_ns > timeout_ns:
                 raise RuntimeError("inference_deadline")
             return
-        if self.current_target_index >= len(self.targets):
+        target = self._active_ppo_target()
+        if target is None:
             return
-        target = self.targets[self.current_target_index]["position_base_m"]
         if self.ppo_reference is None:
             raise RuntimeError("PPO reference was not initialized")
         observation = assemble_policy_observation(
@@ -406,12 +494,33 @@ class Coordinator:
             self.config["safety"]["soft_lower_rad"], self.config["safety"]["soft_upper_rad"],
             self.config["action_mapping"]["policy_joint_count"])
         self.request_sequence += 1
-        self.worker.submit({
-            "request_id": self.request_sequence, "trial_id": self.current_target_index + 1,
+        request = {
+            "request_id": self.request_sequence, "trial_id": self._active_ppo_trial_id(),
             "observation_sequence": self.state_sequence,
             "observation_monotonic_ns": snapshot.host_monotonic_ns,
             "observation": observation,
-        })
+        }
+        self.event("policy_observation_submitted",
+                   request_id=request["request_id"], trial_id=request["trial_id"],
+                   observation_sequence=request["observation_sequence"],
+                   observation_monotonic_ns=request["observation_monotonic_ns"],
+                   observation=observation, target_position_base_m=target,
+                   measured_q_rad=snapshot.q, measured_dq_rad_s=snapshot.dq,
+                   flange_position_base_m=snapshot.flange_position_m,
+                   ee_feedback_position_base_m=snapshot.flange_position_m,
+                   ee_feedback_orientation_base_xyzw=snapshot.flange_orientation_xyzw,
+                   ee_feedback_source=snapshot.ee_feedback_source,
+                   ee_feedback_base_frame=snapshot.ee_feedback_base_frame,
+                   ee_feedback_frame=snapshot.ee_feedback_frame,
+                   reported_flange_position_base_m=snapshot.reported_flange_position_m,
+                   encoder_fk_reported_position_error_m=
+                       snapshot.encoder_fk_reported_position_error_m,
+                   encoder_fk_reported_orientation_error_rad=
+                       snapshot.encoder_fk_reported_orientation_error_rad,
+                   encoder_fk_compute_ns=snapshot.encoder_fk_compute_ns,
+                   current_reference_rad=self.ppo_reference,
+                   previous_action=self.previous_action)
+        self.worker.submit(request)
 
     def run(self, max_runtime_s: float | None = None) -> int:
         snapshot = self._read_state()
@@ -444,6 +553,12 @@ class Coordinator:
         self.supervisor.start()
         self.started_ns = self.trial_started_ns = raw_ns()
         self.event("operator_start" if not self.auto_start else "fake_auto_start")
+        if self.path_execution is not None:
+            self.event("path_start", path=self.path_execution.spec.to_dict(),
+                       repetitions=self.path_execution.repetitions)
+            self.event("waypoint_start", trial_id=self.path_execution.trial_id,
+                       traversal_index=0, waypoint_index=0,
+                       target_position_base_m=self.path_execution.target)
         period_ns = int(round(1e9 / float(self.config["timing"]["command_hz"])))
         next_tick = raw_ns()
         while self.supervisor.state == "running":
@@ -470,18 +585,21 @@ class Coordinator:
             self.supervisor.validate_active(snapshot)
             if self.supervisor.state != "running":
                 break
-            callback_limit_ms = float(self.config["timing"]["callback_gap_ms"])
-            callback_reference = self.last_callback_ns if self.callback_started else self.first_command_ns
-            if callback_reference and now - callback_reference > int(callback_limit_ms * 1e6):
-                self.fault("callback_gap"); break
-            if (self.callback_started and
-                    snapshot.robot_time_s - self.last_callback_robot_time_s > callback_limit_ms / 1000.0):
-                self.fault("callback_queue_lag"); break
+            if self.config["execution_context"] != "shadow":
+                callback_limit_ms = float(self.config["timing"]["callback_gap_ms"])
+                callback_reference = self.last_callback_ns if self.callback_started else self.first_command_ns
+                if callback_reference and now - callback_reference > int(callback_limit_ms * 1e6):
+                    self.fault("callback_gap"); break
+                if (self.callback_started and
+                        snapshot.robot_time_s - self.last_callback_robot_time_s > callback_limit_ms / 1000.0):
+                    self.fault("callback_queue_lag"); break
             try:
                 if self.config["mode"] == "reference":
                     self._reference_tick(now)
                 else:
-                    if now - self.trial_started_ns > int(float(self.config["timing"]["trial_timeout_s"]) * 1e9):
+                    if (self.path_execution is None and
+                            now - self.trial_started_ns >
+                            int(float(self.config["timing"]["trial_timeout_s"]) * 1e9)):
                         raise RuntimeError("trial_timeout")
                     self._ppo_success(snapshot, now)
                     if self.supervisor.state == "running":
@@ -521,6 +639,13 @@ class Coordinator:
             "config_sha256": self.config["_config_sha256"],
             "runtime_source_sha256": self.runtime_source_sha256, "smooth_stop_ok": stop_ok,
             "smooth_stop_error": stop_error,
+            "ee_feedback_source": (self.latest.ee_feedback_source
+                                   if self.latest is not None else None),
+            "ee_feedback_base_frame": (self.latest.ee_feedback_base_frame
+                                       if self.latest is not None else None),
+            "ee_feedback_frame": (self.latest.ee_feedback_frame
+                                  if self.latest is not None else None),
+            "path_summary": self.path_execution.summary() if self.path_execution is not None else None,
         }
         (self.run_dir / "final_metadata.json").write_text(json.dumps(final, indent=2, allow_nan=False) + "\n")
         self.event_stream.close()
@@ -542,7 +667,8 @@ def main(argv: list[str] | None = None) -> int:
                 "valid_structure": True,
                 "approval_ready": all((config.get("status") == "approved",
                                        config.get("executable") is True,
-                                       config.get("motion_authorized") is True)),
+                                       config.get("motion_authorized") is
+                                       (config.get("execution_context") != "shadow"))),
                 "mode": config["mode"], "config_sha256": config["_config_sha256"],
             }, indent=2))
             return 0

@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "decision": "pass_no_motion_shadow_runtime",
+  "motion_authorized": false,
+  "policy_rate_hz": 50,
+  "simulation_action_delay_steps": 1,
+  "delay_mapping": {
+    "reason": "Both measured state-to-reference latencies cluster at one 20 ms policy period; the simulator delay is integer-valued.",
+    "nominal_median_policy_steps": 1.0434239,
+    "domain_randomized_median_policy_steps": 1.00801655,
+    "observed_minimum_policy_steps": 0.9851794,
+    "observed_maximum_policy_steps": 1.06727925,
+    "hardware_matched_calibration_range": [
+      1,
+      1
+    ],
+    "training_domain_randomization_range_unchanged": [
+      0,
+      1
+    ]
+  },
+  "combined": {
+    "maximum_inference_latency_ms": 8.015079,
+    "maximum_state_to_reference_consumption_ms": 21.345585,
+    "maximum_effective_delay_policy_steps": 1.06727925,
+    "maximum_encoder_fk_compute_ms": 0.318601,
+    "maximum_encoder_fk_reported_position_error_m": 9.163349131111154e-08,
+    "maximum_abs_action": 0.9692109823226929,
+    "maximum_initial_reference_abs_error_rad": 6.354166544042528e-06,
+    "maximum_held_joint7_drift_rad": 0.0,
+    "total_dropped_samples": 0
+  },
+  "runs": {
+    "nominal": {
+      "summary_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_shadow/nominal_runs/session-2026092701/shadow-summary.json",
+      "summary_sha256": "fc43f59d81255a880ade9d4127041316b8b7b6aa20b4437d90c0b887379a525a",
+      "reviewed_config_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_shadow/nominal.circle_yz_r050_t1.reviewed.yaml",
+      "reviewed_config_sha256": "29fa571dbd0438f754808f49b51f0f9cace17ce246ff1b3793db7c5c5ed46973",
+      "summary": {
+        "schema_version": 1,
+        "session_id": 2026092701,
+        "terminal_state": "complete",
+        "terminal_reason": "",
+        "manifest_sha256": "9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd",
+        "provider": "CPUExecutionProvider",
+        "observation_count": 1199,
+        "consumed_result_count": 1175,
+        "discarded_stale_result_count": 23,
+        "observation_size": 29,
+        "action_size": 6,
+        "ee_feedback_sources": [
+          "measured_joint_encoder_libfranka_fk"
+        ],
+        "ee_feedback_base_frame": "fr3_link0",
+        "ee_feedback_frame": "fr3_flange",
+        "max_encoder_fk_reported_position_error_m": 9.021797942426329e-08,
+        "max_encoder_fk_reported_orientation_error_rad": 0.0,
+        "encoder_fk_compute_ms": {
+          "minimum": 0.095386,
+          "median": 0.10352,
+          "p95": 0.13577089999999992,
+          "maximum": 0.318601
+        },
+        "max_abs_action": 0.9692109823226929,
+        "initial_reference_max_abs_error_rad": 3.814697265625e-06,
+        "initial_previous_action_max_abs": 0.0,
+        "held_joint7_max_drift_rad": 0.0,
+        "inference_latency_ms": {
+          "minimum": 0.441467,
+          "median": 1.230559,
+          "p95": 1.3990584,
+          "maximum": 8.015079
+        },
+        "state_to_reference_consumption_ms": {
+          "minimum": 19.844252,
+          "median": 20.868478,
+          "p95": 21.034847199999998,
+          "maximum": 21.100723
+        },
+        "effective_delay_policy_steps": {
+          "minimum": 0.9922126,
+          "median": 1.0434239,
+          "p95": 1.05174236,
+          "maximum": 1.05503615
+        },
+        "dropped_samples": 0,
+        "smooth_stop_ok": true,
+        "runtime_source_sha256": "c751dde95b6e7fd2a1e3ac96e20c83540bde4f3144555943429fc87930302447",
+        "config_sha256": "29fa571dbd0438f754808f49b51f0f9cace17ce246ff1b3793db7c5c5ed46973"
+      }
+    },
+    "domain_randomized": {
+      "summary_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_shadow/dr_runs/session-2026092702/shadow-summary.json",
+      "summary_sha256": "3f093e709aeaee81b0bf355425caac77b307c4f6d750a16c9b093d26c35a4e73",
+      "reviewed_config_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_shadow/dr.circle_yz_r050_t1.reviewed.yaml",
+      "reviewed_config_sha256": "996e8deba5724bc1e55549750395aa803ba1d2d090888b77cf040f47c955a831",
+      "summary": {
+        "schema_version": 1,
+        "session_id": 2026092702,
+        "terminal_state": "complete",
+        "terminal_reason": "",
+        "manifest_sha256": "34895a6f0e479e62a72f57678e820473d8f5a350255c1b68a9575700b6378788",
+        "provider": "CPUExecutionProvider",
+        "observation_count": 1199,
+        "consumed_result_count": 1175,
+        "discarded_stale_result_count": 23,
+        "observation_size": 29,
+        "action_size": 6,
+        "ee_feedback_sources": [
+          "measured_joint_encoder_libfranka_fk"
+        ],
+        "ee_feedback_base_frame": "fr3_link0",
+        "ee_feedback_frame": "fr3_flange",
+        "max_encoder_fk_reported_position_error_m": 9.163349131111154e-08,
+        "max_encoder_fk_reported_orientation_error_rad": 0.0,
+        "encoder_fk_compute_ms": {
+          "minimum": 0.096321,
+          "median": 0.10505,
+          "p95": 0.149417,
+          "maximum": 0.305577
+        },
+        "max_abs_action": 0.962217390537262,
+        "initial_reference_max_abs_error_rad": 6.354166544042528e-06,
+        "initial_previous_action_max_abs": 0.0,
+        "held_joint7_max_drift_rad": 0.0,
+        "inference_latency_ms": {
+          "minimum": 0.457455,
+          "median": 0.56522,
+          "p95": 1.4791607,
+          "maximum": 7.377108
+        },
+        "state_to_reference_consumption_ms": {
+          "minimum": 19.703588,
+          "median": 20.160331,
+          "p95": 21.1539091,
+          "maximum": 21.345585
+        },
+        "effective_delay_policy_steps": {
+          "minimum": 0.9851794,
+          "median": 1.00801655,
+          "p95": 1.0576954550000002,
+          "maximum": 1.06727925
+        },
+        "dropped_samples": 0,
+        "smooth_stop_ok": true,
+        "runtime_source_sha256": "c751dde95b6e7fd2a1e3ac96e20c83540bde4f3144555943429fc87930302447",
+        "config_sha256": "996e8deba5724bc1e55549750395aa803ba1d2d090888b77cf040f47c955a831"
+      }
+    }
+  },
+  "interpretation": {
+    "runtime_gate": "passed for both transferred policies",
+    "path_performance": "not evaluated because shadow mode intentionally applies no reference and the stationary arm times out every waypoint",
+    "stale_results": "23 discarded results per run are the expected boundary result at the 23 transitions between 24 waypoints",
+    "final_unconsumed_request": "one submitted request remains unconsumed when the completed path closes the inference worker",
+    "fk_contract": "measured joint encoders through pinned libfranka FK; robot-reported pose is audit-only"
+  },
+  "next_gates": [
+    "audit existing successful circle_yz artifacts for exact hashes, K=100/D=20, deployment home, fixed one-step delay, and complete safety metrics",
+    "only if delay 1 is absent or unrecorded, run two targeted K=100 nominal-condition confirmations, one per policy",
+    "select between nominal and DR policies from the accepted evidence",
+    "prepare and separately authorize one immutable hardware-motion YAML"
+  ],
+  "calibration_contract": {
+    "path": "deployment/config/fr3_hardware_calibration_scenarios_v1.yaml",
+    "sha256": "10957bc5353af3619e2975a6035e3e344fa019f644706fc2345c1ffe53a2df2e",
+    "action_delay_range": [
+      1,
+      1
+    ]
+  },
+  "path_calibration_contract": {
+    "config_path": "deployment/config/yz_circle_calibration_v1.yaml",
+    "config_sha256": "f5e0a6bef5392ff81056f8853f46d38ed053e346d74dccc1a8791ce5468160eb",
+    "catalog_path": "source/franka_rl/franka_rl/config/paths.yaml",
+    "catalog_sha256": "e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3",
+    "selected_paths": [
+      "circle_yz"
+    ],
+    "job_count": 12,
+    "episodes_per_job": 128,
+    "total_episodes": 1536,
+    "role": "optional_robustness_matrix"
+  },
+  "physical_clearance": {
+    "decision": "operator_confirmed_physically_clear",
+    "evidence": "deployment/hardware_control_audit/2026-09-27-circle-yz-clearance/clearance.json",
+    "path_name": "circle_yz",
+    "path_catalog_sha256": "e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3"
+  }
+}

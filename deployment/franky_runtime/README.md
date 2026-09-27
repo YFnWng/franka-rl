@@ -70,10 +70,10 @@ experiment coordinator. It supports the same two experiment sources:
 - `ppo`: an immutable FR3 ONNX bundle evaluated in a separate Python process.
 
 Both modes share supervision, logging, and lifecycle code. The coordinator
-does not import ROS 2. PPO currently supports the 29-value position-only
-observation and six-action incremental contract through an isolated worker.
-Path suites and the 31-value z-axis contract remain implementation blockers;
-see `../HARDWARE_DEPLOYMENT_PLAN.md`.
+does not import ROS 2. PPO supports the 29-value position-only observation and six-action incremental
+contract through an isolated worker. It accepts either reviewed point targets
+or a SHA-anchored YAML path catalog. The 31-value z-axis contract remains
+excluded from this first deployment; see `../HARDWARE_DEPLOYMENT_PLAN.md`.
 
 ### Command path
 
@@ -97,14 +97,44 @@ At each 50 Hz PPO tick, action `a[0:6]` is required to be in `[-1,1]` and
 maps componentwise to `q_ref += a * [0.0087, 0.0087, 0.0087, 0.0087, 0.01044, 0.01044]` before
 soft-limit projection. The reference initializes from measured `q`; desired
 velocity is zero. The 29D observation contains measured q/dq, flange position
-error, normalized current reference, and the preceding increment action. The
-1 kHz log records held q/dq reference, controller torque, robot desired/measured
-torque and state, and external-torque estimate.
+error, normalized current reference, and the preceding increment action.
+
+The flange position comes from forward kinematics of measured joint encoder `q`:
+`robot.model.pose(Frame.Flange, q, identity, identity)`. This is the physical
+`fr3_flange` pose in `fr3_link0`. The robot-reported `O_T_EE` is never policy or
+path feedback; after conversion to the flange frame it is logged only as an audit
+comparison. Every 1 kHz sample records the encoder-FK position, quaternion, source
+and frames, along with the reported flange position and their position/orientation
+difference. Raw measured joints remain in the same row, and
+`encoder_fk_compute_ns` records the FK-call duration for timing qualification.
 
 The pending PPO template uses a 50 ms host watchdog and a 15 ms inference
 deadline. A missed update replaces the tracking controller with
 `TorqueStopMotion`; normal completion and operator stop use the same stop.
 No automatic error recovery is called.
+
+### Path and shadow execution
+
+Path mode selects exactly one named path from a SHA-256-anchored catalog; a
+configuration cannot mix point targets and a path. The loader resolves circle
+waypoints, verifies every point lies inside the reviewed Cartesian bounds, and
+stores the resolved geometry in the run configuration. Waypoint reach/timeout is
+counted in exact 50 Hz policy steps. Reference integration and previous-action
+state persist across waypoint transitions, while a late result from the prior
+waypoint is recorded and discarded.
+
+Shadow mode constructs Franky and reads live FCI state but cannot call
+`Robot.move`, submit a target, or keep a motion alive. It still inherits the
+documented Franky-constructor collision-threshold write. Each inference logs the
+full observation and measured inputs; each consumed result logs the action,
+mapped reference, inference latency, and state-to-reference-consumption delay.
+Use `config/ppo_path_shadow.pending.yaml` as the fail-closed starting point.
+After a completed shadow run, validate dimensions, reset semantics, held joint 7,
+action bounds, and latency with:
+
+```bash
+python3 deployment/franky_runtime/summarize_shadow.py   /absolute/path/to/session-ID   --output /absolute/path/to/shadow-summary.json
+```
 
 ### Retired JointMotion backend
 
@@ -112,19 +142,20 @@ Sessions through `20260926151901` used repeated position-only `JointMotion` pree
 
 ### Safety and lifecycle
 
-Execution requires all of the following in the YAML: `status: approved`,
-`executable: true`, `motion_authorized: true`, approval provenance, reviewed
-start/tracking tolerances, and a positive session ID. The runtime checks the bare
+Execution requires `status: approved`, `executable: true`, approval provenance,
+reviewed start/tracking tolerances, and a positive session ID. Hardware and fake
+execution require `motion_authorized: true`. Shadow execution requires
+`motion_authorized: false` and supports PPO only. The runtime checks the bare
 flange/zero-load/identity-`F_T_EE` inventory assumptions, reviewed start pose and
 velocity, soft position bounds, state-read and inference deadlines, callback
 continuity, tracking error, robot errors, trial timeout, and suite timeout.
 Faults are sticky. It never recovers or resumes automatically.
 
-Hardware execution always pauses after preflight and requires the operator to type
-`start`. `--auto-start` and `--max-runtime-s` are rejected for hardware configs.
-On completion, fault, signal, or operator stop, the coordinator submits
-`TorqueStopMotion` and joins it before disconnecting. The E-stop remains the
-independent physical stop.
+Hardware and shadow execution pause after preflight and require the operator to
+type `start`. `--auto-start` and `--max-runtime-s` are accepted only for fake configs.
+For hardware motion, completion, fault, signal, or operator stop submits
+`TorqueStopMotion` and joins it before disconnecting. Shadow disconnects without
+starting or stopping a motion. The E-stop remains the independent physical stop.
 
 Constructing `franky.Robot` writes Franky's default collision behavior (20 Nm joint
 threshold and 30 N Cartesian threshold). Every hardware config must explicitly
@@ -137,15 +168,18 @@ Start from, but do not execute, the pending templates:
 
 - `config/reference.pending.yaml`
 - `config/ppo.pending.yaml`
+- `config/ppo_path_shadow.pending.yaml`
 
 They intentionally contain `null` review decisions and `session_id: 0`, so they
 fail closed. Copy a template to the reviewed experiment directory and fill every
 pending value. For PPO, the bundle contract must name `fr3_joint1` through
 `fr3_joint7`, base `fr3_link0`, tracked body `fr3_flange`, a 50 Hz period,
 the exact 29D layout, and the six-action increment limits. Existing Panda,
-24D/7D, and 30 Hz bundles are rejected. The checked-in exporter does not yet
-produce this FR3 bundle, so no PPO hardware configuration is currently
-executable.
+24D/7D, and 30 Hz bundles are rejected. The accepted nominal and domain-randomized bundles are stored read-only under
+`/home/chen-lab/yifan/deployment_bundles/2026-09-27/`; their trust anchors and
+verification results are recorded in
+`../hardware_control_audit/2026-09-27-bundle-acceptance/`. Receipt does not
+authorize hardware motion.
 
 Validate a fully populated file without opening FCI:
 
@@ -198,8 +232,10 @@ PYTHONPATH=/home/chen-lab/yifan/franka-rl/deployment/franky_runtime \
   /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/tests
 ```
 
-Coverage includes fail-closed pending configuration, exact constructor collision
-contract, reference generation, soft-bound rejection, the full fake reference
-run, the full fake PPO/worker path, complete artifacts, and absence of automatic
+The current suite has 19 tests. Coverage includes fail-closed pending
+configuration, exact constructor collision contract, reference generation,
+soft-bound rejection, full fake reference and PPO runs, strict catalog/hash and
+workspace validation, exact transferred YZ geometry, path transitions and stale
+results, read-only shadow behavior, complete artifacts, and absence of automatic
 recovery calls. Offline tests do not qualify motion, thresholds, callback timing,
 or controller response on hardware.

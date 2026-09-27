@@ -2,25 +2,25 @@ version: 1
 scenarios:
   hw_nominal_k050:
     type: random
-    description: Exact deployment home, K=50, no perturbations, zero provisional delay.
+    description: Exact deployment home, K=50, no perturbations, measured one-policy-step delay.
     resampling: reset
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [0.5, 0.5]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [0.5, 0.5]}
     reset: {joint_position_range: [0.0, 0.0]}
   hw_nominal_k100:
     type: random
-    description: Exact deployment home, K=100, no perturbations, zero provisional delay.
+    description: Exact deployment home, K=100, no perturbations, measured one-policy-step delay.
     resampling: reset
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [1.0, 1.0]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [1.0, 1.0]}
     reset: {joint_position_range: [0.0, 0.0]}
   hw_nominal_k200:
     type: random
-    description: Exact deployment home, K=200, no perturbations, zero provisional delay.
+    description: Exact deployment home, K=200, no perturbations, measured one-policy-step delay.
     resampling: reset
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [2.0, 2.0]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [2.0, 2.0]}
     reset: {joint_position_range: [0.0, 0.0]}
   hw_dr_k050:
     type: random
-    description: Exact deployment home, K=50, calibrated FR3 physical and sensing perturbations.
+    description: Exact deployment home, K=50, calibrated FR3 perturbations and measured one-policy-step delay.
     resampling: reset
     physics: &dr_physics
       joint_friction_add: {distribution: uniform, low: 0.00, high: 0.10}
@@ -35,21 +35,21 @@ scenarios:
       joint_position_noise: {distribution: uniform, low: -0.002, high: 0.002}
       joint_velocity_noise: {distribution: uniform, low: -0.02, high: 0.02}
       ee_position_error_noise: {distribution: uniform, low: -0.002, high: 0.002}
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [0.5, 0.5]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [0.5, 0.5]}
     reset: {joint_position_range: [0.0, 0.0]}
   hw_dr_k100:
     type: random
-    description: Exact deployment home, K=100, calibrated FR3 physical and sensing perturbations.
+    description: Exact deployment home, K=100, calibrated FR3 perturbations and measured one-policy-step delay.
     resampling: reset
     physics: *dr_physics
     observations: *dr_observations
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [1.0, 1.0]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [1.0, 1.0]}
     reset: {joint_position_range: [0.0, 0.0]}
   hw_dr_k200:
     type: random
-    description: Exact deployment home, K=200, calibrated FR3 physical and sensing perturbations.
+    description: Exact deployment home, K=200, calibrated FR3 perturbations and measured one-policy-step delay.
     resampling: reset
     physics: *dr_physics
     observations: *dr_observations
-    control: {action_delay_range: [0, 0], impedance_gain_alpha_range: [2.0, 2.0]}
+    control: {action_delay_range: [1, 1], impedance_gain_alpha_range: [2.0, 2.0]}
     reset: {joint_position_range: [0.0, 0.0]}

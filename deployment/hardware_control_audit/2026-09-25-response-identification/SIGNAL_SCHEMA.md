@@ -1,3 +1,9 @@
+**Current Franky PPO runtime update (2026-09-27):** the selected deployment
+runtime no longer uses `O_T_EE` as tracked-position feedback. It computes
+`fr3_link0 -> fr3_flange` from measured encoder `q` with pinned libfranka
+`Model.pose(Frame.Flange, ...)`; `O_T_EE` is logged only for comparison. The
+description below remains the historical ROS 2 coordinator schema.
+
 # Synchronized response log schema
 
 Raw traces belong outside Git under `/home/chen-lab/franka_ros2_ws/hardware_inventory/<date>/response_identification_<UTC>/`. Each session stores the exact approved YAML and hashes beside `samples.csv`, `events.jsonl`, and `metadata.json`. Faulted and rejected trials are retained.

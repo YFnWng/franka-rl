@@ -3,6 +3,9 @@ import csv
 import json
 import math
 import time
+from types import SimpleNamespace
+
+import numpy as np
 from pathlib import Path
 
 import pytest
@@ -34,6 +37,14 @@ def approved_reference(tmp_path, session_id=42):
                   "control_interface": "torque",
                   "controller_mode": "franky_joint_impedance_tracking",
                   "expected_franky_version": VERSION,
+                  "ee_feedback": {
+                      "source": "measured_joint_encoder_libfranka_fk",
+                      "joint_signal": "q",
+                      "base_frame": "fr3_link0",
+                      "frame": "fr3_flange",
+                      "model_frame": "Frame.Flange",
+                      "reported_pose_role": "audit_only",
+                  },
                   "impedance_controller": {
                     "stiffness_nm_rad": [24.0, 24.0, 24.0, 24.0, 10.0, 6.0, 2.0],
                     "damping_nms_rad": [2.0, 2.0, 2.0, 1.0, 1.0, 1.0, 0.5],
@@ -126,6 +137,10 @@ def test_fake_reference_runtime_writes_complete_trace(tmp_path):
         rows = list(csv.DictReader(stream))
     assert rows
     assert {row["command_valid"] for row in rows} == {"1"}
+    assert {row["ee_feedback_source"] for row in rows} == {"fake_backend_joint_state_fk"}
+    assert all(float(row["ee_feedback_x_m"]) == float(row["flange_x_m"]) for row in rows)
+    assert all(float(row["ee_feedback_y_m"]) == float(row["flange_y_m"]) for row in rows)
+    assert all(float(row["ee_feedback_z_m"]) == float(row["flange_z_m"]) for row in rows)
     assert max(int(row["policy_sequence"]) for row in rows) > 1
 
 
@@ -141,6 +156,50 @@ def test_constant_reference_uses_keepalive_instead_of_replanning(tmp_path):
         assert coordinator.callback_sequence == 2
     finally:
         coordinator.close()
+
+
+
+def test_encoder_forward_kinematics_uses_measured_q_and_flange_frame():
+    from franky_experiment.backend import EncoderForwardKinematics, _encoder_pose_feedback
+
+    flange_frame = object()
+    identity = object()
+    calls = []
+
+    class Pose:
+        matrix = np.array([
+            [1.0, 0.0, 0.0, 0.31],
+            [0.0, 1.0, 0.0, -0.02],
+            [0.0, 0.0, 1.0, 0.59],
+            [0.0, 0.0, 0.0, 1.0],
+        ])
+        quaternion = np.array([0.0, 0.0, 0.0, 1.0])
+
+    class Model:
+        def pose(self, frame, q, f_t_ee, ee_t_k):
+            calls.append((frame, np.asarray(q).copy(), f_t_ee, ee_t_k))
+            return Pose()
+
+    module = SimpleNamespace(
+        Frame=SimpleNamespace(Flange=flange_frame),
+        Affine=lambda: identity,
+    )
+    fk = EncoderForwardKinematics(SimpleNamespace(model=Model()), module)
+    measured_q = np.array([0.1, -0.2, 0.3, -1.0, 0.5, 1.2, -0.4])
+    reported = np.eye(4)
+    reported[:3, 3] = [9.0, 8.0, 7.0]
+    state = SimpleNamespace(q=measured_q, O_T_EE=reported, F_T_EE=np.eye(4))
+
+    feedback = _encoder_pose_feedback(state, fk)
+
+    assert len(calls) == 1
+    assert calls[0][0] is flange_frame
+    assert calls[0][1] == pytest.approx(measured_q)
+    assert calls[0][2] is identity and calls[0][3] is identity
+    assert feedback.position_m == pytest.approx((0.31, -0.02, 0.59))
+    assert feedback.orientation_xyzw == pytest.approx((0.0, 0.0, 0.0, 1.0))
+    assert feedback.reported_position_m == pytest.approx((9.0, 8.0, 7.0))
+    assert feedback.reported_position_error_m > 1.0
 
 
 def test_hardware_backend_has_no_recovery_call():
@@ -168,7 +227,7 @@ def approved_ppo(tmp_path, session_id=43):
             value["safety"]["joint_upper_rad"], value["safety"]["position_margin_rad"]
         )
     ]
-    bundle = tmp_path / "fr3_bundle"
+    bundle = tmp_path / f"fr3_bundle-{session_id}"
     bundle.mkdir()
     manifest = bundle / "manifest.json"
     manifest.write_text("{}\n")
@@ -266,11 +325,27 @@ class FakePolicyWorker:
         return {"type": "result", "request_id": request["request_id"],
                 "trial_id": request["trial_id"],
                 "observation_sequence": request["observation_sequence"],
+                "observation_monotonic_ns": request["observation_monotonic_ns"],
                 "completed_monotonic_ns": time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW),
                 "action": [0.0] * 6}
 
     def close(self):
         self.closed = True
+
+
+def test_worker_python_virtualenv_symlink_is_preserved(tmp_path):
+    value = approved_ppo(tmp_path)
+    worker_target = tmp_path / "worker-target"
+    worker_target.write_text("#!/bin/sh\nexit 0\n")
+    worker_target.chmod(0o755)
+    worker_link = tmp_path / "worker-python"
+    worker_link.symlink_to(worker_target)
+    value["ppo"]["worker_python"] = str(worker_link)
+
+    config = load_experiment(write_config(tmp_path, value, "worker-link.yaml"))
+
+    assert config["ppo"]["worker_python"] == str(worker_link.absolute())
+    assert Path(config["ppo"]["worker_python"]).is_symlink()
 
 
 def test_fake_ppo_runtime_uses_29d_observation_and_worker(tmp_path):
@@ -309,3 +384,166 @@ def test_incremental_action_mapping_integrates_and_projects(tmp_path):
     assert projected == pytest.approx(config["safety"]["soft_upper_rad"])
     with pytest.raises(ConfigError, match=r"exceeds \[-1, 1\]"):
         action_to_target(config, [1.01] * 6, HOME)
+
+
+def path_ppo(tmp_path, session_id=45, context="fake"):
+    value = approved_ppo(tmp_path, session_id)
+    catalog = tmp_path / f"path-catalog-{session_id}.yaml"
+    catalog.write_text(yaml.safe_dump({
+        "version": 1,
+        "paths": {
+            "stationary_three": {
+                "type": "waypoints",
+                "description": "test path",
+                "waypoints_m": [[0.45, 0.0, 0.35]] * 3,
+                "target_orientation_xyzw": [0.0, 1.0, 0.0, 0.0],
+                "waypoint_timeout_s": 0.04,
+                "position_threshold_m": 0.001,
+            }
+        },
+    }, sort_keys=False))
+    value["ppo"].pop("targets")
+    value["ppo"].pop("success")
+    value["ppo"].pop("repetitions")
+    value["ppo"]["path"] = {
+        "catalog_path": str(catalog),
+        "catalog_sha256": sha256(catalog),
+        "name": "stationary_three",
+        "repetitions": 1,
+        "workspace_lower_base_m": [0.40, -0.10, 0.30],
+        "workspace_upper_base_m": [0.50, 0.10, 0.40],
+    }
+    value["execution_context"] = context
+    value["motion_authorized"] = context != "shadow"
+    return value, catalog
+
+
+def test_transferred_yz_catalog_geometry_and_hash():
+    from franky_experiment.path_runtime import PathCatalog
+
+    path = Path(__file__).parents[2] / "path_catalogs" / "yz_circle_candidates_v1.yaml"
+    assert sha256(path) == "b78b6fa5bbc788f471464c48edefee3d29c5ea0f4cab06c5a7f6d65cae067cae"
+    catalog = PathCatalog.from_yaml(path)
+    spec = catalog.get("circle_yz_r050_t1")
+    assert spec.waypoints_m[0] == pytest.approx((0.475, 0.0, 0.5))
+    assert all(point[0] == pytest.approx(0.475) for point in spec.waypoints_m)
+    assert all(math.hypot(point[1], point[2] - 0.45) == pytest.approx(0.05)
+               for point in spec.waypoints_m)
+    assert len(spec.waypoints_m) == 24
+
+
+def test_path_config_requires_exclusive_source_hash_and_workspace(tmp_path):
+    value, _ = path_ppo(tmp_path)
+    config = load_experiment(write_config(tmp_path, value, "path.yaml"))
+    assert config["ppo"]["execution_mode"] == "path"
+    assert config["ppo"]["path"]["resolved_path"]["waypoint_count"] == 3
+
+    both, _ = path_ppo(tmp_path, 46)
+    both["ppo"]["targets"] = [{"id": "forbidden", "position_base_m": [0.45, 0.0, 0.35]}]
+    with pytest.raises(ConfigError, match="exactly one"):
+        load_experiment(write_config(tmp_path, both, "both.yaml"))
+
+    bad_hash, _ = path_ppo(tmp_path, 47)
+    bad_hash["ppo"]["path"]["catalog_sha256"] = "0" * 64
+    with pytest.raises(ConfigError, match="trust anchor"):
+        load_experiment(write_config(tmp_path, bad_hash, "bad-hash.yaml"))
+
+    bad_workspace, _ = path_ppo(tmp_path, 48)
+    bad_workspace["ppo"]["path"]["workspace_upper_base_m"][0] = 0.44
+    with pytest.raises(ConfigError, match="reviewed workspace"):
+        load_experiment(write_config(tmp_path, bad_workspace, "bad-workspace.yaml"))
+
+
+def test_fake_path_runtime_completes_and_records_waypoints(tmp_path):
+    FakePolicyWorker.instances.clear()
+    value, _ = path_ppo(tmp_path, 49)
+    config = load_experiment(write_config(tmp_path, value, "path-run.yaml"))
+    coordinator = Coordinator(config, auto_start=True, worker_factory=FakePolicyWorker)
+    try:
+        code = coordinator.run()
+    finally:
+        coordinator.close()
+
+    assert code == 0
+    run = tmp_path / "runs" / "session-49"
+    final = json.loads((run / "final_metadata.json").read_text())
+    assert final["terminal_state"] == "complete"
+    assert final["path_summary"]["reached"] == 3
+    assert final["path_summary"]["timed_out"] == 0
+    events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+    assert sum(event["event"] == "waypoint_resolved" for event in events) == 3
+    assert any(event["event"] == "policy_result_discarded" for event in events)
+    observation_events = [event for event in events
+                          if event["event"] == "policy_observation_submitted"]
+    assert observation_events
+    assert all(len(event["observation"]) == 29 for event in observation_events)
+    requests = FakePolicyWorker.instances[-1].requests
+    assert requests
+    assert all(request["trial_id"] in {1, 2, 3} for request in requests)
+
+
+def test_shadow_is_read_only_and_records_state_to_reference_delay(tmp_path, monkeypatch):
+    import io
+    import franky_experiment.coordinator as coordinator_module
+    from franky_experiment.backend import FakeBackend
+
+    class ReadOnlyBackend(FakeBackend):
+        send_attempts = 0
+
+        def send_target(self, target, callback):
+            del target, callback
+            self.send_attempts += 1
+            raise AssertionError("shadow attempted motion")
+
+        def keepalive(self):
+            raise AssertionError("shadow attempted keepalive")
+
+    value, catalog = path_ppo(tmp_path, 50, context="shadow")
+    document = yaml.safe_load(catalog.read_text())
+    document["paths"]["stationary_three"]["waypoints_m"] = [[0.46, 0.0, 0.35]] * 3
+    document["paths"]["stationary_three"]["waypoint_timeout_s"] = 0.08
+    catalog.write_text(yaml.safe_dump(document, sort_keys=False))
+    value["ppo"]["path"]["catalog_sha256"] = sha256(catalog)
+    config = load_experiment(write_config(tmp_path, value, "shadow.yaml"))
+    monkeypatch.setattr(coordinator_module, "ShadowBackend", ReadOnlyBackend)
+    monkeypatch.setattr(coordinator_module.sys, "stdin", io.StringIO("start\n"))
+    coordinator = coordinator_module.Coordinator(
+        config, auto_start=False, worker_factory=FakePolicyWorker)
+    backend = coordinator.backend
+    try:
+        code = coordinator.run()
+    finally:
+        coordinator.close()
+
+    assert code == 0
+    assert backend.send_attempts == 0
+    events_path = tmp_path / "runs" / "session-50" / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    updates = [event for event in events if event["event"] == "shadow_reference_updated"]
+    assert updates
+    assert all(event["state_to_reference_consumption_ns"] >=
+               event["inference_latency_ns"] >= 0 for event in updates)
+    assert all(event["effective_delay_policy_steps"] >= 0 for event in updates)
+
+    from summarize_shadow import summarize
+    report = summarize(tmp_path / "runs" / "session-50")
+    assert report["observation_size"] == 29
+    assert report["action_size"] == 6
+    assert report["initial_reference_max_abs_error_rad"] == 0.0
+    assert report["initial_previous_action_max_abs"] == 0.0
+    assert report["held_joint7_max_drift_rad"] == 0.0
+    assert report["consumed_result_count"] == len(updates)
+
+
+def test_shadow_approval_requires_motion_authorized_false(tmp_path):
+    value, _ = path_ppo(tmp_path, 51, context="shadow")
+    value["motion_authorized"] = True
+    with pytest.raises(ConfigError, match="motion_authorized false"):
+        load_experiment(write_config(tmp_path, value, "bad-shadow.yaml"))
+
+
+def test_ee_feedback_contract_rejects_reported_cartesian_pose(tmp_path):
+    value = approved_ppo(tmp_path, 52)
+    value["robot"]["ee_feedback"]["source"] = "robot_reported_O_T_EE"
+    with pytest.raises(ConfigError, match="measured joint encoder"):
+        load_experiment(write_config(tmp_path, value, "reported-pose.yaml"))

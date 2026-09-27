@@ -872,11 +872,12 @@ Artifacts now include measured-reference tracking error and soft-limit
 reference projection in addition to the previously recorded path, velocity,
 joint-margin, torque, and action-clipping metrics.
 
-The measured effective shadow-runtime delay is still missing. The calibration
-scenario file therefore declares a provisional zero-step delay. Replace this
-with the measured value and rerun before treating results as final evidence.
-No YZ radius is selected yet, and no motion is authorized. See
-deployment/YZ_CIRCLE_CALIBRATION_STATUS.md for remaining blockers.
+The receiving machine subsequently measured a one-policy-step effective delay
+in the completed nominal and DR real-FCI shadow sessions. The hardware-matched
+calibration scenarios now use fixed `action_delay_range: [1, 1]` and must be
+rerun before treating results as final evidence. No YZ radius is selected yet,
+and no motion is authorized. See the shadow qualification closure below and
+`deployment/YZ_CIRCLE_CALIBRATION_STATUS.md` for remaining blockers.
 
 An end-to-end four-environment smoke run of circle_yz_r050_t1 at nominal K=100
 validated the new artifact path. All four trials timed out only on the initial
@@ -891,9 +892,128 @@ The workstation phase is now wrapped for transfer. Use
 deployment/FR3_REALTIME_TRANSFER_HANDOFF.md as the authoritative receiving
 checklist. Transfer both complete v2 position-policy bundle archives (nominal
 and DR), not standalone ONNX files. The document records archive, manifest, and
-policy hashes and assigns all remaining fake/shadow/path/timing work to the
-real-time machine. Raw PyTorch checkpoints stay on the training workstation.
+policy hashes and records the receiving-machine acceptance workflow. Raw
+PyTorch checkpoints stay on the training workstation.
 
 The current 31D z-axis policy is explicitly excluded. Neither transferred
 bundle is motion-authorized; receipt and parity verification do not constitute
 approval to move the robot.
+
+## 2026-09-27 receiving-machine acceptance response
+
+Both v2 transfer archives arrived with matching archive, manifest, and ONNX
+hashes. Their portable verifiers passed all 1,024 vectors with
+CPUExecutionProvider; the extracted bundle trees are read-only at
+`/home/chen-lab/yifan/deployment_bundles/2026-09-27/`.
+
+The Franky runtime now implements the strict SHA-anchored path contract,
+per-policy-step waypoint state machine, repeated traversal, stale-result
+rejection, full shadow observation/action/reference logging, and a read-only FCI
+shadow backend with no motion or keepalive operation. A worker-path bug was also
+fixed: the configured virtual-environment interpreter is made absolute without
+dereferencing its symlink, so ONNX Runtime remains available.
+
+The hardware and shadow observation source is now explicitly measured-joint
+forward kinematics: pinned libfranka `Model.pose(Frame.Flange, q, identity,
+identity)` computes the `fr3_link0` to `fr3_flange` pose. `O_T_EE` is retained
+only as a logged audit comparison and cannot be selected as policy feedback.
+Position, quaternion, source/frame labels, and FK-versus-reported differences are
+recorded.
+
+Both real bundles completed bounded 50 Hz fake-backend runs with ten reference
+updates, no dropped samples, and clean stops. The offline suite is 19/19 passing,
+including the exact YZ catalog hash/geometry and fail-closed path/workspace and
+shadow tests. Evidence is in
+`deployment/hardware_control_audit/2026-09-27-bundle-acceptance/`.
+
+That acceptance established the prerequisites for the operator-started,
+no-motion FCI shadow runs described in the closure below. Motion remained
+unauthorized throughout those sessions.
+
+
+## 2026-09-27 receiving-machine shadow qualification closure
+
+The operator completed the reviewed real-FCI, no-motion shadow sessions for
+both transferred policies. Nominal session `2026092701` and DR session
+`2026092702` each completed all 24 waypoint time windows, recorded 1,199 policy
+observations, consumed 1,175 results, discarded the expected 23 stale boundary
+results, dropped zero samples, held joint 7 exactly, and stopped cleanly. The
+runtime source hash was
+`c751dde95b6e7fd2a1e3ac96e20c83540bde4f3144555943429fc87930302447`.
+
+The nominal state-to-reference latency was 20.868 ms median and 21.035 ms p95;
+the DR latency was 20.160 ms median and 21.154 ms p95. These correspond to
+1.043 and 1.008 policy steps at 50 Hz. The combined observed range was
+0.985--1.067 steps. The simulator uses integer policy-step delay, so final
+hardware-matched calibration must use fixed `action_delay_range: [1, 1]`.
+Training-time delay randomization remains `[0, 1]`.
+
+The combined maximum inference latency was 8.015 ms, maximum encoder-FK time was
+0.319 ms, and maximum encoder-FK versus robot-reported position discrepancy was
+9.17e-8 m. Both runs used measured-encoder libfranka FK, began with zero previous
+action and less than 6.36e-6 rad held-reference mismatch, and recorded zero
+held-joint-7 drift.
+
+The shadow sessions deliberately applied no policy reference, so all waypoints
+timed out at the stationary home pose. They qualify bundle loading, observation
+assembly, FK, inference timing, action integration, transition handling, and
+clean shutdown. They do not measure path performance and authorize no motion.
+Portable evidence, including both complete source summaries and hashes, is in
+`deployment/hardware_control_audit/2026-09-27-shadow-qualification/`.
+
+The simulation workstation should return or audit its existing path evidence
+against the measured one-step delay. The receiving machine must then finish the
+swept-workspace review and prepare one exact reviewed motion YAML for separate
+authorization.
+
+
+## 2026-09-27 path-scope correction: use existing `circle_yz`
+
+The deployment path is the existing `circle_yz` definition in
+`source/franka_rl/franka_rl/config/paths.yaml`, not the earlier reduced-radius
+candidate grid. It has center `[0.475, 0, 0.35]` m, radius 0.15 m, 24 waypoints,
+phase 180 degrees, a 1.0 s per-waypoint timeout, and a 0.01 m threshold. Its
+workspace span is x=0.475 m, y `[-0.15,0.15]` m, and z `[0.20,0.50]` m.
+
+`deployment/config/yz_circle_calibration_v1.yaml` now references `paths.yaml`
+and selects only `circle_yz`. The available robustness matrix is 12 jobs: one
+path, two policies, six K/evaluation-scenario combinations, and one seed. Each
+job runs 128 episodes, for 1,536 total episodes. The separate point suite and
+the 3-radius by 3-timeout catalog are outside this requested run.
+
+Reuse existing matching evaluation artifacts. The 12 jobs are needed only if a
+broader robustness comparison is desired. Preserve the resolved catalog path and
+hash in accepted artifacts. Hardware motion still requires physical swept-
+workspace review and a separately authorized immutable motion YAML.
+
+
+## 2026-09-27 calibration reuse decision
+
+The simulation workstation reports that both transferred position policies have
+already completed `circle_yz` successfully. Do not repeat a full calibration
+solely because hardware shadow timing was measured later. First audit the
+existing artifacts for the exact checkpoint hashes, `circle_yz` catalog/path
+hash, K=100/D=20 controller, deployment-home initialization, fixed one-policy-
+step action delay, and complete path/safety metrics.
+
+If all fields match, the existing evaluation is accepted and no simulation rerun
+is required. If delay 1 is absent or unrecorded, run only two targeted K=100
+nominal-condition confirmations, one for each policy, with fixed
+`action_delay_range: [1, 1]`. The 12-job K=50/100/200 nominal/DR scenario suite
+remains available as optional robustness evidence and is not a first-demo gate.
+
+
+## 2026-09-27 `circle_yz` physical-clearance closure
+
+The operator confirmed physical clearance for the exact checked-in `circle_yz`
+geometry: center `[0.475,0,0.35]` m, radius 0.15 m, x=0.475 m, y
+`[-0.15,0.15]` m, and z `[0.20,0.50]` m, with no attached end effector. The
+catalog SHA-256 is
+`e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3`.
+Evidence is in
+`deployment/hardware_control_audit/2026-09-27-circle-yz-clearance/`.
+
+This closes the physical-clearance gate for this immutable geometry. Any path or
+catalog change requires a new clearance review. Policy selection, evidence for
+fixed one-step-delay performance, and separate authorization of the exact
+hardware-motion YAML remain outstanding.

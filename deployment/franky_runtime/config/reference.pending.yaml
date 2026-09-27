@@ -21,6 +21,13 @@ robot:
   control_interface: torque
   controller_mode: franky_joint_impedance_tracking
   expected_franky_version: 2.0.1.dev58+gf88f0e9b.libfranka.0.21.2
+  ee_feedback:
+    source: measured_joint_encoder_libfranka_fk
+    joint_signal: q
+    base_frame: fr3_link0
+    frame: fr3_flange
+    model_frame: Frame.Flange
+    reported_pose_role: audit_only
   # Initial profile from frankarobotics/franka_ros2 JointImpedanceExampleController.
   impedance_controller:
     stiffness_nm_rad: [24.0, 24.0, 24.0, 24.0, 10.0, 6.0, 2.0]

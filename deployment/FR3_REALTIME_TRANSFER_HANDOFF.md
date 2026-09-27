@@ -2,9 +2,10 @@
 
 Date: 2026-09-27
 
-The simulation-workstation implementation phase is closed for the first
-position-only hardware demo. The real-time machine owns the remaining fake,
-shadow, timing, path-execution, and hardware-readiness work.
+The bundle transfer and real-time fake/shadow acceptance phases are complete
+for the first position-only hardware demo. The simulation workstation now owns
+the fixed-delay calibration rerun; the real-time machine still owns physical
+workspace review and final motion readiness.
 
 ## Transfer these two complete bundles
 
@@ -83,22 +84,25 @@ For each archive:
 6. Point a copy of ppo.pending.yaml at one bundle and its manifest hash. Keep
    executable and motion_authorized false.
 
-## Remaining real-time-machine work
+## Acceptance closure and remaining work
 
-1. Implement the YAML path-mode contract and fake-backend state-machine parity.
-2. Run read-only shadow inference from the reviewed deployment home.
-3. Measure effective state-to-action/application delay and report it in 50 Hz
-   policy steps. The workstation calibration scenarios currently use a
-   provisional zero-step delay and are not final qualification evidence.
-4. Check observation ordering, FK/base/flange frames, measured-start reference
-   initialization, held joint 7, stale-result rejection, inference latency,
-   watchdogs, sticky faults, logging, and clean torque stop.
-5. Run fake and shadow comparisons for both nominal and DR bundles.
-6. Complete the swept-workspace review for the eventual YZ candidate.
-7. Return delay/parity/shadow results. Only then rerun or finalize the
-   radius/timeout calibration and create the selected immutable path catalog.
-8. Request separate motion authorization. Neither bundle nor any path is
-   currently authorized for robot motion.
+Bundle verification, YAML path-mode implementation, fake-backend parity, and
+both real-FCI no-motion shadow runs have passed. The measured state-to-reference
+latency maps to one 50 Hz policy step; evidence is in
+`deployment/hardware_control_audit/2026-09-27-shadow-qualification/`.
+
+1. On the simulation workstation, audit the existing successful `circle_yz`
+   artifacts against the transferred policy hashes and the measured fixed
+   one-step delay. If that evidence is complete, do not rerun it.
+2. If delay 1 is absent or unrecorded, run only the two K=100 nominal-condition
+   confirmation jobs, one per policy. The checked-in 12-job suite is optional.
+3. Select between the nominal and DR policies using velocity, tracking,
+   joint-margin, torque, action-clipping, and reference-projection margins.
+4. The operator has confirmed physical clearance for the exact checked-in
+   `circle_yz`; any geometry change requires a new review.
+5. Prepare one immutable hardware-motion YAML and request separate motion
+   authorization. Neither bundle nor any path is currently authorized for robot
+   motion.
 
 Raw PyTorch checkpoints are not required by the real-time runtime. Retain them
 on the training workstation for provenance and future re-export.

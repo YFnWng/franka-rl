@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "source_revision": "6b2b9fa",
+  "runtime_source_sha256": "c751dde95b6e7fd2a1e3ac96e20c83540bde4f3144555943429fc87930302447",
+  "path_catalog": {
+    "path": "deployment/path_catalogs/yz_circle_candidates_v1.yaml",
+    "sha256": "b78b6fa5bbc788f471464c48edefee3d29c5ea0f4cab06c5a7f6d65cae067cae",
+    "strict_parse_and_geometry_test": true,
+    "hardware_approved": false
+  },
+  "bundles": {
+    "nominal": {
+      "archive_sha256": "979677ba20d755873c4c779751b6779b405a54fdad1c50ba56bef0050bb1f92d",
+      "manifest_sha256": "9c1a72d9b0430343572c5cfd3580fe1b52cb63f6092e844e73f39d11f3be12dd",
+      "policy_sha256": "b60b3af8e8dcca1650789a406f67d114cd094a0ed1d2fa36154702917ead605a",
+      "portable_verification": {
+        "passed": true,
+        "vectors": 1024,
+        "max_abs_error": 1.8477439880371094e-06,
+        "provider": "CPUExecutionProvider"
+      },
+      "fake_runtime": {
+        "terminal_state": "stopped",
+        "terminal_reason": "max_runtime",
+        "observations": 11,
+        "reference_updates": 10,
+        "dropped_samples": 0,
+        "smooth_stop_ok": true
+      }
+    },
+    "domain_randomized": {
+      "archive_sha256": "b21eba9c3321f3c25f501c2c4f7c98b2c13e31297293437b03f7721f3d633949",
+      "manifest_sha256": "34895a6f0e479e62a72f57678e820473d8f5a350255c1b68a9575700b6378788",
+      "policy_sha256": "0f600d9662bdfa662814bbd4e2fb16f2b3efe4ec0f3b237d207b3aa827ed6972",
+      "portable_verification": {
+        "passed": true,
+        "vectors": 1024,
+        "max_abs_error": 2.294778823852539e-06,
+        "provider": "CPUExecutionProvider"
+      },
+      "fake_runtime": {
+        "terminal_state": "stopped",
+        "terminal_reason": "max_runtime",
+        "observations": 11,
+        "reference_updates": 10,
+        "dropped_samples": 0,
+        "smooth_stop_ok": true
+      }
+    }
+  },
+  "offline_tests": {
+    "passed": 19,
+    "failed": 0
+  },
+  "shadow_hardware_run_completed": true,
+  "motion_authorized": false,
+  "ee_feedback_contract": {
+    "source": "measured_joint_encoder_libfranka_fk",
+    "joint_signal": "q",
+    "base_frame": "fr3_link0",
+    "frame": "fr3_flange",
+    "model_call": "Model.pose(Frame.Flange, q, identity, identity)",
+    "robot_reported_pose_role": "audit_only",
+    "fk_compute_timing_recorded": true
+  },
+  "shadow_qualification": {
+    "decision": "pass_no_motion_shadow_runtime",
+    "evidence": "deployment/hardware_control_audit/2026-09-27-shadow-qualification/qualification.json",
+    "nominal_session_id": 2026092701,
+    "domain_randomized_session_id": 2026092702,
+    "simulation_action_delay_steps": 1,
+    "combined_maximum_inference_latency_ms": 8.015079,
+    "combined_maximum_state_to_reference_consumption_ms": 21.345585,
+    "combined_maximum_effective_delay_policy_steps": 1.06727925,
+    "dropped_samples": 0,
+    "smooth_stop_ok": true
+  }
+}

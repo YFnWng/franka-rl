@@ -1,50 +1,61 @@
-# FR3 YZ-circle calibration status
+# FR3 `circle_yz` calibration status
 
-Implemented on the simulation workstation:
+The deployment path is the existing `circle_yz` entry in
+`source/franka_rl/franka_rl/config/paths.yaml`:
 
-- versioned FR3 29D/6D policy contract fr3_incremental_position_29d_v1;
-- deterministic ONNX export including the final tanh;
-- immutable nominal and DR candidate bundles with checkpoint/config/source hashes
-  and 1,024 PyTorch/ONNX parity vectors;
-- strict Franky-runtime checks for dimensions, inference transform, joint order,
-  reference integration, soft limits, controller gains, torque slew, and default
-  pose;
-- immutable 3-radius by 3-timeout YZ catalog;
-- exact-home K=50/100/200 nominal and DR evaluation scenarios;
-- YAML-driven point and full YZ-grid coordinators;
-- per-episode/path metrics for waypoint outcomes, final/minimum position error,
-  action clipping, reference projection, measured velocity, held-reference
-  tracking error, joint margin, and torque.
+- center `[0.475, 0.0, 0.35]` m;
+- YZ-plane radius `0.15` m;
+- y range `[-0.15, 0.15]` m and z range `[0.20, 0.50]` m;
+- 24 waypoints, phase 180 degrees;
+- 1.0 s per-waypoint timeout and 0.01 m position threshold;
+- catalog SHA-256
+  `e88676a68e38d44c6c62e27bc9f91ae42301033d189796fda506437f595764b3`.
 
-Current blockers:
+`config/yz_circle_calibration_v1.yaml` now selects only this path. The earlier
+3-radius by 3-timeout candidate catalog is retained as historical calibration
+input but is not part of the requested run.
 
-1. The receiving machine has not yet returned the measured effective shadow
-   inference/action delay. Calibration scenarios therefore use a clearly marked
-   provisional zero-step delay and are not final qualification evidence.
-2. The full point and 108-job path matrix has not yet been run. No circle is
-   selected, and the original packaged path catalog remains unchanged.
-3. A swept-workspace review and fake/shadow runtime parity still belong on the
-   receiving machine before any motion authorization.
-4. The 31D z-axis policy remains blocked and is not a first-demo candidate.
+## Available robustness matrix
 
-Pipeline smoke evidence:
+The checked-in optional matrix has 12 jobs:
 
-- artifact directory:
-  /media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/evaluations/2026-09-27_yz_circle_pipeline_smoke
-- nominal policy, K=100, radius 0.050 m, 1 s timeout, four exact-home episodes;
-- all four traversals timed out only on waypoint 0, then reached the remaining
-  23 waypoints; there were no unsafe failures;
-- waypoint-0 minimum error was 0.0562 m, confirming the receiving-machine
-  warning that the 0.191 m lead-in dominates a 1 s deadline;
-- worst measured-velocity ratio was 1.014, worst joint margin 0.655 rad, worst
-  tracking-error norm 0.154 rad, worst torque-vector norm 30.105 Nm, and
-  reference projection/action clipping were zero.
+- one path: `circle_yz`;
+- two policies: `position_nominal` and `position_dr`;
+- six hardware scenarios: K=50/100/200 under nominal and DR evaluation
+  conditions;
+- one seed: 123;
+- 128 episodes per job, or 1,536 episodes total.
 
-This smoke result validates the pipeline but is not enough to select a path.
+All six scenarios use the measured fixed one-policy-step delay,
+`action_delay_range: [1, 1]`. This matrix is available for broader robustness
+comparison; it is not automatically a prerequisite for the first demo. The
+separate point-calibration suite is not part of this path-only work.
 
-Final bundle trust anchors and locations are recorded in
-config/fr3_position_policy_bundles_v1.yaml. Calibration inputs are
-config/fr3_point_hardware_calibration_v1.yaml,
-config/yz_circle_calibration_v1.yaml,
-config/fr3_hardware_calibration_scenarios_v1.yaml, and
-path_catalogs/yz_circle_candidates_v1.yaml.
+## Hardware shadow closure
+
+- nominal session 2026092701 and DR session 2026092702 both completed;
+- zero dropped samples, clean stops, and exact held-joint-7 behavior;
+- state-to-reference median delay was 1.043 steps nominal and 1.008 steps DR;
+- evidence: `hardware_control_audit/2026-09-27-shadow-qualification/`.
+
+## Remaining gates
+
+1. Audit the existing successful `circle_yz` artifacts for the exact transferred
+   checkpoint hashes, catalog/path hash, K=100/D=20 controller, exact deployment
+   home, fixed one-policy-step delay, and the required path/safety metrics.
+2. If fixed delay 1 is absent or unrecorded, run only the two K=100 nominal-
+   condition confirmation jobs: one for `position_nominal` and one for
+   `position_dr`. The 12-job matrix is optional robustness evidence.
+3. Select the deployment policy from the accepted evaluation evidence.
+4. Prepare and separately authorize an immutable hardware-motion YAML.
+
+Fake and real-FCI no-motion shadow runtime parity have passed. The operator
+confirmed physical clearance for the exact `circle_yz` geometry; evidence is in
+`hardware_control_audit/2026-09-27-circle-yz-clearance/`. The path is selected,
+but no PPO policy and no robot motion are authorized yet. The 31D z-axis policy
+remains excluded from the first demo.
+
+The executable calibration inputs are
+`config/yz_circle_calibration_v1.yaml`,
+`config/fr3_hardware_calibration_scenarios_v1.yaml`, and
+`../source/franka_rl/franka_rl/config/paths.yaml`.

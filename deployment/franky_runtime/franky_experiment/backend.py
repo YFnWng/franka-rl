@@ -11,6 +11,11 @@ from typing import Any, Callable
 import numpy as np
 
 
+EE_FEEDBACK_SOURCE = "measured_joint_encoder_libfranka_fk"
+EE_FEEDBACK_BASE_FRAME = "fr3_link0"
+EE_FEEDBACK_FRAME = "fr3_flange"
+
+
 @dataclass(frozen=True)
 class Snapshot:
     host_monotonic_ns: int
@@ -21,6 +26,14 @@ class Snapshot:
     dq_d: tuple[float, ...]
     ddq_d: tuple[float, ...]
     flange_position_m: tuple[float, ...]
+    flange_orientation_xyzw: tuple[float, ...]
+    ee_feedback_source: str
+    ee_feedback_base_frame: str
+    ee_feedback_frame: str
+    reported_flange_position_m: tuple[float, ...]
+    encoder_fk_reported_position_error_m: float
+    encoder_fk_reported_orientation_error_rad: float
+    encoder_fk_compute_ns: int
     f_t_ee: tuple[tuple[float, ...], ...]
     load_mass_kg: float
     mode: str
@@ -50,6 +63,14 @@ class CallbackRecord:
     tau_joint_desired: tuple[float, ...]
     tau_external: tuple[float, ...]
     flange_position_m: tuple[float, ...]
+    flange_orientation_xyzw: tuple[float, ...]
+    ee_feedback_source: str
+    ee_feedback_base_frame: str
+    ee_feedback_frame: str
+    reported_flange_position_m: tuple[float, ...]
+    encoder_fk_reported_position_error_m: float
+    encoder_fk_reported_orientation_error_rad: float
+    encoder_fk_compute_ns: int
     mode: str
     current_errors: str
     last_motion_errors: str
@@ -61,17 +82,79 @@ def _tuple(value: Any) -> tuple[float, ...]:
 
 
 def _matrix(value: Any) -> np.ndarray:
-    matrix = value.matrix
-    return np.asarray(matrix() if callable(matrix) else matrix, dtype=float)
+    matrix = getattr(value, "matrix", value)
+    result = np.asarray(matrix() if callable(matrix) else matrix, dtype=float)
+    if result.shape != (4, 4) or not np.isfinite(result).all():
+        raise RuntimeError("pose is not a finite 4x4 matrix")
+    return result
 
 
-def _snapshot(robot: Any, state: Any) -> Snapshot:
+@dataclass(frozen=True)
+class EncoderPoseFeedback:
+    position_m: tuple[float, ...]
+    orientation_xyzw: tuple[float, ...]
+    reported_position_m: tuple[float, ...]
+    reported_position_error_m: float
+    reported_orientation_error_rad: float
+    compute_ns: int
+
+
+class EncoderForwardKinematics:
+    """Compute O_T_F from measured q through the pinned libfranka model."""
+
+    def __init__(self, robot: Any, franky_module: Any):
+        self.model = robot.model
+        self.frame = franky_module.Frame.Flange
+        self.identity = franky_module.Affine()
+
+    def calculate(self, q: Any) -> tuple[np.ndarray, tuple[float, ...]]:
+        joint_position = np.asarray(q, dtype=float).reshape(7)
+        if not np.isfinite(joint_position).all():
+            raise RuntimeError("joint encoder position is non-finite")
+        pose = self.model.pose(self.frame, joint_position, self.identity, self.identity)
+        matrix = _matrix(pose)
+        quaternion = _tuple(pose.quaternion)
+        if len(quaternion) != 4 or not all(math.isfinite(value) for value in quaternion):
+            raise RuntimeError("encoder FK quaternion is invalid")
+        return matrix, quaternion
+
+
+def _encoder_pose_feedback(state: Any, encoder_fk: Any) -> EncoderPoseFeedback:
+    started_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
+    calculated, quaternion = encoder_fk.calculate(state.q)
+    compute_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW) - started_ns
+    # O_T_EE is only an audit comparison. Convert it to the same flange frame.
+    reported = _matrix(state.O_T_EE) @ np.linalg.inv(_matrix(state.F_T_EE))
+    position = calculated[:3, 3]
+    reported_position = reported[:3, 3]
+    rotation_delta = calculated[:3, :3].T @ reported[:3, :3]
+    cosine = float(np.clip((np.trace(rotation_delta) - 1.0) / 2.0, -1.0, 1.0))
+    return EncoderPoseFeedback(
+        position_m=tuple(float(value) for value in position),
+        orientation_xyzw=quaternion,
+        reported_position_m=tuple(float(value) for value in reported_position),
+        reported_position_error_m=float(np.linalg.norm(position - reported_position)),
+        reported_orientation_error_rad=math.acos(cosine),
+        compute_ns=compute_ns,
+    )
+
+
+def _snapshot(robot: Any, state: Any, encoder_fk: Any) -> Snapshot:
+    feedback = _encoder_pose_feedback(state, encoder_fk)
     return Snapshot(
         host_monotonic_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW),
         robot_time_s=float(state.time.to_sec()),
         q=_tuple(state.q), dq=_tuple(state.dq), q_d=_tuple(state.q_d),
         dq_d=_tuple(state.dq_d), ddq_d=_tuple(state.ddq_d),
-        flange_position_m=tuple(float(v) for v in _matrix(state.O_T_EE)[:3, 3]),
+        flange_position_m=feedback.position_m,
+        flange_orientation_xyzw=feedback.orientation_xyzw,
+        ee_feedback_source=EE_FEEDBACK_SOURCE,
+        ee_feedback_base_frame=EE_FEEDBACK_BASE_FRAME,
+        ee_feedback_frame=EE_FEEDBACK_FRAME,
+        reported_flange_position_m=feedback.reported_position_m,
+        encoder_fk_reported_position_error_m=feedback.reported_position_error_m,
+        encoder_fk_reported_orientation_error_rad=feedback.reported_orientation_error_rad,
+        encoder_fk_compute_ns=feedback.compute_ns,
         f_t_ee=tuple(tuple(float(v) for v in row) for row in _matrix(state.F_T_EE)),
         load_mass_kg=float(state.m_load), mode=state.robot_mode.name,
         has_errors=bool(robot.has_errors), current_errors=repr(state.current_errors),
@@ -97,6 +180,7 @@ class FrankyBackend:
             default_force_threshold=float(collision["cartesian_force_threshold_n"]),
             realtime_config=RealtimeConfig.Enforce,
         )
+        self._encoder_fk = EncoderForwardKinematics(self.robot, self._franky)
         self.impedance = config["robot"]["impedance_controller"]
         self.stop_config = config["robot"]["torque_stop"]
         self.soft_lower = tuple(config["safety"]["soft_lower_rad"])
@@ -152,7 +236,7 @@ class FrankyBackend:
 
     def read_state(self) -> Snapshot:
         self._check_watchdog()
-        return _snapshot(self.robot, self.robot.state)
+        return _snapshot(self.robot, self.robot.state, self._encoder_fk)
 
     def keepalive(self) -> None:
         with self._motion_lock:
@@ -192,6 +276,7 @@ class FrankyBackend:
         callback = self._active_callback
         if callback is None:
             return
+        feedback = _encoder_pose_feedback(state, self._encoder_fk)
         callback(CallbackRecord(
             host_monotonic_ns=time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW),
             robot_time_s=float(state.time.to_sec()), time_step_s=float(time_step.to_sec()),
@@ -201,7 +286,15 @@ class FrankyBackend:
             q_d=_tuple(state.q_d), dq_d=_tuple(state.dq_d), ddq_d=_tuple(state.ddq_d),
             tau_joint=_tuple(state.tau_J), tau_joint_desired=_tuple(state.tau_J_d),
             tau_external=_tuple(state.tau_ext_hat_filtered),
-            flange_position_m=tuple(float(v) for v in _matrix(state.O_T_EE)[:3, 3]),
+            flange_position_m=feedback.position_m,
+            flange_orientation_xyzw=feedback.orientation_xyzw,
+            ee_feedback_source=EE_FEEDBACK_SOURCE,
+            ee_feedback_base_frame=EE_FEEDBACK_BASE_FRAME,
+            ee_feedback_frame=EE_FEEDBACK_FRAME,
+            reported_flange_position_m=feedback.reported_position_m,
+            encoder_fk_reported_position_error_m=feedback.reported_position_error_m,
+            encoder_fk_reported_orientation_error_rad=feedback.reported_orientation_error_rad,
+            encoder_fk_compute_ns=feedback.compute_ns,
             mode=state.robot_mode.name, current_errors=repr(state.current_errors),
             last_motion_errors=repr(state.last_motion_errors),
             command_success_rate=float(state.control_command_success_rate),
@@ -245,6 +338,44 @@ class FrankyBackend:
         self.robot = None
 
 
+class ShadowBackend:
+    """FCI state reader that cannot submit a motion command."""
+
+    def __init__(self, config: dict[str, Any]):
+        from franky import RealtimeConfig, Robot
+
+        self._franky = __import__("franky")
+        expected = config["robot"]["expected_franky_version"]
+        actual = metadata.version("franky-control")
+        if actual != expected:
+            raise RuntimeError(f"Franky version mismatch: expected {expected}, got {actual}")
+        collision = config["robot"]["constructor_collision_behavior"]
+        self.robot = Robot(
+            config["robot"]["host"],
+            default_torque_threshold=float(collision["joint_torque_threshold_nm"]),
+            default_force_threshold=float(collision["cartesian_force_threshold_n"]),
+            realtime_config=RealtimeConfig.Enforce,
+        )
+        self._encoder_fk = EncoderForwardKinematics(self.robot, self._franky)
+
+    def read_state(self) -> Snapshot:
+        return _snapshot(self.robot, self.robot.state, self._encoder_fk)
+
+    def keepalive(self) -> None:
+        raise RuntimeError("shadow backend cannot keep a motion alive")
+
+    def send_target(self, target: list[float], callback: Callable[[CallbackRecord], None]) -> None:
+        del target, callback
+        raise RuntimeError("shadow backend cannot submit motion")
+
+    def smooth_stop(self, timeout_s: float = 5.0) -> bool:
+        del timeout_s
+        return not bool(self.robot.is_in_control)
+
+    def close(self) -> None:
+        self.robot = None
+
+
 class FakeBackend:
     """Deterministic fake of the long-lived impedance tracker."""
     def __init__(self, config: dict[str, Any]):
@@ -270,6 +401,14 @@ class FakeBackend:
             host_monotonic_ns=now, robot_time_s=(now - self.started_ns) / 1e9,
             q=_tuple(self.q), dq=_tuple(self.dq), q_d=_tuple(self.q_d), dq_d=_tuple(self.dq),
             ddq_d=(0.0,) * 7, flange_position_m=(0.45, 0.0, 0.35),
+            flange_orientation_xyzw=(0.0, 0.0, 0.0, 1.0),
+            ee_feedback_source="fake_backend_joint_state_fk",
+            ee_feedback_base_frame=EE_FEEDBACK_BASE_FRAME,
+            ee_feedback_frame=EE_FEEDBACK_FRAME,
+            reported_flange_position_m=(0.45, 0.0, 0.35),
+            encoder_fk_reported_position_error_m=0.0,
+            encoder_fk_reported_orientation_error_rad=0.0,
+            encoder_fk_compute_ns=0,
             f_t_ee=((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0),
                     (0.0, 0.0, 1.0, 0.0), (0.0, 0.0, 0.0, 1.0)),
             load_mass_kg=0.0, mode="Move" if self.in_control else "Idle", has_errors=False,
@@ -286,7 +425,16 @@ class FakeBackend:
             q_command=_tuple(self.target), dq_command=(0.0,) * 7, tau_command=_tuple(tau),
             q=state.q, dq=state.dq, q_d=state.q_d, dq_d=state.dq_d, ddq_d=state.ddq_d,
             tau_joint=_tuple(tau), tau_joint_desired=_tuple(tau), tau_external=(0.0,) * 7,
-            flange_position_m=state.flange_position_m, mode="Move", current_errors="[]",
+            flange_position_m=state.flange_position_m,
+            flange_orientation_xyzw=state.flange_orientation_xyzw,
+            ee_feedback_source=state.ee_feedback_source,
+            ee_feedback_base_frame=state.ee_feedback_base_frame,
+            ee_feedback_frame=state.ee_feedback_frame,
+            reported_flange_position_m=state.reported_flange_position_m,
+            encoder_fk_reported_position_error_m=state.encoder_fk_reported_position_error_m,
+            encoder_fk_reported_orientation_error_rad=state.encoder_fk_reported_orientation_error_rad,
+            encoder_fk_compute_ns=state.encoder_fk_compute_ns,
+            mode="Move", current_errors="[]",
             last_motion_errors="[]", command_success_rate=1.0,
         ))
 

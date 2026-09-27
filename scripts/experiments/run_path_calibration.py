@@ -110,8 +110,10 @@ def main() -> int:
         "path_catalog_sha256": catalog.sha256,
         "scenario_file": str(scenario_file),
         "scenario_file_sha256": _sha256(scenario_file),
-        "provisional_action_delay_steps": 0,
-        "action_delay_blocker": "Replace with the measured shadow-runtime effective delay before final qualification.",
+        "hardware_action_delay_steps": 1,
+        "action_delay_evidence": (
+            "deployment/hardware_control_audit/2026-09-27-shadow-qualification/qualification.json"
+        ),
         "results": results,
         "passed": all_passed and len(results) == len(path_names),
         "dry_run": args.dry_run,
@@ -138,7 +140,7 @@ def main() -> int:
         index["path_scenario_summary"] = str(comparison_path)
         index["selection"] = {
             "status": "pending_review",
-            "reason": "Choose the largest passing radius only after reviewing all safety margins and measured delay.",
+            "reason": "Select a policy only after reviewing every scenario and all safety margins.",
         }
     (output / "calibration_index.json").write_text(json.dumps(index, indent=2) + "\n")
     print(f"Calibration index: {output / 'calibration_index.json'}")

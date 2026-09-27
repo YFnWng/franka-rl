@@ -1,10 +1,6 @@
-# Pending deployment template for the 50 Hz six-action incremental-position PPO.
-# The actor output is a bounded reference velocity integrated into the held
-# position reference used by the same Franky impedance loop as sine tests.
-# Keep non-executable until a new policy bundle, path/targets, and lab review are complete.
 schema_version: 1
 runtime: franky_joint_impedance_tracking_v1
-execution_context: hardware
+execution_context: shadow
 mode: ppo
 session_id: 0
 status: pending_lab_review
@@ -25,13 +21,6 @@ robot:
   control_interface: torque
   controller_mode: franky_joint_impedance_tracking
   expected_franky_version: 2.0.1.dev58+gf88f0e9b.libfranka.0.21.2
-  ee_feedback:
-    source: measured_joint_encoder_libfranka_fk
-    joint_signal: q
-    base_frame: fr3_link0
-    frame: fr3_flange
-    model_frame: Frame.Flange
-    reported_pose_role: audit_only
   impedance_controller:
     stiffness_nm_rad:
     - 100.0
@@ -116,6 +105,13 @@ robot:
     acknowledged: true
     joint_torque_threshold_nm: 20.0
     cartesian_force_threshold_n: 30.0
+  ee_feedback:
+    source: measured_joint_encoder_libfranka_fk
+    joint_signal: q
+    base_frame: fr3_link0
+    frame: fr3_flange
+    model_frame: Frame.Flange
+    reported_pose_role: audit_only
 action_mapping:
   type: normalized_position_increment
   policy_joint_count: 6
@@ -217,13 +213,12 @@ ppo:
   - 0.0
   - 1.5707963267948966
   - 0.0
-  repetitions: 1
-  targets:
-  - id: pending
-    position_base_m: null
-  success:
-    position_threshold_m: null
-    consecutive_observations: null
-    max_joint_velocity_rad_s: null
+  path:
+    catalog_path: ../../path_catalogs/yz_circle_candidates_v1.yaml
+    catalog_sha256: b78b6fa5bbc788f471464c48edefee3d29c5ea0f4cab06c5a7f6d65cae067cae
+    name: null
+    repetitions: 1
+    workspace_lower_base_m: null
+    workspace_upper_base_m: null
 artifacts:
   root: null

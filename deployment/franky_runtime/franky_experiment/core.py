@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from .path_runtime import PathCatalog
+
 JOINTS = 7
 MODES = {"reference", "ppo"}
 TERMINAL = {"complete", "fault", "stopped"}
@@ -53,12 +55,27 @@ def resolved(base: Path, value: Any, name: str) -> Path:
     return (base / path).resolve() if not path.is_absolute() else path.resolve()
 
 
+def executable_path(base: Path, value: Any, name: str) -> Path:
+    """Return an absolute executable path without dereferencing venv symlinks."""
+    require(isinstance(value, str) and value, f"{name} is required")
+    path = Path(os.path.expanduser(value))
+    if not path.is_absolute():
+        path = base / path
+    path = Path(os.path.abspath(path))
+    require(path.is_file() and os.access(path, os.X_OK), f"{name} is not executable")
+    return path
+
+
 def _approval(data: dict[str, Any], require_approved: bool) -> None:
     if not require_approved:
         return
     require(data.get("status") == "approved", "status must be approved")
     require(data.get("executable") is True, "executable must be true")
-    require(data.get("motion_authorized") is True, "motion_authorized must be true")
+    if data.get("execution_context") == "shadow":
+        require(data.get("motion_authorized") is False,
+                "shadow execution must explicitly set motion_authorized false")
+    else:
+        require(data.get("motion_authorized") is True, "motion_authorized must be true")
     approval = data.get("approval", {})
     for key in ("approved_by", "approved_at", "physical_stop_procedure", "workspace_review"):
         require(isinstance(approval.get(key), str) and approval[key].strip(), f"approval.{key} required")
@@ -69,7 +86,10 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     require(data.get("runtime") == "franky_joint_impedance_tracking_v1",
             "runtime must be franky_joint_impedance_tracking_v1")
     require(data.get("mode") in MODES, "mode must be reference or ppo")
-    require(data.get("execution_context") in {"fake", "hardware"}, "execution_context must be fake or hardware")
+    require(data.get("execution_context") in {"fake", "shadow", "hardware"},
+            "execution_context must be fake, shadow, or hardware")
+    require(data.get("mode") == "ppo" or data.get("execution_context") != "shadow",
+            "shadow execution supports PPO mode only")
     require(isinstance(data.get("session_id"), int) and data["session_id"] > 0, "positive session_id required")
     _approval(data, require_approved)
 
@@ -83,6 +103,19 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     require(robot.get("control_interface") == "torque", "robot.control_interface must be torque")
     require(robot.get("controller_mode") == "franky_joint_impedance_tracking",
             "robot.controller_mode must be franky_joint_impedance_tracking")
+    ee_feedback = robot.get("ee_feedback", {})
+    require(ee_feedback.get("source") == "measured_joint_encoder_libfranka_fk",
+            "robot.ee_feedback.source must be measured joint encoder libfranka FK")
+    require(ee_feedback.get("joint_signal") == "q",
+            "robot.ee_feedback.joint_signal must be measured q")
+    require(ee_feedback.get("base_frame") == "fr3_link0",
+            "robot.ee_feedback.base_frame must be fr3_link0")
+    require(ee_feedback.get("frame") == "fr3_flange",
+            "robot.ee_feedback.frame must be fr3_flange")
+    require(ee_feedback.get("model_frame") == "Frame.Flange",
+            "robot.ee_feedback.model_frame must be Frame.Flange")
+    require(ee_feedback.get("reported_pose_role") == "audit_only",
+            "robot.ee_feedback reported pose must be audit_only")
     expected = robot.get("expected_franky_version")
     require(isinstance(expected, str) and expected, "robot.expected_franky_version required")
     collision = robot.get("constructor_collision_behavior", {})
@@ -252,8 +285,7 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         digest = source.get("manifest_sha256")
         require(isinstance(digest, str) and len(digest) == 64, "ppo.manifest_sha256 required")
         require(sha256(manifest) == digest, "PPO manifest trust anchor mismatch")
-        worker = resolved(source_path.parent, source.get("worker_python"), "ppo.worker_python")
-        require(worker.is_file() and os.access(worker, os.X_OK), "ppo.worker_python is not executable")
+        worker = executable_path(source_path.parent, source.get("worker_python"), "ppo.worker_python")
         source["start_position_rad"] = vector(source.get("start_position_rad"), JOINTS, "ppo.start_position_rad")
         contract_path = bundle / "policy_contract.yaml"
         require(contract_path.is_file(), "PPO policy contract missing")
@@ -327,20 +359,63 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                                 "target_base - fr3_flange_base", "q_reference_normalized",
                                 "previous_normalized_position_increment"],
                 "PPO observation layout mismatch")
-        targets = source.get("targets")
-        require(isinstance(targets, list) and targets, "ppo.targets must be nonempty")
-        for index, target in enumerate(targets):
-            require(isinstance(target.get("id"), str) and target["id"], f"ppo.targets[{index}].id required")
-            target["position_base_m"] = vector(target.get("position_base_m"), 3,
-                                                f"ppo.targets[{index}].position_base_m")
-        require(isinstance(source.get("repetitions"), int) and source["repetitions"] > 0,
-                "ppo.repetitions must be positive")
-        success = source.get("success", {})
-        require(float(success.get("position_threshold_m", 0)) > 0, "PPO position threshold must be positive")
-        require(int(success.get("consecutive_observations", 0)) > 0,
-                "PPO consecutive observations must be positive")
-        require(float(success.get("max_joint_velocity_rad_s", 0)) > 0,
-                "PPO settled velocity must be positive")
+        targets, path_selection = source.get("targets"), source.get("path")
+        has_targets = isinstance(targets, list) and bool(targets)
+        has_path = isinstance(path_selection, dict)
+        require(has_targets != has_path, "exactly one of ppo.targets and ppo.path is required")
+        if has_targets:
+            for index, target in enumerate(targets):
+                require(isinstance(target, dict), f"ppo.targets[{index}] must be a mapping")
+                require(isinstance(target.get("id"), str) and target["id"],
+                        f"ppo.targets[{index}].id required")
+                target["position_base_m"] = vector(target.get("position_base_m"), 3,
+                                                    f"ppo.targets[{index}].position_base_m")
+            require(isinstance(source.get("repetitions"), int) and source["repetitions"] > 0,
+                    "ppo.repetitions must be positive")
+            success = source.get("success", {})
+            require(float(success.get("position_threshold_m", 0)) > 0,
+                    "PPO position threshold must be positive")
+            require(int(success.get("consecutive_observations", 0)) > 0,
+                    "PPO consecutive observations must be positive")
+            require(float(success.get("max_joint_velocity_rad_s", 0)) > 0,
+                    "PPO settled velocity must be positive")
+            source["execution_mode"] = "targets"
+        else:
+            catalog_path = resolved(source_path.parent, path_selection.get("catalog_path"),
+                                    "ppo.path.catalog_path")
+            trusted = path_selection.get("catalog_sha256")
+            require(isinstance(trusted, str) and len(trusted) == 64,
+                    "ppo.path.catalog_sha256 required")
+            require(catalog_path.is_file() and sha256(catalog_path) == trusted,
+                    "PPO path catalog trust anchor mismatch")
+            try:
+                catalog = PathCatalog.from_yaml(catalog_path)
+                spec = catalog.get(path_selection.get("name"))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ConfigError(f"invalid PPO path catalog: {exc}") from exc
+            require(isinstance(path_selection.get("repetitions"), int) and
+                    path_selection["repetitions"] > 0, "ppo.path.repetitions must be positive")
+            workspace_lower = vector(path_selection.get("workspace_lower_base_m"), 3,
+                                     "ppo.path.workspace_lower_base_m")
+            workspace_upper = vector(path_selection.get("workspace_upper_base_m"), 3,
+                                     "ppo.path.workspace_upper_base_m")
+            require(all(lo < hi for lo, hi in zip(workspace_lower, workspace_upper)),
+                    "PPO path workspace bounds are invalid")
+            require(all(workspace_lower[i] <= point[i] <= workspace_upper[i]
+                        for point in spec.waypoints_m for i in range(3)),
+                    "PPO path leaves reviewed workspace")
+            path_selection.update({
+                "catalog_path": str(catalog_path),
+                "resolved_catalog_sha256": catalog.sha256,
+                "resolved_catalog_version": catalog.version,
+                "resolved_path": spec.to_dict(),
+                "workspace_lower_base_m": workspace_lower,
+                "workspace_upper_base_m": workspace_upper,
+            })
+            source.pop("targets", None)
+            source.pop("success", None)
+            source.pop("repetitions", None)
+            source["execution_mode"] = "path"
         source["bundle_path"], source["worker_python"] = str(bundle), str(worker)
         data["ppo"] = source
 
