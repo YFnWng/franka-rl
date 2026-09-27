@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.metadata as importlib_metadata
 import json
+import math
 import subprocess
 import time
 from collections.abc import Callable
@@ -76,6 +77,7 @@ class EvaluationConfig:
     command_name: str = "ee_pose"
     evaluation_protocol: str = "random_point"
     path: dict[str, Any] | None = None
+    z_axis_threshold_rad: float | None = None
     real_time: bool = False
     deterministic: bool = False
 
@@ -86,6 +88,8 @@ class EvaluationConfig:
             raise ValueError("success_threshold must be positive.")
         if self.success_steps <= 0:
             raise ValueError("success_steps must be positive.")
+        if self.z_axis_threshold_rad is not None and self.z_axis_threshold_rad <= 0.0:
+            raise ValueError("z_axis_threshold_rad must be positive when provided.")
 
 
 @dataclass
@@ -118,6 +122,11 @@ class EvaluationResults:
     mean_position_error_m: torch.Tensor
     threshold_overshoot_m: torch.Tensor
     entered_success_region: torch.Tensor
+    final_z_axis_error_rad: torch.Tensor
+    min_z_axis_error_rad: torch.Tensor
+    integrated_z_axis_error_rad_s: torch.Tensor
+    mean_z_axis_error_rad: torch.Tensor
+    entered_z_axis_region: torch.Tensor
     mean_action_magnitude: torch.Tensor
     peak_action_magnitude: torch.Tensor
     min_joint_limit_margin_rad: torch.Tensor
@@ -138,6 +147,10 @@ class EvaluationResults:
 
     def summary(self) -> dict[str, Any]:
         count = self.num_episodes
+
+        def finite_mean(values: torch.Tensor) -> float | None:
+            finite = values[torch.isfinite(values)].float()
+            return float(finite.mean()) if finite.numel() else None
 
         success_count = int(self.successes.sum())
         timeout_count = int(self.timeouts.sum())
@@ -178,6 +191,15 @@ class EvaluationResults:
             "mean_position_error_m": (float(self.mean_position_error_m.float().mean()) if count else None),
             "mean_threshold_overshoot_m": (float(self.threshold_overshoot_m.float().mean()) if count else None),
             "threshold_entry_rate": (float(self.entered_success_region.float().mean()) if count else None),
+            "mean_final_z_axis_error_rad": finite_mean(self.final_z_axis_error_rad),
+            "mean_min_z_axis_error_rad": finite_mean(self.min_z_axis_error_rad),
+            "mean_integrated_z_axis_error_rad_s": finite_mean(self.integrated_z_axis_error_rad_s),
+            "mean_z_axis_error_rad": finite_mean(self.mean_z_axis_error_rad),
+            "z_axis_threshold_entry_rate": (
+                float(self.entered_z_axis_region.float().mean())
+                if count and self.metadata.get("z_axis_threshold_rad") is not None
+                else None
+            ),
             "mean_action_magnitude": (float(self.mean_action_magnitude.float().mean()) if count else None),
             "mean_peak_action_magnitude": (float(self.peak_action_magnitude.float().mean()) if count else None),
             "mean_min_joint_limit_margin_rad": (
@@ -268,6 +290,13 @@ class EvaluationResults:
                 f"{path['position_threshold_m']:.4f} m before each "
                 f"{path['waypoint_timeout_s']:.3f} s timeout"
             )
+        elif self.metadata["evaluation_protocol"] == "position_z_axis":
+            print(
+                "Success criterion: position error < "
+                f"{self.metadata['success_threshold_m']:.4f} m and tip-z error < "
+                f"{math.degrees(self.metadata['z_axis_threshold_rad']):.2f} deg "
+                f"for {self.metadata['success_steps']} consecutive policy steps"
+            )
         else:
             print(
                 "Success criterion: "
@@ -317,6 +346,22 @@ class EvaluationResults:
             )
             print(f"Mean action-clipping fraction: {summary['mean_action_clipping_fraction']:.2%}")
             print(f"Worst applied torque-vector norm: {summary['worst_applied_torque_norm_nm']:.3f} Nm")
+
+        if summary["mean_z_axis_error_rad"] is not None:
+            print(
+                "Mean trajectory / final / minimum tip-z error: "
+                f"{math.degrees(summary['mean_z_axis_error_rad']):.2f} / "
+                f"{math.degrees(summary['mean_final_z_axis_error_rad']):.2f} / "
+                f"{math.degrees(summary['mean_min_z_axis_error_rad']):.2f} deg"
+            )
+            print(
+                "Mean integrated tip-z error: "
+                f"{summary['mean_integrated_z_axis_error_rad_s']:.4f} rad*s"
+            )
+            print(
+                "Tip-z threshold entered: "
+                f"{summary['z_axis_threshold_entry_rate']:.2%}"
+            )
 
         if summary["mean_time_to_success_s"] is not None:
             print(f"Mean time to success: {summary['mean_time_to_success_s']:.3f} s")
@@ -374,6 +419,11 @@ class EvaluationResults:
                 "mean_position_error_m",
                 "threshold_overshoot_m",
                 "entered_success_region",
+                "final_z_axis_error_rad",
+                "min_z_axis_error_rad",
+                "integrated_z_axis_error_rad_s",
+                "mean_z_axis_error_rad",
+                "entered_z_axis_region",
                 "mean_action_magnitude",
                 "peak_action_magnitude",
                 "min_joint_limit_margin_rad",
@@ -441,6 +491,31 @@ class EvaluationResults:
                     "mean_position_error_m": float(self.mean_position_error_m[index]),
                     "threshold_overshoot_m": float(self.threshold_overshoot_m[index]),
                     "entered_success_region": bool(self.entered_success_region[index]),
+                    "final_z_axis_error_rad": (
+                        float(self.final_z_axis_error_rad[index])
+                        if torch.isfinite(self.final_z_axis_error_rad[index])
+                        else ""
+                    ),
+                    "min_z_axis_error_rad": (
+                        float(self.min_z_axis_error_rad[index])
+                        if torch.isfinite(self.min_z_axis_error_rad[index])
+                        else ""
+                    ),
+                    "integrated_z_axis_error_rad_s": (
+                        float(self.integrated_z_axis_error_rad_s[index])
+                        if torch.isfinite(self.integrated_z_axis_error_rad_s[index])
+                        else ""
+                    ),
+                    "mean_z_axis_error_rad": (
+                        float(self.mean_z_axis_error_rad[index])
+                        if torch.isfinite(self.mean_z_axis_error_rad[index])
+                        else ""
+                    ),
+                    "entered_z_axis_region": (
+                        bool(self.entered_z_axis_region[index])
+                        if self.metadata.get("z_axis_threshold_rad") is not None
+                        else ""
+                    ),
                     "mean_action_magnitude": float(self.mean_action_magnitude[index]),
                     "peak_action_magnitude": float(self.peak_action_magnitude[index]),
                     "min_joint_limit_margin_rad": float(self.min_joint_limit_margin_rad[index]),
@@ -603,6 +678,11 @@ class PolicyEvaluator:
         mean_position_error_m = torch.full_like(final_position_error_m, float("nan"))
         threshold_overshoot_m = torch.full_like(final_position_error_m, float("nan"))
         entered_success_region = torch.zeros_like(recorded)
+        final_z_axis_error_rad = torch.full_like(final_position_error_m, float("nan"))
+        min_z_axis_error_rad = torch.full_like(final_position_error_m, float("nan"))
+        integrated_z_axis_error_rad_s = torch.full_like(final_position_error_m, float("nan"))
+        mean_z_axis_error_rad = torch.full_like(final_position_error_m, float("nan"))
+        entered_z_axis_region = torch.zeros_like(recorded)
         mean_action_magnitude = torch.full_like(final_position_error_m, float("nan"))
         peak_action_magnitude = torch.full_like(final_position_error_m, float("nan"))
         min_joint_limit_margin_rad = torch.full_like(final_position_error_m, float("nan"))
@@ -623,6 +703,10 @@ class PolicyEvaluator:
         current_integrated_error = torch.zeros(self.num_envs, device=self.device)
         current_overshoot = torch.zeros(self.num_envs, device=self.device)
         current_entered_region = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        current_final_z_axis_error = torch.full((self.num_envs,), float("nan"), device=self.device)
+        current_min_z_axis_error = torch.full((self.num_envs,), float("inf"), device=self.device)
+        current_integrated_z_axis_error = torch.zeros(self.num_envs, device=self.device)
+        current_entered_z_axis_region = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         current_action_sum = torch.zeros(self.num_envs, device=self.device)
         current_peak_action = torch.zeros(self.num_envs, device=self.device)
         current_min_joint_margin = torch.full((self.num_envs,), float("inf"), device=self.device)
@@ -707,6 +791,15 @@ class PolicyEvaluator:
                     applied_torque = trajectory_state.get(
                         "applied_torque_norm_nm", torch.full_like(position_error, float("nan"))
                     )
+                    z_axis_error = trajectory_state.get(
+                        "z_axis_error_rad", torch.full_like(position_error, float("nan"))
+                    )
+                    if self.config.z_axis_threshold_rad is not None and not torch.all(
+                        torch.isfinite(z_axis_error[active])
+                    ):
+                        raise RuntimeError(
+                            "Z-axis evaluation requires finite z_axis_error_rad values from the trajectory reader."
+                        )
 
                     current_final_error[active] = position_error[active]
                     current_min_error[active] = torch.minimum(current_min_error[active], position_error[active])
@@ -723,6 +816,15 @@ class PolicyEvaluator:
                         current_overshoot[active],
                     )
                     current_entered_region[active] |= position_error[active] < self.config.success_threshold
+                    if self.config.z_axis_threshold_rad is not None:
+                        current_final_z_axis_error[active] = z_axis_error[active]
+                        current_min_z_axis_error[active] = torch.minimum(
+                            current_min_z_axis_error[active], z_axis_error[active]
+                        )
+                        current_integrated_z_axis_error[active] += z_axis_error[active] * self.step_dt
+                        current_entered_z_axis_region[active] |= (
+                            z_axis_error[active] < self.config.z_axis_threshold_rad
+                        )
                     current_min_joint_margin[active] = torch.minimum(
                         current_min_joint_margin[active],
                         joint_margin[active],
@@ -822,6 +924,17 @@ class PolicyEvaluator:
                     )
                     threshold_overshoot_m[env_ids, episode_ids] = current_overshoot[env_ids]
                     entered_success_region[env_ids, episode_ids] = current_entered_region[env_ids]
+                    if self.config.z_axis_threshold_rad is not None:
+                        final_z_axis_error_rad[env_ids, episode_ids] = current_final_z_axis_error[env_ids]
+                        min_z_axis_error_rad[env_ids, episode_ids] = current_min_z_axis_error[env_ids]
+                        integrated_z_axis_error_rad_s[env_ids, episode_ids] = (
+                            current_integrated_z_axis_error[env_ids]
+                        )
+                        mean_z_axis_error_rad[env_ids, episode_ids] = (
+                            current_integrated_z_axis_error[env_ids]
+                            / (current_steps[env_ids] * self.step_dt)
+                        )
+                        entered_z_axis_region[env_ids, episode_ids] = current_entered_z_axis_region[env_ids]
                     mean_action_magnitude[env_ids, episode_ids] = current_action_sum[env_ids] / current_steps[env_ids]
                     peak_action_magnitude[env_ids, episode_ids] = current_peak_action[env_ids]
                     min_joint_limit_margin_rad[env_ids, episode_ids] = current_min_joint_margin[env_ids]
@@ -844,6 +957,10 @@ class PolicyEvaluator:
                     current_integrated_error[dones] = 0.0
                     current_overshoot[dones] = 0.0
                     current_entered_region[dones] = False
+                    current_final_z_axis_error[dones] = float("nan")
+                    current_min_z_axis_error[dones] = float("inf")
+                    current_integrated_z_axis_error[dones] = 0.0
+                    current_entered_z_axis_region[dones] = False
                     current_action_sum[dones] = 0.0
                     current_peak_action[dones] = 0.0
                     current_min_joint_margin[dones] = float("inf")
@@ -909,6 +1026,11 @@ class PolicyEvaluator:
             mean_position_error_m=mean_position_error_m,
             threshold_overshoot_m=threshold_overshoot_m,
             entered_success_region=entered_success_region,
+            final_z_axis_error_rad=final_z_axis_error_rad,
+            min_z_axis_error_rad=min_z_axis_error_rad,
+            integrated_z_axis_error_rad_s=integrated_z_axis_error_rad_s,
+            mean_z_axis_error_rad=mean_z_axis_error_rad,
+            entered_z_axis_region=entered_z_axis_region,
             mean_action_magnitude=mean_action_magnitude,
             peak_action_magnitude=peak_action_magnitude,
             min_joint_limit_margin_rad=min_joint_limit_margin_rad,
@@ -993,6 +1115,11 @@ class PolicyEvaluator:
         mean_position_error_m: torch.Tensor,
         threshold_overshoot_m: torch.Tensor,
         entered_success_region: torch.Tensor,
+        final_z_axis_error_rad: torch.Tensor,
+        min_z_axis_error_rad: torch.Tensor,
+        integrated_z_axis_error_rad_s: torch.Tensor,
+        mean_z_axis_error_rad: torch.Tensor,
+        entered_z_axis_region: torch.Tensor,
         mean_action_magnitude: torch.Tensor,
         peak_action_magnitude: torch.Tensor,
         min_joint_limit_margin_rad: torch.Tensor,
@@ -1040,6 +1167,11 @@ class PolicyEvaluator:
             mean_position_error_m=mean_position_error_m[recorded].cpu(),
             threshold_overshoot_m=threshold_overshoot_m[recorded].cpu(),
             entered_success_region=entered_success_region[recorded].cpu(),
+            final_z_axis_error_rad=final_z_axis_error_rad[recorded].cpu(),
+            min_z_axis_error_rad=min_z_axis_error_rad[recorded].cpu(),
+            integrated_z_axis_error_rad_s=integrated_z_axis_error_rad_s[recorded].cpu(),
+            mean_z_axis_error_rad=mean_z_axis_error_rad[recorded].cpu(),
+            entered_z_axis_region=entered_z_axis_region[recorded].cpu(),
             mean_action_magnitude=mean_action_magnitude[recorded].cpu(),
             peak_action_magnitude=peak_action_magnitude[recorded].cpu(),
             min_joint_limit_margin_rad=(min_joint_limit_margin_rad[recorded].cpu()),
@@ -1066,6 +1198,7 @@ class PolicyEvaluator:
                 "num_envs": self.num_envs,
                 "requested_episodes": self.config.num_episodes,
                 "success_threshold_m": (self.config.success_threshold),
+                "z_axis_threshold_rad": self.config.z_axis_threshold_rad,
                 "success_steps": self.config.success_steps,
                 "command_name": self.config.command_name,
                 "evaluation_protocol": self.config.evaluation_protocol,

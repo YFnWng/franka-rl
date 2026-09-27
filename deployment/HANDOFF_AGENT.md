@@ -419,3 +419,375 @@ correlated gain DR, governor/direct-hold decision, continuous flange-path task,
 and Isaac-to-hardware response validation listed in
 `deployment/DEPLOYMENT_TRAINING_READINESS.md`.
 
+## Current 50 Hz incremental PPO deployment handoff — 2026-09-27
+
+This section supersedes earlier PPO descriptions in this file and in the Franky
+runtime README that mention a 24-value observation, seven policy actions,
+`q_default + scale * action`, 30 Hz PPO, repeated `JointMotion`, or the standalone
+quintic reference governor. Those contracts describe retired or historical work.
+Do not adapt the new checkpoints to those interfaces.
+
+The present policies were trained against the explicit Franky-like impedance
+task, not an implicit PhysX position drive:
+
+- Isaac/torque-controller physics: 1 kHz;
+- deterministic policy inference: 50 Hz (20 ms period);
+- six normalized joint-reference increments controlling joints 1--6;
+- joint 7 held at its measured episode/session start reference;
+- one long-lived joint-impedance torque controller at K=100 Nm/rad and D=20
+  Nms/rad for all seven joints;
+- direct reference hold between policy samples, with no Ruckig planner, quintic
+  governor, action low-pass filter, or other reference smoother;
+- flange targets and all experiment schedules loaded locally from reviewed YAML;
+- no runtime connection to the training workstation.
+
+The policies are **offline integration candidates, not hardware-qualified
+controllers**. Transferring a checkpoint or passing ONNX parity does not authorize
+motion. Preserve the existing approval, operator-start, physical-stop, workspace,
+watchdog, sticky-fault, torque-stop, and no-automatic-recovery requirements.
+Targets are noninteractive YAML data; the explicit operator start/stop gate remains
+a safety authorization step and is not a target-entry UI.
+
+### Candidate checkpoints and evidence
+
+The source workstation paths below identify the exact inputs to package. Transfer
+immutable verified bundles, not raw paths. Check each SHA-256 after transfer.
+
+| Label | Checkpoint | SHA-256 | Status |
+| --- | --- | --- | --- |
+| `position_nominal` | data root `runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt` | `7568e71a26e981eeefca50f808f2bfd526c42a900a48884071e0afa54318ca37` | Primary position-only integration candidate. Training ended near 5--6 mm mean position error and 100% training success. Circle evaluation was only a small smoke test, not hardware qualification. |
+| `position_dr` | data root `runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_23-42-59_fr3_incremental_6d_position_dr_v1_recovered/model_199.pt` | `a0f844c0fc702f79b6c3291c67eaf2294ce2750aaf4af9cc190089537d85420b` | DR comparison candidate. Training ended near 6.6 mm mean error and 99.8% tail success. It still needs a full deterministic evaluator run before it can be compared or selected. |
+| `position_z_axis_nominal` | data root `runs/logs/rsl_rl/fr3_incremental_6d_position_z_axis_reach/2026-09-26_22-44-18_fr3_incremental_6d_position_z_axis_nominal_continued_v1/model_198.pt` | `829dc2fdbe8fa1f2283969957d39d8f5af4867ebb6527fcbf70f0bed77d61c12` | Orientation-capable integration candidate. Nominal deterministic evaluation recorded 125/128 sustained successes, 23.6 mm mean final position error and 0.0212 rad (1.22 deg) mean final z-axis error. It exceeded the 20% measured-velocity qualification envelope in 57.8% of episodes, with a worst ratio of 1.068; do not move hardware until this is resolved. |
+
+Do **not** ship the current z-axis DR checkpoint as a good policy. Checkpoint
+`73d0e66846c607e5c35d5ac7bf94262a24aec6b770b337d3ccc9e8100180678b`
+(`.../2026-09-26_23-47-14_fr3_incremental_6d_position_z_axis_dr_v1/model_199.pt`)
+achieved only 20/1024 nominal and 14/1024 randomized deterministic successes,
+with about 0.20 m mean position error. It may be retained as a negative result.
+
+These policies were produced from Git HEAD
+`1ff4e8da59b08e057153ef8878662150b398928e` plus uncommitted task, evaluator,
+scenario, distribution and z-axis files. The checkpoint parameter YAMLs do not
+fully capture executable Python semantics. Before building the shipment, commit
+or otherwise freeze and hash the complete working tree; recording HEAD alone is
+insufficient.
+
+### Robot, frame, and target contract
+
+- Hardware joint order is exactly `fr3_joint1` through `fr3_joint7`. Isaac asset
+  joints are historically named `panda_joint1` through `panda_joint7`; this is a
+  name translation only, never a reorder.
+- Robot/base frame: `fr3_link0`.
+- Controlled/tracked body: bare-flange `fr3_flange`; no hand or tool-center offset.
+- Training assumes identity `F_T_EE`, no attached end effector, and zero configured
+  external load for the nominal case. Reject mismatches at preflight.
+- Cartesian position targets are metres in the robot base frame. The sampled
+  training box was x `[0.35, 0.60]`, y `[-0.20, 0.20]`, z `[0.20, 0.50]` m.
+  Hardware suites require a separately reviewed subset and collision/workspace
+  review; the training box is not automatic hardware authorization.
+- Position-only policies ignore target orientation.
+- The z-axis policy controls only the direction of the flange +z axis. Rotation
+  about flange z is deliberately unconstrained. A standalone point-target suite
+  may store a unit `z_axis_base: [x, y, z]`. The current path-catalog contract
+  instead stores a normalized `target_orientation_xyzw` and derives its +z axis;
+  arbitrary twist about that axis must not change the observation.
+- Random-point and waypoint-path execution use the same policy. A path is a YAML
+  sequence of static targets. The current path contract advances on its one-sample
+  position threshold or waypoint timeout as specified below; this intentionally
+  differs from random-point sustained-success evaluation. The policy has no phase,
+  target velocity, or future waypoint input and is not a continuous trajectory
+  generator.
+
+### Hardware waypoint-path contract
+
+The hardware implementation must reuse the version-1 path contract in
+`source/franka_rl/franka_rl/config/paths.yaml` and the resolution rules in
+`franka_rl.utils.paths`. Do not translate paths into ad-hoc target lists by hand.
+Ship the catalog (or an exact reviewed derivative) in the deployment package,
+record its SHA-256, select the path by name in the immutable experiment YAML, and
+store the fully resolved waypoint list in run artifacts. Target selection remains
+local and YAML-driven; there is no live waypoint entry or workstation control.
+
+The path catalog root contains exactly:
+
+```yaml
+version: 1
+paths:
+  <path_name>: ...
+```
+
+Unknown root keys, path keys, types, non-finite values, invalid quaternion norms,
+fewer than three waypoints, non-positive thresholds/timeouts, and circle waypoint
+counts below three are errors. Two path types are supported.
+
+An explicit waypoint path uses:
+
+```yaml
+type: waypoints
+description: optional text
+waypoints_m:
+  - [x0, y0, z0]
+  - [x1, y1, z1]
+  - [x2, y2, z2]
+target_orientation_xyzw: [qx, qy, qz, qw]
+waypoint_timeout_s: 1.0
+position_threshold_m: 0.01
+```
+
+A circle uses:
+
+```yaml
+type: circle
+description: optional text
+center_m: [cx, cy, cz]
+orientation_rpy_deg: [roll, pitch, yaw]
+radius_m: 0.075
+waypoint_count: 24
+phase_deg: 0.0
+target_orientation_xyzw: [qx, qy, qz, qw]
+waypoint_timeout_s: 1.0
+position_threshold_m: 0.01
+```
+
+All positions are metres in `fr3_link0`. Circle RPY uses degrees and the XYZ
+Euler convention whose matrix is `Rz(yaw) @ Ry(pitch) @ Rx(roll)`. For waypoint
+index `i` in `[0, N-1]`:
+
+```text
+angle_i = phase + 2*pi*i/N
+local_i = [radius*cos(angle_i), radius*sin(angle_i), 0]
+waypoint_i = center + Rz*Ry*Rx*local_i
+```
+
+The stored quaternion uses xyzw order and is normalized by the loader. It is one
+fixed target orientation shared by every waypoint. Position-only policies receive
+only waypoint position; z-axis policies derive the target +z direction from the
+quaternion and append the two-component error defined below. Full quaternion/twist
+tracking is never added. The generated circle contains `N` distinct points and
+does not append waypoint 0 after waypoint `N-1`; one evaluation traversal ends at
+the final listed point rather than commanding an extra closing segment.
+
+The current checked-in paths are:
+
+- `circle_xy`: center `[0.475, 0, 0.35]` m, base XY plane, radius 0.075 m,
+  24 waypoints, phase 0 degrees, 1.0 s timeout and 0.01 m threshold;
+- `circle_yz`: center `[0.475, 0, 0.35]` m, local plane rotated by
+  `[0, 90, 0]` degrees, radius 0.15 m, 24 waypoints, phase 180 degrees,
+  1.0 s timeout and 0.01 m threshold.
+
+Both currently use quaternion `[0, 1, 0, 0]`, so flange +z points along base -z.
+These values are simulation/evaluation definitions, not automatic hardware
+workspace approval. The reviewed hardware catalog may tighten geometry, timeout,
+or threshold, but every change requires a new catalog hash and must not mutate the
+policy observation/action contract.
+
+Implement this exact per-path state machine:
+
+1. At path start, command waypoint 0, set its elapsed count to zero, and retain
+   the session's existing incremental reference and preceding action state.
+2. At every 50 Hz policy step, compute flange position error for the active
+   waypoint and update its minimum error.
+3. Mark the waypoint `reached` on the first sample with position error
+   `<= position_threshold_m`. This is a one-sample position test: it does not use
+   the random-point evaluator's five-sample sustained-success criterion, measured
+   velocity, or z-axis error.
+4. If it was not reached, mark it `timed_out` after
+   `ceil(waypoint_timeout_s / 0.020 s)` policy samples.
+5. On either outcome, record the waypoint result and immediately select the next
+   waypoint without resetting the environment, policy, held joint reference,
+   preceding action, or joint 7 reference. Discard any stale inference result
+   tagged for the preceding waypoint; never apply it to the new target.
+6. Resolve every waypoint even if an earlier one timed out. After the last
+   waypoint, the path succeeds only if every outcome was `reached`; completion
+   with one or more timeouts is a path failure.
+7. Independent robot, controller, limit, collision, watchdog, timing, inference,
+   tracking-error and operator faults remain sticky and terminate the session
+   immediately. A waypoint timeout is an experiment outcome, not permission to
+   weaken or bypass those safeguards.
+
+The simulation permits a maximum episode duration of
+`waypoint_count * waypoint_timeout_s + 1 s` for completion bookkeeping. Hardware
+uses monotonic timestamps and the same effective 50 Hz count semantics; do not
+base timeout decisions on delayed logger or worker timestamps.
+
+Version the Franky PPO YAML so `ppo.path` and the old `ppo.targets` mode are
+explicitly mutually exclusive. A path selection must contain at least the catalog
+path, trusted catalog SHA-256, path name, repetitions, and reviewed output/approval
+fields. Validate the resolved waypoint positions against the reviewed workspace
+before opening control. Do not infer path mode merely from a task or bundle name.
+
+For each traversal, log:
+
+- catalog path/hash/version, selected name and complete resolved `PathSpec`;
+- resolved waypoint positions and normalized target quaternion;
+- active waypoint index, target, transition reason and policy sequence;
+- reached/timeout outcome, elapsed policy steps/seconds, final position error and
+  minimum position error for every waypoint;
+- for z-axis policies, final/minimum/integrated z-axis error as metrics even
+  though z error is not an advancement gate;
+- total reached/timeouts, path completion, path success/failure and any independent
+  safety termination;
+- the normal observation, deterministic action, integrated reference, inference
+  timing and 1 kHz controller/state records needed for replay.
+
+Return separate fake-backend and shadow-mode parity fixtures for `circle_xy` and
+`circle_yz`. They must demonstrate identical resolved waypoints, transition steps,
+stale-result rejection, persistent integrator state across waypoint changes,
+per-waypoint artifacts and overall path outcome relative to the Isaac evaluator.
+
+### Deterministic policy interface
+
+Both actors are MLPs with two 64-unit ELU hidden layers and six outputs. Export
+the deterministic actor including its final `tanh`; never sample its Gaussian
+training distribution on hardware. Observation normalization is disabled.
+All values are `float32`, SI units, and finite. Any size, order, unit, timing,
+frame, or finite-value mismatch is terminal.
+
+The 29-value position-only observation is concatenated in this exact order:
+
+| Slice | Size | Expression |
+| --- | ---: | --- |
+| `[0:7]` | 7 | measured `q - q_default`, rad |
+| `[7:14]` | 7 | measured `dq`, rad/s |
+| `[14:17]` | 3 | `target_position_base - flange_position_base`, m |
+| `[17:23]` | 6 | current held references for joints 1--6 normalized to their soft-limit midpoint/half-range |
+| `[23:29]` | 6 | preceding bounded normalized increment action |
+
+The 31-value z-axis observation appends:
+
+| Slice | Size | Expression |
+| --- | ---: | --- |
+| `[29:31]` | 2 | minimal target-z alignment rotation about the current flange x/y axes, rad |
+
+Use this deployment-home/default vector for `q_default`, in radians:
+
+```text
+[0, -0.7853981633974483, 0, -2.356194490192345,
+ 0, 1.5707963267948966, 0]
+```
+
+For z-axis error, express the target base-frame z axis in the current flange
+frame as `z_tip = [x, y, z]`. Then compute:
+
+```text
+s = sqrt(x*x + y*y)
+theta = atan2(s, clamp(z, -1, 1))
+error_xy = [-y, x] * theta / max(s, 1e-8)
+```
+
+The antiparallel singular fallback is `[pi, 0]`. This is not Euler roll/pitch,
+not full quaternion error, and not base-frame angular error. The runtime must add
+the measured flange rotation to its state snapshot and parity fixtures; position
+alone is insufficient.
+
+At reset/session start:
+
+- initialize the seven-joint held reference from measured `q`;
+- initialize the preceding six-action vector to zeros;
+- do not initialize the reference from `q_default`;
+- keep joint 7's reference fixed at its measured start value for the session;
+- start only inside reviewed pose/velocity tolerances.
+
+### Action integrator and held reference
+
+The deterministic actor output is a six-vector `a`. Validate it is finite and in
+`[-1, 1]`; the ONNX `tanh` should already guarantee the bound. At each 50 Hz
+policy tick, for joints 1--6:
+
+```text
+vmax = [0.435, 0.435, 0.435, 0.435, 0.522, 0.522] rad/s
+dt = 0.020 s
+dq_ref_max = vmax * dt
+           = [0.0087, 0.0087, 0.0087, 0.0087, 0.01044, 0.01044] rad
+q_ref_next = project_to_soft_limits(q_ref + a * dq_ref_max)
+```
+
+Hold `q_ref_next` for the next 20 one-millisecond controller steps and send zero
+desired joint velocity. Projection applies only at the reviewed soft position
+bounds in `LIMITS_AND_TIMING.md`. There is no additional velocity, acceleration,
+jerk, interpolation, low-pass, Ruckig, or quintic stage. The reference-acceleration
+term used during learning is a reward, not a runtime filter. The measured 20%
+velocity envelope is a qualification metric and action-scale basis, not a hidden
+online clamp. Any runtime intervention must be explicitly versioned, retrained or
+shown equivalent, and recorded; silently smoothing these actions changes the MDP.
+
+The preceding-action observation at tick `t` is the bounded action applied at
+tick `t-1`. The reference observation is the corresponding currently held
+reference before integrating action `t`.
+
+### Low-level Franky controller equivalence
+
+Use the existing long-lived `JointImpedanceTrackingMotion`, never repeated
+`JointMotion` preemption. For the first policy integration profile:
+
+```text
+K = [100]*7 Nm/rad
+D = [20]*7 Nms/rad
+qdot_ref = [0]*7
+position error clip = 0.5 rad
+non-gravity torque slew = 1 Nm per 1 ms
+torque filter cutoff = 100 Hz
+joint-limit activation = 0.1 rad inside model limits
+joint-limit K/D/cap = 4 Nm/rad, 1 Nms/rad, 5 Nm
+Coriolis compensation = enabled
+friction and constant feedforward = zero
+```
+
+The simulator explicitly adds gravity because PhysX applies physical gravity.
+Franky/libfranka's torque-command convention supplies the hardware gravity
+support outside the user torque command; do not add a second gravity term merely
+because it appears explicitly in the simulator. Preserve the tested Franky
+controller implementation and verify this convention with offline/controller
+parity and logged hold behavior.
+
+Gain DR uses one unobserved episode-level scalar `alpha`, log-uniform on
+`[0.5, 2.0]`, with `K=100*alpha` and `D=2*sqrt(K)` applied to every joint. Other
+position-DR variables were joint friction `[0,0.1]`, armature scale `[0.8,1.2]`,
+link-inertia scale `[0.9,1.1]`, flange payload mass `[0,1]` kg with COM x/y
+`[-0.03,0.03]` m and z `[0,0.10]` m, q noise `+/-0.002` rad, dq noise
+`+/-0.02` rad/s, Cartesian-error noise `+/-0.002` m, 0--1 policy-step action
+delay, and reset q offsets `+/-0.125` rad. The z-axis DR attempt additionally
+used `+/-0.01` rad z-error noise. These ranges describe training, not permission
+to change hardware gains or attach a payload.
+
+### Required runtime and bundle work before transfer is usable
+
+1. **Freeze and package the source state.** Commit/tag or create a checksummed
+   source snapshot containing the current incremental and z-axis task code.
+2. **Extend the bundle exporter.** The current
+   `deployment/franka_policy_bundle/contract.py` still intentionally rejects FR3
+   export. Add versioned FR3 contracts for the 29D position and 31D z-axis
+   policies, embed the deterministic `tanh`, include checkpoint/source/config
+   hashes, and generate recorded PyTorch/ONNX parity vectors. Do not weaken Panda
+   validation or reuse its contract identifier.
+3. **Verify the existing position runtime.** `franky_runtime` already implements
+   the 50 Hz six-action incremental integrator and 29D observation, but its README
+   still contains legacy 24D/7D/30 Hz prose. Reconcile documentation and tests,
+   and validate the exact bundle contract against `ppo.pending.yaml`.
+4. **Add the z-axis runtime variant.** Extend bundle-contract validation, YAML
+   target schema, state snapshots/logging and observation assembly with flange
+   rotation and the exact two-component formula above. Branch on a versioned
+   contract ID; never guess observation size from an ONNX tensor.
+5. **Keep suites YAML-driven.** Populate bundle path/hash, reviewed start pose,
+   targets/waypoints, thresholds, timeouts, repetitions, output root and approval
+   fields in immutable suite YAML. Do not add live target entry or workstation
+   communication.
+6. **Run offline gates.** Verify bundle manifest, ONNX parity, observation/action
+   golden vectors, action-integrator parity including soft-limit projection,
+   50 Hz scheduling, delayed/stale result rejection, fake-backend full suites,
+   watchdog/timeout/sticky-fault paths, log completeness, and clean torque stop.
+7. **Run shadow inference before motion.** At the reviewed home pose, compute and
+   log observations/actions/references without applying policy references. Check
+   frames, FK, q default, reference initialization, joint order, latency and
+   finite/bound conditions against workstation fixtures.
+8. **Requalify safety on every candidate.** Deterministically evaluate target and
+   path suites for success, final/minimum error, z error where applicable,
+   reference increments, measured velocity envelope, tracking error, joint-limit
+   margin, torque, collision/workspace clearance and inference timing. Training
+   success and self-collision reward are not safety proofs.
+
+Do not select a hardware policy merely by nominal success. The current z-axis
+nominal policy's measured-velocity result is an explicit blocker, while the
+position DR policy lacks full deterministic evaluation. Return the immutable
+bundle manifests, parity reports, fake/shadow results, reviewed suite YAMLs and a
+remaining-blockers note before requesting separate authorization for motion.

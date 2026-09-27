@@ -51,6 +51,8 @@ def main() -> None:
                 if hasattr(action_term, "normalized_reference_position")
                 else 24
             )
+            if getattr(env_cfg.observations.policy, "ee_z_axis_error", None) is not None:
+                expected_observations += 2
             assert observations["policy"].shape == (args_cli.num_envs, expected_observations)
             max_command_difference = 0.0
             max_joint7_command_difference = 0.0

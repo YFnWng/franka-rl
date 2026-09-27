@@ -72,9 +72,11 @@ class ObservationSpec:
     joint_position_noise: DistributionSpec | None = None
     joint_velocity_noise: DistributionSpec | None = None
     ee_position_error_noise: DistributionSpec | None = None
+    ee_z_axis_error_noise: DistributionSpec | None = None
     joint_position_bias: DistributionSpec | None = None
     joint_velocity_bias: DistributionSpec | None = None
     ee_position_error_bias: DistributionSpec | None = None
+    ee_z_axis_error_bias: DistributionSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -368,6 +370,7 @@ class ScenarioModifier:
                     "com_offset_m": (
                         physics.payload_com_offset_m or (0.0, 0.0, 0.0)
                     ),
+                    "use_current_inertia_as_baseline": physics.link_inertia_scale is not None,
                 },
             )
             self._configured_values["payload_mass_kg"] = (
@@ -519,6 +522,10 @@ class ScenarioModifier:
                 ),
                 "payload_mass_distribution_params": payload.parameters,
                 "distribution": payload.distribution,
+                # The link-inertia event is inserted before this payload event.
+                # Preserve that reset's freshly sampled flange inertia instead
+                # of replacing it with the payload term's first-reset cache.
+                "use_current_inertia_as_baseline": physics.link_inertia_scale is not None,
             }
             if physics.payload_com_offset_m is None:
                 payload_event_params["com_offset_m"] = (0.0, 0.0, 0.0)
@@ -545,6 +552,7 @@ class ScenarioModifier:
             ("joint_position_noise", "joint_position_bias", "joint_pos_rel"),
             ("joint_velocity_noise", "joint_velocity_bias", "joint_vel_rel"),
             ("ee_position_error_noise", "ee_position_error_bias", "ee_position_error"),
+            ("ee_z_axis_error_noise", "ee_z_axis_error_bias", "ee_z_axis_error"),
         )
         enabled = False
         for noise_name, bias_name, term_name in terms:
@@ -557,7 +565,12 @@ class ScenarioModifier:
                     raise ValueError(
                         f"Observation property {field_name!r} currently supports only uniform noise."
                     )
-            observation_term = getattr(env_cfg.observations.policy, term_name)
+            observation_term = getattr(env_cfg.observations.policy, term_name, None)
+            if observation_term is None:
+                raise ValueError(
+                    f"Scenario {self.spec.name!r} randomizes observation term "
+                    f"{term_name!r}, but task {type(env_cfg).__name__} does not define it."
+                )
             if bias is None:
                 observation_term.noise = UniformNoiseCfg(n_min=noise.low, n_max=noise.high)
             else:
@@ -702,8 +715,11 @@ class RandomizeLumpedPayload(ManagerTermBase):
     hand's nominal center of mass. With ``reference_body_origin=True``, offsets instead start at the selected
     body origin (the flange for FR3), preserving Panda defaults.
     The payload is a point mass with zero intrinsic rotational inertia and
-    no collision geometry. All properties are recomputed from the original hand properties on
-    every invocation, so reset-mode randomization does not accumulate mass.
+    no collision geometry. Mass and COM are recomputed from the original hand
+    properties on every invocation, so reset-mode randomization does not
+    accumulate payload. When a preceding reset event randomizes link inertia,
+    ``use_current_inertia_as_baseline`` composes the payload with that reset's
+    inertia sample instead of the cached first-reset value.
     """
 
     def __init__(self, cfg: EventTermCfg, env):
@@ -725,6 +741,7 @@ class RandomizeLumpedPayload(ManagerTermBase):
         distribution: DistributionName,
         com_offset_m: tuple[float, float, float] | None = None,
         reference_body_origin: bool = False,
+        use_current_inertia_as_baseline: bool = False,
         com_offset_distribution_params: tuple[
             tuple[float, float], tuple[float, float], tuple[float, float]
         ]
@@ -838,9 +855,14 @@ class RandomizeLumpedPayload(ManagerTermBase):
             + payload_mass[..., None] * payload_com
         ) / total_mass[..., None]
 
-        default_inertia = self.default_inertia[
-            env_ids[:, None], body_ids
-        ].reshape(len(env_ids), 1, 3, 3)
+        inertia_source = (
+            self.asset.data.body_inertia.torch
+            if use_current_inertia_as_baseline
+            else self.default_inertia
+        )
+        default_inertia = inertia_source[env_ids[:, None], body_ids].clone().reshape(
+            len(env_ids), 1, 3, 3
+        )
         eye = torch.eye(
             3,
             dtype=default_inertia.dtype,
@@ -1055,9 +1077,11 @@ def _parse_observations(value: Any, scenario_name: str) -> ObservationSpec:
         "joint_position_noise",
         "joint_velocity_noise",
         "ee_position_error_noise",
+        "ee_z_axis_error_noise",
         "joint_position_bias",
         "joint_velocity_bias",
         "ee_position_error_bias",
+        "ee_z_axis_error_bias",
     }
     _reject_unknown_keys(mapping, allowed, f"observations for scenario {scenario_name!r}")
     return ObservationSpec(

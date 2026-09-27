@@ -5,9 +5,29 @@ paths:
     type: circle
     description: Horizontal circle in the robot-base XY plane.
     center_m: [0.475, 0.0, 0.35]
+    # XYZ Euler rotation of the circle's local XY plane into the robot-base frame.
+    orientation_rpy_deg: [0.0, 0.0, 0.0]
     radius_m: 0.075
-    plane: xy
     waypoint_count: 24
-    phase_rad: 0.0
+    phase_deg: 0.0
+    # Fixed flange target orientation, using this Isaac Lab build's xyzw convention.
+    # 180 deg about base Y maps the tip-frame +Z axis onto robot-base -Z.
+    target_orientation_xyzw: [0.0, 1.0, 0.0, 0.0]
+    waypoint_timeout_s: 1.0
+    position_threshold_m: 0.01
+
+  circle_yz:
+    type: circle
+    description: Vertical circle in the robot-base YZ plane.
+    center_m: [0.475, 0.0, 0.35]
+    # Rotate the circle's local XY plane into the robot-base YZ plane.
+    orientation_rpy_deg: [0.0, 90.0, 0.0]
+    radius_m: 0.15
+    waypoint_count: 24
+    phase_deg: 180.0
+    # Fixed flange target orientation, using this Isaac Lab build's xyzw convention.
+    # 180 deg about base Y maps the tip-frame +Z axis onto robot-base -Z.
+    # Rotation about the resulting tip Z axis is irrelevant to the policy.
+    target_orientation_xyzw: [0.0, 1.0, 0.0, 0.0]
     waypoint_timeout_s: 1.0
     position_threshold_m: 0.01

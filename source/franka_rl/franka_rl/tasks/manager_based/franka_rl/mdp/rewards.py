@@ -12,7 +12,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 # from isaaclab.utils.math import wrap_to_pi
 
-from .observations import ee_position_error_b
+from .observations import ee_position_error_b, ee_z_axis_error_b
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
@@ -48,3 +48,20 @@ def position_tracking_exp(
     )
 
     return torch.exp(-squared_distance / sigma)
+
+
+def z_axis_tracking_exp(
+    env: ManagerBasedRLEnv,
+    command_name: str,
+    asset_cfg: SceneEntityCfg,
+    sigma: float,
+) -> torch.Tensor:
+    """Reward alignment of the current and target tip z-axes."""
+
+    z_axis_error = ee_z_axis_error_b(
+        env,
+        command_name=command_name,
+        asset_cfg=asset_cfg,
+    )
+    squared_angle = torch.sum(torch.square(z_axis_error), dim=1)
+    return torch.exp(-squared_angle / sigma)

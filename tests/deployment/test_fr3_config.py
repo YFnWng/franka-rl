@@ -20,6 +20,9 @@ from franka_rl.tasks.manager_based.franka_rl import mdp
 from franka_rl.tasks.manager_based.franka_rl.fr3_env_cfg import Fr3BareFlangeEnvCfg
 from franka_rl.tasks.manager_based.franka_rl.franka_rl_env_cfg import FrankaRlEnvCfg
 from franka_rl.tasks.manager_based.franka_velocity.velocity_env_cfg import Fr3JointVelocityEnvCfg
+from franka_rl.tasks.manager_based.franka_z_axis_tracking.z_axis_env_cfg import (
+    Fr3FrankyIncremental6DPositionZAxisEnvCfg,
+)
 from franka_rl.utils.scenarios import ScenarioCatalog, ScenarioModifier
 
 
@@ -169,3 +172,40 @@ def test_incremental_6d_task_removes_joint_7_and_adds_fine_reward(tmp_path, monk
     assert tuple(distribution.initial_action) == (0.0,) * 6
     assert distribution.init_std == pytest.approx(0.50)
     assert runner.experiment_name == "fr3_incremental_6d_impedance_reach"
+
+
+def test_impedance_dr_scenarios_match_position_and_z_axis_observations(tmp_path, monkeypatch):
+    asset = tmp_path / "test.usda"
+    asset.write_text("#usda 1.0\n")
+    monkeypatch.setenv("FRANKA_RL_FR3_USD", str(asset))
+    catalog = ScenarioCatalog.from_yaml()
+
+    position_cfg = Fr3FrankyIncremental6DImpedanceEnvCfg()
+    position_metadata = ScenarioModifier(
+        catalog.get("fr3_impedance_gain_dr_v1"), catalog
+    ).apply(position_cfg)
+    assert position_cfg.actions.arm_action.gain_alpha_range == (0.5, 2.0)
+    assert position_cfg.observations.policy.enable_corruption is True
+    assert position_cfg.events.scenario_payload_mass.params[
+        "use_current_inertia_as_baseline"
+    ] is True
+    assert position_metadata["control"]["action_delay_range"] == (0, 1)
+
+    z_axis_cfg = Fr3FrankyIncremental6DPositionZAxisEnvCfg()
+    z_axis_metadata = ScenarioModifier(
+        catalog.get("fr3_impedance_gain_z_axis_dr_v1"), catalog
+    ).apply(z_axis_cfg)
+    z_noise = z_axis_cfg.observations.policy.ee_z_axis_error.noise
+    assert z_axis_cfg.actions.arm_action.gain_alpha_range == (0.5, 2.0)
+    assert z_axis_cfg.observations.policy.enable_corruption is True
+    assert z_axis_cfg.events.scenario_payload_mass.params[
+        "use_current_inertia_as_baseline"
+    ] is True
+    assert z_noise.n_min == pytest.approx(-0.01)
+    assert z_noise.n_max == pytest.approx(0.01)
+    assert z_axis_metadata["control"]["action_delay_range"] == (0, 1)
+
+    with pytest.raises(ValueError, match="ee_z_axis_error.*does not define it"):
+        ScenarioModifier(
+            catalog.get("fr3_impedance_gain_z_axis_dr_v1"), catalog
+        ).apply(Fr3FrankyIncremental6DImpedanceEnvCfg())

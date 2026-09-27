@@ -174,6 +174,37 @@ second narrow exponential term with `sigma=0.0025 m^2` (5 cm characteristic
 distance) adds terminal-position resolution without simultaneously changing
 the other reward weights.
 
+Validate before training:
+
+```bash
+cd /home/chen-lab/isaac/franka-rl
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u scripts/validate_impedance_env.py \
+  --task Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0 \
+  --scenario nominal \
+  --num_envs 16 \
+  --steps 100 \
+  --device cuda:0
+```
+
+Nominal training uses its own experiment directory; the checkpoint cadence is
+left at the runner default rather than adding frequent saves:
+
+```bash
+export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
+mkdir -p "$FRANKA_RL_DATA_ROOT/runs"
+cd "$FRANKA_RL_DATA_ROOT/runs"
+direnv exec /home/chen-lab/isaac/franka-rl \
+  /home/chen-lab/isaac/.venv/bin/python -u \
+  /home/chen-lab/isaac/franka-rl/scripts/rsl_rl/train.py \
+  --task Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0 \
+  --scenario nominal \
+  --num_envs 1024 \
+  --max_iterations 150 \
+  --run_name fr3_incremental_6d_fine_nominal_v1 \
+  --device cuda:0 \
+  --viz none
+```
+
 ## Circle-path evaluation
 
 Task ID: `Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0`
@@ -209,33 +240,38 @@ direnv exec /home/chen-lab/isaac/franka-rl \
   --real-time
 ```
 
-Validate before training:
+## Position plus tip-z-axis training
 
-```bash
-cd /home/chen-lab/isaac/franka-rl
-direnv exec . /home/chen-lab/isaac/.venv/bin/python -u scripts/validate_impedance_env.py \
-  --task Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0 \
-  --scenario nominal \
-  --num_envs 16 \
-  --steps 100 \
-  --device cuda:0
-```
+Task ID: `Franka-FR3v2-FrankyImpedance-Incremental6DPositionZAxisReach-v0`
 
-Nominal training uses its own experiment directory; the checkpoint cadence is
-left at the runner default rather than adding frequent saves:
+This task preserves the six joint-increment actions and the hardware-faithful
+impedance controller, but adds a two-element tip-z-axis error to the policy
+observation. The error is the x/y part of the shortest axis-angle rotation that
+aligns the current flange z-axis with the target z-axis, expressed about the
+current tip-frame x/y axes. Twist about z is deliberately omitted.
+
+The policy observation is 31D: measured joint position (7), measured joint
+velocity (7), flange position error (3), normalized integrated reference (6),
+preceding increment action (6), and z-axis angular error (2). Targets retain
+the existing position range and sample roll/pitch components within 30 degrees
+of the nominal downward direction; the diagonal corner is approximately 41.4
+degrees away. Broad and fine angular reward kernels have 0.5 rad and 0.1 rad
+characteristic errors. Joint 7 remains held because it is not needed to
+control flange-z direction.
+
+Nominal training:
 
 ```bash
 export FRANKA_RL_DATA_ROOT=/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data
-mkdir -p "$FRANKA_RL_DATA_ROOT/runs"
 cd "$FRANKA_RL_DATA_ROOT/runs"
 direnv exec /home/chen-lab/isaac/franka-rl \
   /home/chen-lab/isaac/.venv/bin/python -u \
   /home/chen-lab/isaac/franka-rl/scripts/rsl_rl/train.py \
-  --task Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0 \
+  --task Franka-FR3v2-FrankyImpedance-Incremental6DPositionZAxisReach-v0 \
   --scenario nominal \
   --num_envs 1024 \
   --max_iterations 150 \
-  --run_name fr3_incremental_6d_fine_nominal_v1 \
+  --run_name fr3_incremental_6d_position_z_axis_nominal_v1 \
   --device cuda:0 \
   --viz none
 ```

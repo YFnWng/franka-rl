@@ -7,7 +7,7 @@ import torch
 
 from isaaclab.managers import ManagerTermBase, SceneEntityCfg, TerminationTermCfg
 
-from .observations import ee_position_error_b
+from .observations import ee_position_error_b, ee_z_axis_error_b
 
 if TYPE_CHECKING:
     from isaaclab.assets import Articulation
@@ -63,6 +63,39 @@ class SustainedPositionSuccess(ManagerTermBase):
         return self._consecutive_steps >= required_steps
 
 
+class SustainedPositionZAxisSuccess(ManagerTermBase):
+    """Terminate after sustained position and tip-z-axis accuracy."""
+
+    def __init__(self, cfg: TerminationTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._consecutive_steps = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
+        )
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._consecutive_steps[env_ids] = 0
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        command_name: str,
+        asset_cfg: SceneEntityCfg,
+        distance_threshold: float,
+        z_axis_threshold_rad: float,
+        required_steps: int,
+    ) -> torch.Tensor:
+        position_error = ee_position_error_b(env, command_name, asset_cfg)
+        z_axis_error = ee_z_axis_error_b(env, command_name, asset_cfg)
+        within_threshold = (
+            torch.linalg.vector_norm(position_error, dim=1) < distance_threshold
+        ) & (torch.linalg.vector_norm(z_axis_error, dim=1) < z_axis_threshold_rad)
+        self._consecutive_steps.mul_(within_threshold)
+        self._consecutive_steps.add_(within_threshold)
+        return self._consecutive_steps >= required_steps
+
+
 class EvaluationStateMetrics(ManagerTermBase):
     """Capture post-physics trajectory metrics before automatic episode reset.
 
@@ -79,6 +112,7 @@ class EvaluationStateMetrics(ManagerTermBase):
     ):
         super().__init__(cfg, env)
         self.position_error_m = torch.full((self.num_envs,), float("nan"), device=self.device)
+        self.z_axis_error_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.joint_limit_margin_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.joint_velocity_ratio = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.command_difference_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
@@ -97,6 +131,7 @@ class EvaluationStateMetrics(ManagerTermBase):
         joint_asset_cfg: SceneEntityCfg,
         max_joint_velocity: tuple[float, ...] | None = None,
         action_name: str | None = None,
+        measure_z_axis: bool = False,
     ) -> torch.Tensor:
         position_error = ee_position_error_b(
             env,
@@ -104,6 +139,15 @@ class EvaluationStateMetrics(ManagerTermBase):
             asset_cfg=hand_asset_cfg,
         )
         self.position_error_m.copy_(torch.linalg.vector_norm(position_error, dim=1))
+        if measure_z_axis:
+            z_axis_error = ee_z_axis_error_b(
+                env,
+                command_name=command_name,
+                asset_cfg=hand_asset_cfg,
+            )
+            self.z_axis_error_rad.copy_(torch.linalg.vector_norm(z_axis_error, dim=1))
+        else:
+            self.z_axis_error_rad.fill_(float("nan"))
 
         robot: Articulation = env.scene[joint_asset_cfg.name]
         joint_pos = robot.data.joint_pos.torch[:, joint_asset_cfg.joint_ids]

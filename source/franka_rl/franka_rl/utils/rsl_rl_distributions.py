@@ -49,6 +49,12 @@ class SquashedGaussianDistribution(Distribution):
             std = torch.clamp(self.std_param, min=self.epsilon).expand_as(mlp_output)
         else:
             std = torch.exp(self.log_std_param).expand_as(mlp_output)
+        if not torch.isfinite(std).all():
+            parameter_name = "std_param" if self.std_type == "scalar" else "log_std_param"
+            raise FloatingPointError(
+                f"Policy {parameter_name} became non-finite during PPO optimization. "
+                "Resume from the last finite checkpoint with a fresh optimizer and a lower or fixed learning rate."
+            )
         self._distribution = Normal(mlp_output, std)
 
     def sample(self) -> torch.Tensor:

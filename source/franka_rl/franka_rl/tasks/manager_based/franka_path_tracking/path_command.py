@@ -195,4 +195,3 @@ class WaypointPathCommand(UniformPoseCommand):
         self.metrics["waypoint_timeout_rate"].copy_(
             self.waypoints_timed_out.float() / denominator
         )
-

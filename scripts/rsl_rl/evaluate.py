@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import importlib.metadata as metadata
 import json
+import math
 import os
 import shutil
 import sys
@@ -106,6 +107,17 @@ parser.add_argument("--external_callback", default=None, help="Fully qualified p
 parser.add_argument("--success_threshold", type=float, default=0.03)
 parser.add_argument("--success_steps", type=int, default=5)
 parser.add_argument(
+    "--z-axis-threshold-deg",
+    type=float,
+    default=5.0,
+    help="Tip-z angular success threshold in degrees for z-axis tracking tasks.",
+)
+parser.add_argument(
+    "--path",
+    default=None,
+    help="Named path from paths.yaml. Only valid for waypoint-path evaluation tasks.",
+)
+parser.add_argument(
     "--output-dir",
     type=Path,
     default=None,
@@ -166,7 +178,20 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
     scenario = scenario_catalog.get(args_cli.scenario)
     scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
+    if args_cli.path is not None:
+        configure_path = getattr(env_cfg, "configure_path", None)
+        if configure_path is None:
+            raise ValueError("--path is only valid for a waypoint-path evaluation task")
+        configure_path(args_cli.path)
     evaluation_protocol = getattr(env_cfg, "evaluation_protocol", "random_point")
+    evaluates_z_axis = (
+        getattr(env_cfg.observations.policy, "ee_z_axis_error", None) is not None
+    )
+    if evaluation_protocol == "random_point" and evaluates_z_axis:
+        evaluation_protocol = "position_z_axis"
+    z_axis_threshold_rad = (
+        math.radians(args_cli.z_axis_threshold_deg) if evaluates_z_axis else None
+    )
     path_metadata = getattr(env_cfg, "path_metadata", None)
     evaluation_threshold = (
         path_metadata["position_threshold_m"]
@@ -242,7 +267,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         # Random-point evaluation terminates on sustained proximity. Path tasks
         # already define strict whole-path success and waypoint-timeout outcomes.
-        if evaluation_protocol != "waypoint_path":
+        if evaluation_protocol == "position_z_axis":
+            env_cfg.terminations.reached_target = TerminationTermCfg(
+                func=mdp.SustainedPositionZAxisSuccess,
+                time_out=False,
+                params={
+                    "command_name": "ee_pose",
+                    "asset_cfg": SceneEntityCfg(
+                        "robot", body_names=[env_cfg.commands.ee_pose.body_name]
+                    ),
+                    "distance_threshold": args_cli.success_threshold,
+                    "z_axis_threshold_rad": z_axis_threshold_rad,
+                    "required_steps": args_cli.success_steps,
+                },
+            )
+        elif evaluation_protocol != "waypoint_path":
             env_cfg.terminations.reached_target = TerminationTermCfg(
                 func=mdp.SustainedPositionSuccess,
                 time_out=False,
@@ -273,6 +312,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 ),
                 "max_joint_velocity": max_joint_velocity,
                 "action_name": "arm_action",
+                "measure_z_axis": evaluates_z_axis,
             },
         )
 
@@ -303,6 +343,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         def trajectory_state_reader(_env):
             return {
                 "position_error_m": evaluation_state_term.position_error_m,
+                "z_axis_error_rad": evaluation_state_term.z_axis_error_rad,
                 "joint_limit_margin_rad": evaluation_state_term.joint_limit_margin_rad,
                 "joint_velocity_ratio": evaluation_state_term.joint_velocity_ratio,
                 "command_difference_norm_rad": evaluation_state_term.command_difference_norm_rad,
@@ -452,6 +493,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             num_episodes=args_cli.num_episodes,
             success_threshold=evaluation_threshold,
             success_steps=args_cli.success_steps,
+            z_axis_threshold_rad=z_axis_threshold_rad,
             seed=env_cfg.seed,
             output_dir=output_dir,
             task_name=args_cli.task,

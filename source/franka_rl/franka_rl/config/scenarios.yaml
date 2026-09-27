@@ -416,3 +416,28 @@ scenarios:
       impedance_gain_alpha_range: [0.50, 2.00]
     reset:
       joint_position_range: [-0.125, 0.125]
+
+  fr3_impedance_gain_z_axis_dr_v1:
+    type: random
+    description: Deployment-focused DR for the position-plus-tip-z-axis policy and explicit Franky impedance controller.
+    resampling: reset
+    physics:
+      joint_friction_add: {distribution: uniform, low: 0.00, high: 0.10}
+      joint_armature_scale: {distribution: uniform, low: 0.80, high: 1.20}
+      link_inertia_scale: {distribution: uniform, low: 0.90, high: 1.10}
+      payload_mass_kg: {distribution: uniform, low: 0.00, high: 1.00}
+      payload_com_offset_m:
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: -0.03, high: 0.03}
+        - {distribution: uniform, low: 0.00, high: 0.10}
+    observations:
+      joint_position_noise: {distribution: uniform, low: -0.002, high: 0.002}
+      joint_velocity_noise: {distribution: uniform, low: -0.02, high: 0.02}
+      ee_position_error_noise: {distribution: uniform, low: -0.002, high: 0.002}
+      # Two minimal-rotation components, in radians (about 0.57 deg each).
+      ee_z_axis_error_noise: {distribution: uniform, low: -0.01, high: 0.01}
+    control:
+      action_delay_range: [0, 1]
+      impedance_gain_alpha_range: [0.50, 2.00]
+    reset:
+      joint_position_range: [-0.125, 0.125]

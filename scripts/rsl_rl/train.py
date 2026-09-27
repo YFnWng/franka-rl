@@ -79,6 +79,24 @@ parser.add_argument(
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
 parser.add_argument(
+    "--learning-rate",
+    type=float,
+    default=None,
+    help="Override the optimizer learning rate from the agent configuration.",
+)
+parser.add_argument(
+    "--schedule",
+    choices=("adaptive", "fixed"),
+    default=None,
+    help="Override the PPO learning-rate schedule.",
+)
+parser.add_argument(
+    "--reset-optimizer",
+    action="store_true",
+    default=False,
+    help="When resuming, restore model weights and iteration but start with a fresh optimizer.",
+)
+parser.add_argument(
     "--scenario",
     default="nominal",
     help="Named nominal or random scenario from the scenario YAML catalog.",
@@ -154,6 +172,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.max_iterations = (
             args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
         )
+        if args_cli.learning_rate is not None:
+            if args_cli.learning_rate <= 0.0:
+                raise ValueError("--learning-rate must be positive")
+            agent_cfg.algorithm.learning_rate = args_cli.learning_rate
+        if args_cli.schedule is not None:
+            agent_cfg.algorithm.schedule = args_cli.schedule
+        if args_cli.reset_optimizer and not agent_cfg.resume:
+            raise ValueError("--reset-optimizer requires --resume")
 
         # handle deprecated configurations
         agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
@@ -175,6 +201,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             )
 
         scenario_metadata = scenario_modifier.apply(env_cfg)
+        if agent_cfg.resume:
+            scenario_metadata["training_resume"] = {
+                "reset_optimizer": bool(args_cli.reset_optimizer),
+                "learning_rate": float(agent_cfg.algorithm.learning_rate),
+                "schedule": str(agent_cfg.algorithm.schedule),
+            }
         print("[INFO] Training scenario:")
         print_dict(scenario_metadata, nesting=4)
 
@@ -285,7 +317,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
             print(f"[INFO]: Loading model checkpoint from: {resume_path}")
             # load previously trained model
-            runner.load(resume_path)
+            if args_cli.reset_optimizer:
+                print(
+                    "[INFO]: Restoring actor, critic, and iteration counter with a fresh optimizer "
+                    f"(learning_rate={agent_cfg.algorithm.learning_rate:g}, "
+                    f"schedule={agent_cfg.algorithm.schedule})."
+                )
+                runner.load(
+                    resume_path,
+                    load_cfg={
+                        "actor": True,
+                        "critic": True,
+                        "optimizer": False,
+                        "iteration": True,
+                        "rnd": True,
+                    },
+                )
+            else:
+                runner.load(resume_path)
 
         # dump the configuration into log-directory
         dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)

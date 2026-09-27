@@ -5,8 +5,12 @@
 
 __all__ = [
     "ee_position_error_b",
+    "ee_z_axis_error_b",
+    "z_axis_error_from_quaternions",
     "position_tracking_exp",
+    "z_axis_tracking_exp",
     "SustainedPositionSuccess",
+    "SustainedPositionZAxisSuccess",
     "EvaluationStateMetrics",
     "non_finite_joint_state",
     "GovernedJointVelocityActionCfg",
@@ -56,8 +60,8 @@ from .impedance_metrics import (
     measured_joint_velocity_violation,
     soft_joint_position_violation,
 )
-from .observations import ee_position_error_b
-from .rewards import position_tracking_exp
+from .observations import ee_position_error_b, ee_z_axis_error_b, z_axis_error_from_quaternions
+from .rewards import position_tracking_exp, z_axis_tracking_exp
 from .velocity_actions_cfg import GovernedJointVelocityActionCfg
 from .velocity_metrics import (
     accepted_velocity_action,
@@ -69,5 +73,6 @@ from .velocity_metrics import (
 from .terminations import (
     EvaluationStateMetrics,
     SustainedPositionSuccess,
+    SustainedPositionZAxisSuccess,
     non_finite_joint_state,
 )
