@@ -26,9 +26,9 @@ def main():
     for line in sys.stdin:
         try:
             request = json.loads(line)
-            observation = np.asarray(request["observation"], dtype=np.float32).reshape(1, 24)
+            observation = np.asarray(request["observation"], dtype=np.float32).reshape(1, -1)
             if not np.isfinite(observation).all(): raise ValueError("nonfinite observation")
-            action = model.run(["action"], {"observation": observation})[0].reshape(7)
+            action = model.run(["action"], {"observation": observation})[0].reshape(-1)
             if not np.isfinite(action).all(): raise ValueError("nonfinite action")
             emit({"type": "result", "request_id": request["request_id"],
                   "trial_id": request["trial_id"],

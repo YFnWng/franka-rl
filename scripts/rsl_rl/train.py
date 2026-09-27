@@ -219,15 +219,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
         if scenario.control.action_delay_range is not None:
-            from franka_rl.utils.action_delay import RandomActionDelayWrapper
+            from franka_rl.utils.action_delay import (
+                RandomActionDelayWrapper,
+                action_term_delay_fill_provider,
+            )
 
             min_delay, max_delay = scenario.control.action_delay_range
-            env = RandomActionDelayWrapper(env, min_delay, max_delay)
+            delay_fill_provider = action_term_delay_fill_provider(env)
+            env = RandomActionDelayWrapper(
+                env,
+                min_delay,
+                max_delay,
+                initial_action_provider=delay_fill_provider,
+            )
             scenario_metadata["runtime_control"] = {
                 "action_delay_range": [min_delay, max_delay],
                 "sampling": "uniform_integer_per_environment_per_episode",
-                "initial_action": "zero_residual",
-                "reset_behavior": "clear_done_environment_history",
+                "initial_action": (
+                    "action_term_reset_command" if delay_fill_provider is not None else "zero"
+                ),
+                "reset_behavior": "refill_done_environment_history",
             }
 
         # convert to single-agent instance if required by the RL algorithm

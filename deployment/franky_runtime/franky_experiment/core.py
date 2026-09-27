@@ -117,21 +117,51 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     data["robot"] = robot
 
     mapping = data.get("action_mapping", {})
-    mapping["default_position_rad"] = vector(mapping.get("default_position_rad"), JOINTS,
-                                              "action_mapping.default_position_rad")
-    scale = mapping.get("scale_rad")
-    if isinstance(scale, (int, float)) and not isinstance(scale, bool):
-        scale = [float(scale)] * JOINTS
-    mapping["scale_rad"] = vector(scale, JOINTS, "action_mapping.scale_rad")
-    require(mapping.get("clip") is None, "action clipping is unsupported; unsafe targets are rejected")
+    if data["mode"] == "reference":
+        mapping["default_position_rad"] = vector(mapping.get("default_position_rad"), JOINTS,
+                                                  "action_mapping.default_position_rad")
+        scale = mapping.get("scale_rad")
+        if isinstance(scale, (int, float)) and not isinstance(scale, bool):
+            scale = [float(scale)] * JOINTS
+        mapping["scale_rad"] = vector(scale, JOINTS, "action_mapping.scale_rad")
+        require(mapping.get("clip") is None, "reference action clipping is unsupported")
+    else:
+        require(mapping.get("type") == "normalized_position_increment",
+                "PPO action mapping must be normalized_position_increment")
+        policy_joint_count = int(mapping.get("policy_joint_count", 0))
+        require(policy_joint_count == 6, "PPO policy_joint_count must be 6")
+        require(mapping.get("controlled_joint_names") == EXPECTED_JOINTS[:policy_joint_count],
+                "PPO controlled joint order must be FR3 joints 1--6")
+        require(mapping.get("held_joint_names") == EXPECTED_JOINTS[policy_joint_count:],
+                "PPO held joint set must contain only FR3 joint 7")
+        require(float(mapping.get("normalized_lower", math.nan)) == -1.0 and
+                float(mapping.get("normalized_upper", math.nan)) == 1.0,
+                "PPO normalized action interval must be [-1, 1]")
+        require(mapping.get("integration") == "forward_euler", "PPO integration must be forward_euler")
+        require(mapping.get("initial_reference") == "measured_start_position",
+                "PPO reference must initialize from measured start position")
+        mapping["max_reference_velocity_rad_s"] = vector(
+            mapping.get("max_reference_velocity_rad_s"), policy_joint_count,
+            "action_mapping.max_reference_velocity_rad_s")
+        mapping["max_position_increment_rad"] = vector(
+            mapping.get("max_position_increment_rad"), policy_joint_count,
+            "action_mapping.max_position_increment_rad")
+        require(mapping.get("soft_limit_projection") is True, "PPO soft-limit projection must be enabled")
     data["action_mapping"] = mapping
 
     timing = data.get("timing", {})
-    require(float(timing.get("command_hz", 0)) == 30.0, "timing.command_hz must be exactly 30")
+    expected_hz = 30.0 if data["mode"] == "reference" else 50.0
+    require(float(timing.get("command_hz", 0)) == expected_hz,
+            f"timing.command_hz must be exactly {expected_hz:g}")
+    if data["mode"] == "ppo":
+        expected_increment = [value / expected_hz for value in mapping["max_reference_velocity_rad_s"]]
+        require(all(abs(actual - expected) < 1.0e-12 for actual, expected in
+                    zip(mapping["max_position_increment_rad"], expected_increment)),
+                "PPO position increments must equal max reference velocity / command_hz")
     for key in ("state_timeout_ms", "callback_gap_ms", "command_watchdog_ms", "suite_timeout_s"):
         require(float(timing.get(key, 0)) > 0, f"timing.{key} must be positive")
-    require(float(timing["command_watchdog_ms"]) > 1000.0 / 30.0,
-            "command watchdog must exceed one 30 Hz period")
+    require(float(timing["command_watchdog_ms"]) > 1000.0 / expected_hz,
+            "command watchdog must exceed one command period")
     require(float(timing["callback_gap_ms"]) <= float(timing["command_watchdog_ms"]),
             "callback gap cannot exceed command watchdog")
     if data["mode"] == "ppo":
@@ -228,19 +258,26 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         require(contract.get("joint_names") == EXPECTED_JOINTS, "PPO contract joint order/model is not FR3")
         require(contract.get("frames", {}).get("base") == "fr3_link0", "PPO base frame mismatch")
         require(contract.get("frames", {}).get("tracked_body") == "fr3_flange", "PPO tracked body mismatch")
-        require(abs(float(contract.get("policy_period_s", 0)) - 1.0 / 30.0) < 1e-12,
-                "PPO policy period is not 30 Hz")
-        require(vector(contract.get("default_joint_position_rad"), JOINTS, "bundle default position") ==
-                data["action_mapping"]["default_position_rad"], "PPO default offset mismatch")
-        contract_scale = contract.get("action", {}).get("scale_rad")
-        if isinstance(contract_scale, (int, float)) and not isinstance(contract_scale, bool):
-            contract_scale = [float(contract_scale)] * JOINTS
-        require(vector(contract_scale, JOINTS, "bundle action scale") == data["action_mapping"]["scale_rad"],
-                "PPO action scale mismatch")
-        require(contract.get("action", {}).get("clip") is None, "PPO action clipping unsupported")
+        require(abs(float(contract.get("policy_period_s", 0)) - 1.0 / 50.0) < 1e-12,
+                "PPO policy period is not 50 Hz")
+        action_contract = contract.get("action", {})
+        require(action_contract.get("type") == "normalized_position_increment",
+                "PPO contract action type mismatch")
+        policy_joint_count = data["action_mapping"]["policy_joint_count"]
+        require(int(action_contract.get("size", 0)) == policy_joint_count,
+                "PPO contract action size mismatch")
+        require(vector(action_contract.get("max_reference_velocity_rad_s"), policy_joint_count,
+                       "bundle max reference velocity") ==
+                data["action_mapping"]["max_reference_velocity_rad_s"],
+                "PPO reference velocity mismatch")
+        require(vector(action_contract.get("max_position_increment_rad"), policy_joint_count,
+                       "bundle max position increment") ==
+                data["action_mapping"]["max_position_increment_rad"],
+                "PPO position increment mismatch")
         expressions = [item.get("expression") for item in contract.get("observation_layout", [])]
         require(expressions == ["q_measured - q_default", "dq_measured",
-                                "target_base - fr3_flange_base", "previous_raw_actor_output"],
+                                "target_base - fr3_flange_base", "q_reference_normalized",
+                                "previous_normalized_position_increment"],
                 "PPO observation layout mismatch")
         targets = source.get("targets")
         require(isinstance(targets, list) and targets, "ppo.targets must be nonempty")
@@ -273,11 +310,24 @@ def check_target(config: dict[str, Any], target: list[float] | tuple[float, ...]
     return q
 
 
-def action_to_target(config: dict[str, Any], action: list[float]) -> list[float]:
-    raw = vector(list(action), JOINTS, "policy action")
+def action_to_target(
+    config: dict[str, Any], action: list[float], reference: list[float] | tuple[float, ...] | None = None
+) -> list[float]:
     mapping = config["action_mapping"]
-    return check_target(config, [mapping["default_position_rad"][i] + mapping["scale_rad"][i] * raw[i]
-                                 for i in range(JOINTS)], "mapped policy target")
+    action_size = int(mapping.get("policy_joint_count", JOINTS))
+    raw = vector(list(action), action_size, "policy action")
+    if mapping.get("type") != "normalized_position_increment":
+        return check_target(config, [mapping["default_position_rad"][i] + mapping["scale_rad"][i] * raw[i]
+                                     for i in range(JOINTS)], "mapped policy target")
+    require(reference is not None, "incremental action requires the previous position reference")
+    prior = vector(list(reference), JOINTS, "previous position reference")
+    require(all(-1.0 <= value <= 1.0 for value in raw), "incremental policy action exceeds [-1, 1]")
+    lower, upper = config["safety"]["soft_lower_rad"], config["safety"]["soft_upper_rad"]
+    increment = mapping["max_position_increment_rad"]
+    target = prior.copy()
+    for i in range(action_size):
+        target[i] = min(upper[i], max(lower[i], prior[i] + increment[i] * raw[i]))
+    return target
 
 
 @dataclass(frozen=True)
@@ -340,12 +390,19 @@ class ReferencePlan:
         return PlanPoint(len(self.trials), "complete", self.start, True)
 
 
-def assemble_policy_observation(q, dq, target, flange, previous, default) -> list[float]:
+def assemble_policy_observation(
+    q, dq, target, flange, reference, previous, default, lower, upper, controlled_joint_count
+) -> list[float]:
     q = vector(list(q), 7, "q"); dq = vector(list(dq), 7, "dq")
     target = vector(list(target), 3, "target"); flange = vector(list(flange), 3, "flange")
-    previous = vector(list(previous), 7, "previous"); default = vector(list(default), 7, "default")
+    reference = vector(list(reference), 7, "reference")
+    previous = vector(list(previous), controlled_joint_count, "previous")
+    default = vector(list(default), 7, "default")
+    lower = vector(list(lower), 7, "lower"); upper = vector(list(upper), 7, "upper")
+    reference_normalized = [2.0 * (reference[i] - lower[i]) / (upper[i] - lower[i]) - 1.0
+                            for i in range(controlled_joint_count)]
     return ([q[i] - default[i] for i in range(7)] + dq +
-            [target[i] - flange[i] for i in range(3)] + previous)
+            [target[i] - flange[i] for i in range(3)] + reference_normalized + previous)
 
 
 class SessionSupervisor:

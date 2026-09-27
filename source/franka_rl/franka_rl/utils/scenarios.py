@@ -85,6 +85,7 @@ class ControlSpec:
     action_delay_range: tuple[int, int] | None = None
     velocity_target_scale_range: tuple[float, float] | None = None
     acceleration_scale_range: tuple[float, float] | None = None
+    impedance_gain_alpha_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -251,6 +252,7 @@ class ScenarioModifier:
         ranges = {
             "velocity_target_scale_range": control.velocity_target_scale_range,
             "acceleration_scale_range": control.acceleration_scale_range,
+            "gain_alpha_range": control.impedance_gain_alpha_range,
         }
         for attribute, value in ranges.items():
             if value is None:
@@ -1077,6 +1079,7 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
             "action_delay_range",
             "velocity_target_scale_range",
             "acceleration_scale_range",
+            "impedance_gain_alpha_range",
         },
         f"control for scenario {scenario_name!r}",
     )
@@ -1106,7 +1109,11 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
             raise ValueError(f"{scenario_name}.action_delay_range must be ordered and nonnegative.")
         parsed_range = (delay_range[0], delay_range[1])
     continuous_ranges: dict[str, tuple[float, float] | None] = {}
-    for name in ("velocity_target_scale_range", "acceleration_scale_range"):
+    for name in (
+        "velocity_target_scale_range",
+        "acceleration_scale_range",
+        "impedance_gain_alpha_range",
+    ):
         raw_range = mapping.get(name)
         if raw_range is None:
             continuous_ranges[name] = None

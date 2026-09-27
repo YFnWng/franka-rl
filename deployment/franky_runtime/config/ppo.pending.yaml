@@ -1,5 +1,6 @@
-# Pending PPO deployment template using the measured nominal Franky profile.
-# The current runtime holds 30 Hz position targets directly; no shared governor is active.
+# Pending deployment template for the 50 Hz six-action incremental-position PPO.
+# The actor output is a bounded reference velocity integrated into the held
+# position reference used by the same Franky impedance loop as sine tests.
 # Keep non-executable until a new policy bundle, path/targets, and lab review are complete.
 schema_version: 1
 runtime: franky_joint_impedance_tracking_v1
@@ -109,22 +110,42 @@ robot:
     joint_torque_threshold_nm: 20.0
     cartesian_force_threshold_n: 30.0
 action_mapping:
-  default_position_rad:
-  - 0.0
-  - -0.7853981633974483
-  - 0.0
-  - -2.356194490192345
-  - 0.0
-  - 1.5707963267948966
-  - 0.0
-  scale_rad: 0.5
-  clip: null
+  type: normalized_position_increment
+  policy_joint_count: 6
+  controlled_joint_names:
+  - fr3_joint1
+  - fr3_joint2
+  - fr3_joint3
+  - fr3_joint4
+  - fr3_joint5
+  - fr3_joint6
+  held_joint_names:
+  - fr3_joint7
+  normalized_lower: -1.0
+  normalized_upper: 1.0
+  integration: forward_euler
+  initial_reference: measured_start_position
+  max_reference_velocity_rad_s:
+  - 0.435
+  - 0.435
+  - 0.435
+  - 0.435
+  - 0.522
+  - 0.522
+  max_position_increment_rad:
+  - 0.0087
+  - 0.0087
+  - 0.0087
+  - 0.0087
+  - 0.01044
+  - 0.01044
+  soft_limit_projection: true
 timing:
-  command_hz: 30
-  state_timeout_ms: 50.0
-  callback_gap_ms: 50.0
-  command_watchdog_ms: 75.0
-  inference_timeout_ms: 25.0
+  command_hz: 50
+  state_timeout_ms: 40.0
+  callback_gap_ms: 40.0
+  command_watchdog_ms: 50.0
+  inference_timeout_ms: 15.0
   trial_timeout_s: 10.0
   suite_timeout_s: 3600.0
 safety:

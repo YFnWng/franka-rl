@@ -161,20 +161,40 @@ def approved_ppo(tmp_path, session_id=43):
         "robot_model": "fr3",
         "joint_names": [f"fr3_joint{i}" for i in range(1, 8)],
         "frames": {"base": "fr3_link0", "tracked_body": "fr3_flange"},
-        "policy_period_s": 1.0 / 30.0,
-        "default_joint_position_rad": HOME,
-        "action": {"scale_rad": [0.5] * 7, "clip": None},
+        "policy_period_s": 1.0 / 50.0,
+        "action": {
+            "type": "normalized_position_increment",
+            "size": 6,
+            "max_reference_velocity_rad_s": [0.435] * 4 + [0.522] * 2,
+            "max_position_increment_rad": [0.0087] * 4 + [0.01044] * 2,
+        },
         "observation_layout": [
             {"expression": "q_measured - q_default"},
             {"expression": "dq_measured"},
             {"expression": "target_base - fr3_flange_base"},
-            {"expression": "previous_raw_actor_output"},
+            {"expression": "q_reference_normalized"},
+            {"expression": "previous_normalized_position_increment"},
         ],
     }, sort_keys=False))
     value = approved_reference(tmp_path, session_id)
     value["mode"] = "ppo"
     value.pop("reference")
-    value["timing"].update({"inference_timeout_ms": 25.0, "trial_timeout_s": 1.0})
+    value["timing"].update({"command_hz": 50, "callback_gap_ms": 30.0,
+                            "command_watchdog_ms": 40.0,
+                            "inference_timeout_ms": 15.0, "trial_timeout_s": 1.0})
+    value["action_mapping"] = {
+        "type": "normalized_position_increment",
+        "policy_joint_count": 6,
+        "controlled_joint_names": [f"fr3_joint{i}" for i in range(1, 7)],
+        "held_joint_names": ["fr3_joint7"],
+        "normalized_lower": -1.0,
+        "normalized_upper": 1.0,
+        "integration": "forward_euler",
+        "initial_reference": "measured_start_position",
+        "max_reference_velocity_rad_s": [0.435] * 4 + [0.522] * 2,
+        "max_position_increment_rad": [0.0087] * 4 + [0.01044] * 2,
+        "soft_limit_projection": True,
+    }
     value["ppo"] = {
         "bundle_path": str(bundle), "manifest_sha256": sha256(manifest),
         "worker_python": "/bin/true", "start_position_rad": HOME,
@@ -214,13 +234,13 @@ class FakePolicyWorker:
                 "trial_id": request["trial_id"],
                 "observation_sequence": request["observation_sequence"],
                 "completed_monotonic_ns": time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW),
-                "action": [0.0] * 7}
+                "action": [0.0] * 6}
 
     def close(self):
         self.closed = True
 
 
-def test_fake_ppo_runtime_uses_24d_observation_and_worker(tmp_path):
+def test_fake_ppo_runtime_uses_29d_observation_and_worker(tmp_path):
     FakePolicyWorker.instances.clear()
     config = load_experiment(write_config(tmp_path, approved_ppo(tmp_path), "ppo.yaml"))
     coordinator = Coordinator(config, auto_start=True, worker_factory=FakePolicyWorker)
@@ -232,7 +252,7 @@ def test_fake_ppo_runtime_uses_24d_observation_and_worker(tmp_path):
     worker = FakePolicyWorker.instances[-1]
     assert worker.closed
     assert len(worker.requests) >= 2
-    assert all(len(request["observation"]) == 24 for request in worker.requests)
+    assert all(len(request["observation"]) == 29 for request in worker.requests)
     final = json.loads((tmp_path / "runs" / "session-43" / "final_metadata.json").read_text())
     assert final["terminal_state"] == "stopped"
     assert final["terminal_reason"] == "max_runtime"
@@ -245,3 +265,14 @@ def test_hardware_backend_uses_one_tracking_motion_not_joint_motion_preemption()
     assert "JointReference" in source
     assert "JointMotion(" not in source
     assert "TorqueStopMotion" in source
+
+
+def test_incremental_action_mapping_integrates_and_projects(tmp_path):
+    config = load_experiment(write_config(tmp_path, approved_ppo(tmp_path), "incremental.yaml"))
+    target = action_to_target(config, [1.0] * 6, HOME)
+    expected = [HOME[i] + ([0.0087] * 4 + [0.01044] * 2)[i] for i in range(6)] + [HOME[6]]
+    assert target == pytest.approx(expected)
+    projected = action_to_target(config, [1.0] * 6, config["safety"]["soft_upper_rad"])
+    assert projected == pytest.approx(config["safety"]["soft_upper_rad"])
+    with pytest.raises(ConfigError, match=r"exceeds \[-1, 1\]"):
+        action_to_target(config, [1.01] * 6, HOME)

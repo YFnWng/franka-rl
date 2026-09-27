@@ -21,6 +21,7 @@ from packaging import version
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
 from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
+from isaaclab.managers import SceneEntityCfg, TerminationTermCfg
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.seed import configure_seed
@@ -42,12 +43,11 @@ from isaaclab_tasks.utils import (
 )
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
-from isaaclab.managers import SceneEntityCfg, TerminationTermCfg
-
 # local imports
 import cli_args  # isort: skip
 
 import franka_rl.tasks  # noqa: F401
+
 with contextlib.suppress(ImportError):
     import isaaclab_tasks_experimental  # noqa: F401
 
@@ -80,6 +80,7 @@ def validate_data_root(data_root: Path) -> None:
             f"Franka RL data root has only {free_bytes / 1024**2:.1f} MiB free; "
             f"at least {MIN_FREE_BYTES / 1024**2:.0f} MiB is required."
         )
+
 
 # -- argparse ----------------------------------------------------------------
 parser = argparse.ArgumentParser(description="Evaluate an RSL-RL checkpoint.")
@@ -165,6 +166,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
     scenario = scenario_catalog.get(args_cli.scenario)
     scenario_modifier = ScenarioModifier(scenario, scenario_catalog)
+    evaluation_protocol = getattr(env_cfg, "evaluation_protocol", "random_point")
+    path_metadata = getattr(env_cfg, "path_metadata", None)
+    evaluation_threshold = (
+        path_metadata["position_threshold_m"]
+        if evaluation_protocol == "waypoint_path"
+        else args_cli.success_threshold
+    )
+    if evaluation_protocol == "waypoint_path" and args_cli.target_set is not None:
+        raise ValueError("--target-set cannot be combined with a waypoint-path task")
 
     if args_cli.target_set is None:
         target_set_metadata = None
@@ -230,20 +240,24 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # set the log directory for the environment
         env_cfg.log_dir = log_dir
 
-        # success evaluation
-        env_cfg.terminations.reached_target = TerminationTermCfg(
-            func=mdp.SustainedPositionSuccess,
-            time_out=False,
-            params={
-                "command_name": "ee_pose",
-                "asset_cfg": SceneEntityCfg(
-                    "robot",
-                    body_names=[env_cfg.commands.ee_pose.body_name],
-                ),
-                "distance_threshold": args_cli.success_threshold,
-                "required_steps": args_cli.success_steps,
-            },
-        )
+        # Random-point evaluation terminates on sustained proximity. Path tasks
+        # already define strict whole-path success and waypoint-timeout outcomes.
+        if evaluation_protocol != "waypoint_path":
+            env_cfg.terminations.reached_target = TerminationTermCfg(
+                func=mdp.SustainedPositionSuccess,
+                time_out=False,
+                params={
+                    "command_name": "ee_pose",
+                    "asset_cfg": SceneEntityCfg(
+                        "robot",
+                        body_names=[env_cfg.commands.ee_pose.body_name],
+                    ),
+                    "distance_threshold": args_cli.success_threshold,
+                    "required_steps": args_cli.success_steps,
+                },
+            )
+        action_cfg = env_cfg.actions.arm_action
+        max_joint_velocity = getattr(action_cfg, "max_measured_velocity", None)
         env_cfg.terminations.evaluation_state_metrics = TerminationTermCfg(
             func=mdp.EvaluationStateMetrics,
             time_out=False,
@@ -257,6 +271,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     "robot",
                     joint_names=["panda_joint.*"],
                 ),
+                "max_joint_velocity": max_joint_velocity,
+                "action_name": "arm_action",
             },
         )
 
@@ -268,7 +284,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "name": env_cfg.robot_model,
                 "usd_sha256": hashlib.sha256(asset_path.read_bytes()).hexdigest(),
                 "asset_manifest": json.loads(asset_manifest.read_text()),
-                "controller_assumption": "Implicit PD 80/4, armature 0.001, 60 Hz physics, 30 Hz policy; no hardware governor",
+                "control_contract": getattr(env_cfg, "control_contract", "legacy_fr3_implicit_pd"),
+                "controller_assumption": getattr(
+                    env_cfg,
+                    "controller_profile",
+                    "implicit_pd_80_4_armature_0.001_60hz_physics_30hz_policy",
+                ),
                 "payload_reference": "fr3_flange origin",
             }
         print("[INFO] Robustness scenario:")
@@ -277,14 +298,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # create isaac environment
         env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
-        evaluation_state_term = env.unwrapped.termination_manager.get_term_cfg(
-            "evaluation_state_metrics"
-        ).func
+        evaluation_state_term = env.unwrapped.termination_manager.get_term_cfg("evaluation_state_metrics").func
 
         def trajectory_state_reader(_env):
             return {
                 "position_error_m": evaluation_state_term.position_error_m,
                 "joint_limit_margin_rad": evaluation_state_term.joint_limit_margin_rad,
+                "joint_velocity_ratio": evaluation_state_term.joint_velocity_ratio,
+                "command_difference_norm_rad": evaluation_state_term.command_difference_norm_rad,
+                "action_clipping": evaluation_state_term.action_clipping,
+                "applied_torque_norm_nm": evaluation_state_term.applied_torque_norm_nm,
             }
 
         # Install deterministic replay only after SimulationApp and the
@@ -294,9 +317,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.target_set is not None:
             from franka_rl.utils.target_replay import TargetReplayController
 
-            replay_controller = TargetReplayController(
-                args_cli.target_set, target_set_sha256
-            )
+            replay_controller = TargetReplayController(args_cli.target_set, target_set_sha256)
             replay_controller.install(
                 env.unwrapped,
                 command_name="ee_pose",
@@ -305,47 +326,60 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             target_set_metadata.update(
                 {
                     "schema_version": replay_controller.schema_version,
-                    "replays_initial_joint_state": (
-                        replay_controller.replays_initial_joint_state
-                    ),
+                    "replays_initial_joint_state": (replay_controller.replays_initial_joint_state),
                 }
             )
 
         robot = env.unwrapped.scene["robot"]
-        initial_joint_ids, initial_joint_names = robot.find_joints(
-            "panda_joint.*"
-        )
+        initial_joint_ids, initial_joint_names = robot.find_joints("panda_joint.*")
 
         def initial_state_reader(_env):
             return {
-                "joint_position": robot.data.joint_pos.torch[
-                    :, initial_joint_ids
-                ],
-                "joint_velocity": robot.data.joint_vel.torch[
-                    :, initial_joint_ids
-                ],
+                "joint_position": robot.data.joint_pos.torch[:, initial_joint_ids],
+                "joint_velocity": robot.data.joint_vel.torch[:, initial_joint_ids],
             }
 
         action_delay_steps = scenario.control.action_delay_steps or 0
         if action_delay_steps:
-            from franka_rl.utils.action_delay import FixedActionDelayWrapper
+            from franka_rl.utils.action_delay import (
+                FixedActionDelayWrapper,
+                action_term_delay_fill_provider,
+            )
 
-            env = FixedActionDelayWrapper(env, action_delay_steps)
+            delay_fill_provider = action_term_delay_fill_provider(env)
+            env = FixedActionDelayWrapper(
+                env,
+                action_delay_steps,
+                initial_action_provider=delay_fill_provider,
+            )
             scenario_metadata["runtime_control"] = {
                 "action_delay_steps": action_delay_steps,
-                "initial_action": "zero_residual",
-                "reset_behavior": "clear_done_environment_history",
+                "initial_action": (
+                    "action_term_reset_command" if delay_fill_provider is not None else "zero"
+                ),
+                "reset_behavior": "refill_done_environment_history",
             }
         elif scenario.control.action_delay_range is not None:
-            from franka_rl.utils.action_delay import RandomActionDelayWrapper
+            from franka_rl.utils.action_delay import (
+                RandomActionDelayWrapper,
+                action_term_delay_fill_provider,
+            )
 
             min_delay, max_delay = scenario.control.action_delay_range
-            env = RandomActionDelayWrapper(env, min_delay, max_delay)
+            delay_fill_provider = action_term_delay_fill_provider(env)
+            env = RandomActionDelayWrapper(
+                env,
+                min_delay,
+                max_delay,
+                initial_action_provider=delay_fill_provider,
+            )
             scenario_metadata["runtime_control"] = {
                 "action_delay_range": [min_delay, max_delay],
                 "sampling": "uniform_integer_per_environment_per_episode",
-                "initial_action": "zero_residual",
-                "reset_behavior": "clear_done_environment_history",
+                "initial_action": (
+                    "action_term_reset_command" if delay_fill_provider is not None else "zero"
+                ),
+                "reset_behavior": "refill_done_environment_history",
             }
 
         if scenario_modifier.records_episode_parameters:
@@ -416,11 +450,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             domain_parameter_schema=domain_parameter_schema,
             initial_joint_names=tuple(initial_joint_names),
             num_episodes=args_cli.num_episodes,
-            success_threshold=args_cli.success_threshold,
+            success_threshold=evaluation_threshold,
             success_steps=args_cli.success_steps,
             seed=env_cfg.seed,
             output_dir=output_dir,
             task_name=args_cli.task,
+            evaluation_protocol=evaluation_protocol,
+            path=path_metadata,
             real_time=args_cli.real_time,
             deterministic=args_cli.deterministic,
         )
@@ -434,9 +470,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             domain_parameter_reader=domain_parameter_reader,
             trajectory_state_reader=trajectory_state_reader,
             initial_state_reader=initial_state_reader,
-            configure_episode_quotas=(
-                replay_controller.set_episode_quotas if replay_controller is not None else None
-            ),
+            configure_episode_quotas=(replay_controller.set_episode_quotas if replay_controller is not None else None),
         )
 
         # simulate environment

@@ -190,7 +190,9 @@ class Coordinator:
         self.callback_started = False
         self.active_trial_id = 0
         self.latest: Snapshot | None = None
-        self.previous_action = [0.0] * 7
+        action_size = int(config.get("action_mapping", {}).get("policy_joint_count", 7))
+        self.previous_action = [0.0] * action_size
+        self.ppo_reference: list[float] | None = None
         self.current_target_index = 0
         self.success_count = 0
         self.plan = ReferencePlan(config) if config["mode"] == "reference" else None
@@ -295,7 +297,8 @@ class Coordinator:
             "tau_J": record.tau_joint, "tau_ext_hat_filtered": record.tau_external,
         }
         for name, vector in values.items():
-            row.update({f"{name}_j{i + 1}": vector[i] for i in range(7)})
+            padded = tuple(vector) + (0.0,) * (7 - len(vector))
+            row.update({f"{name}_j{i + 1}": padded[i] for i in range(7)})
         self.writer.put(row)
 
     def send_target(self, target: list[float], raw_action: list[float], trial_id: int,
@@ -381,9 +384,12 @@ class Coordinator:
                 raise RuntimeError("future policy result")
             else:
                 action = [float(v) for v in result["action"]]
-                target = action_to_target(self.config, action)
+                if self.ppo_reference is None:
+                    raise RuntimeError("PPO reference was not initialized")
+                target = action_to_target(self.config, action, self.ppo_reference)
                 self.send_target(target, action, trial_id, int(result["observation_sequence"]),
                                  int(result["completed_monotonic_ns"]))
+                self.ppo_reference = target
                 self.previous_action = action
         if self.worker.inflight is not None:
             if now - self.worker.sent_ns > timeout_ns:
@@ -392,9 +398,13 @@ class Coordinator:
         if self.current_target_index >= len(self.targets):
             return
         target = self.targets[self.current_target_index]["position_base_m"]
+        if self.ppo_reference is None:
+            raise RuntimeError("PPO reference was not initialized")
         observation = assemble_policy_observation(
             snapshot.q, snapshot.dq, target, snapshot.flange_position_m,
-            self.previous_action, self.config["action_mapping"]["default_position_rad"])
+            self.ppo_reference, self.previous_action, self.config["ppo"]["start_position_rad"],
+            self.config["safety"]["soft_lower_rad"], self.config["safety"]["soft_upper_rad"],
+            self.config["action_mapping"]["policy_joint_count"])
         self.request_sequence += 1
         self.worker.submit({
             "request_id": self.request_sequence, "trial_id": self.current_target_index + 1,
@@ -411,6 +421,10 @@ class Coordinator:
         if not ok:
             raise RuntimeError(f"start preflight rejected: {reason}")
         self.event("ready", snapshot=asdict(snapshot))
+        if self.config["mode"] == "ppo":
+            # Match simulation reset: the incremental integrator starts at the
+            # measured joint position, not at an unrelated fixed offset.
+            self.ppo_reference = list(snapshot.q)
         if self.auto_start:
             if self.config["execution_context"] != "fake":
                 raise RuntimeError("--auto-start is allowed only for fake execution")
