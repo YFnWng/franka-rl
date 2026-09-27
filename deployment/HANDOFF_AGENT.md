@@ -761,9 +761,9 @@ to change hardware gains or attach a payload.
    hashes, and generate recorded PyTorch/ONNX parity vectors. Do not weaken Panda
    validation or reuse its contract identifier.
 3. **Verify the existing position runtime.** `franky_runtime` already implements
-   the 50 Hz six-action incremental integrator and 29D observation, but its README
-   still contains legacy 24D/7D/30 Hz prose. Reconcile documentation and tests,
-   and validate the exact bundle contract against `ppo.pending.yaml`.
+   the 50 Hz six-action incremental integrator and 29D observation. Its README has
+   been reconciled on the receiving machine; validate the exact exported bundle
+   contract against `ppo.pending.yaml` and the hardware implementation.
 4. **Add the z-axis runtime variant.** Extend bundle-contract validation, YAML
    target schema, state snapshots/logging and observation assembly with flange
    rotation and the exact two-component formula above. Branch on a versioned
@@ -791,3 +791,57 @@ nominal policy's measured-velocity result is an explicit blocker, while the
 position DR policy lacks full deterministic evaluation. Return the immutable
 bundle manifests, parity reports, fake/shadow results, reviewed suite YAMLs and a
 remaining-blockers note before requesting separate authorization for motion.
+
+## 2026-09-27 receiving-machine request: YZ-circle hardware demo
+
+The selected hardware demo geometry is a **YZ circle**. For the first deployment,
+use the 29D position-only policy; its target orientation is ignored. Do not wait
+for or move hardware with the current 31D z-axis policy: that policy remains
+blocked by its measured-velocity qualification result. Orientation-aware YZ
+tracking is a later gate.
+
+The current `circle_yz` radius of 0.15 m spans y `[-0.15,0.15]` and z
+`[0.20,0.50]` m. Treat it as a simulation reference, not the first hardware
+path. Produce and evaluate smaller immutable variants before selecting the
+hardware catalog. Use 24 waypoints, `orientation_rpy_deg: [0,90,0]`, phase
+180 degrees, threshold 0.01 m, and keep the first waypoint at
+`[0.475,0,0.50]` m by choosing `center_z = 0.50 - radius`. At minimum compare:
+
+| Candidate | Radius (m) | Center (m) | Y range (m) | Z range (m) |
+| --- | ---: | --- | --- | --- |
+| `circle_yz_r050` | 0.050 | `[0.475,0,0.450]` | [-0.050,0.050] | [0.400,0.500] |
+| `circle_yz_r075` | 0.075 | `[0.475,0,0.425]` | [-0.075,0.075] | [0.350,0.500] |
+| `circle_yz_r100` | 0.100 | `[0.475,0,0.400]` | [-0.100,0.100] | [0.300,0.500] |
+
+The archived hardware home flange is approximately
+`[0.30647,-0.00591,0.59069]` m, so the common first waypoint is still about
+0.191 m away. Evaluate from the exact deployment home state. Sweep 1, 2, and 3 s
+waypoint timeouts, or add a versioned lead-in path if the first-waypoint deadline
+dominates. Do not change timeout semantics only on hardware.
+
+The simulation workstation's next deliverable is:
+
+1. Extend the exporter and produce immutable FR3 29D/6D bundles for
+   `position_nominal` and `position_dr`, including deterministic tanh,
+   source/checkpoint/config hashes and recorded PyTorch/ONNX parity vectors.
+2. Run full deterministic point and YZ-path evaluation from the exact deployment
+   home state for both policies, at K=50/100/200 and the existing nominal/DR
+   evaluation scenarios. Model the same effective inference/action delay that
+   will be measured by the hardware shadow runtime.
+3. Evaluate the radius/timeout grid above. Report complete-path success,
+   per-waypoint reached/timeout results, final/minimum error, action saturation,
+   reference projection, measured-velocity envelope, tracking error, joint
+   margins and torque metrics. Select the largest variant with adequate margins;
+   do not select by success alone.
+4. Add the selected variant to a versioned path catalog without mutating the
+   original result, record its SHA-256, and generate simulator path-state-machine
+   fixtures: resolved waypoints, transition policy steps, stale-result cases,
+   persistent reference/previous-action state and final traversal outcome.
+5. Return the bundles, manifests, parity/evaluation reports, selected catalog,
+   fixtures and a concise remaining-blockers note. The receiving machine will
+   then implement path execution, fake parity and read-only shadow inference
+   before any separate request for motion authorization.
+
+The original `circle_yz` at radius 0.15 m may remain a later expansion target.
+The first hardware catalog must be chosen from simulation evidence and a separate
+swept-workspace review.

@@ -69,27 +69,42 @@ experiment coordinator. It supports the same two experiment sources:
   identification.
 - `ppo`: an immutable FR3 ONNX bundle evaluated in a separate Python process.
 
-Both modes share one target, supervision, logging, and lifecycle path. The
-coordinator does not import ROS 2. The policy worker is copied unchanged from the
-ROS coordinator so manifest verification, 24-value observation ordering, and
-stdio isolation remain the same.
+Both modes share supervision, logging, and lifecycle code. The coordinator
+does not import ROS 2. PPO currently supports the 29-value position-only
+observation and six-action incremental contract through an isolated worker.
+Path suites and the 31-value z-axis contract remain implementation blockers;
+see `../HARDWARE_DEPLOYMENT_PLAN.md`.
 
 ### Command path
 
-At 30 Hz, the coordinator evaluates the reference schedule or consumes one policy result and updates a `franky.JointReference`. One `JointImpedanceTrackingMotion` remains alive for the complete session and computes torque at 1 kHz. No `JointMotion` is created or preempted after startup.
+Reference identification runs at 30 Hz. PPO runs at 50 Hz and integrates six
+bounded normalized increments into a persistent joints-1--6 reference; joint 7
+is held at its measured session-start reference. One
+`JointImpedanceTrackingMotion` remains alive for the complete session and
+computes torque at 1 kHz. No `JointMotion` is created or preempted after
+startup.
 
-The first reviewed profile uses Franka ROS 2's compliant example gains:
+The pending PPO profile uses the hardware-tested nominal gains:
 
 ```text
-K = [24, 24, 24, 24, 10, 6, 2] Nm/rad
-D = [2, 2, 2, 1, 1, 1, 0.5] Nms/rad
+K = [100]*7 Nm/rad
+D = [20]*7 Nms/rad
 ```
 
 The YAML also fixes Coriolis compensation, torque slew, gain interpolation time constant, zero friction/feedforward torque, Franky's expected 0.5 rad error clip, soft-limit repulsion, and torque-stop parameters. See `IMPEDANCE_PARAMETER_SURVEY.md` for alternatives and provenance.
 
-PPO actions still map as `q_target = q_default + scale * raw_action`. The velocity reference is zero, matching a position-target PD actuator. The 1 kHz log records the held `q_ref/dq_ref`, controller `tau_command`, robot desired torque, measured torque, measured state, and external-torque estimate.
+At each 50 Hz PPO tick, action `a[0:6]` is required to be in `[-1,1]` and
+maps componentwise to `q_ref += a * [0.0087, 0.0087, 0.0087, 0.0087, 0.01044, 0.01044]` before
+soft-limit projection. The reference initializes from measured `q`; desired
+velocity is zero. The 29D observation contains measured q/dq, flange position
+error, normalized current reference, and the preceding increment action. The
+1 kHz log records held q/dq reference, controller torque, robot desired/measured
+torque and state, and external-torque estimate.
 
-The independent 75 ms host watchdog remains active. A missed 30 Hz update replaces the tracking controller with `TorqueStopMotion`; normal completion and operator stop use the same torque-mode stop. No automatic error recovery is called.
+The pending PPO template uses a 50 ms host watchdog and a 15 ms inference
+deadline. A missed update replaces the tracking controller with
+`TorqueStopMotion`; normal completion and operator stop use the same stop.
+No automatic error recovery is called.
 
 ### Retired JointMotion backend
 
@@ -126,8 +141,11 @@ Start from, but do not execute, the pending templates:
 They intentionally contain `null` review decisions and `session_id: 0`, so they
 fail closed. Copy a template to the reviewed experiment directory and fill every
 pending value. For PPO, the bundle contract must name `fr3_joint1` through
-`fr3_joint7`, base `fr3_link0`, tracked body `fr3_flange`, a 30 Hz policy, and the
-same default offset/action scale. Existing Panda bundles are rejected.
+`fr3_joint7`, base `fr3_link0`, tracked body `fr3_flange`, a 50 Hz period,
+the exact 29D layout, and the six-action increment limits. Existing Panda,
+24D/7D, and 30 Hz bundles are rejected. The checked-in exporter does not yet
+produce this FR3 bundle, so no PPO hardware configuration is currently
+executable.
 
 Validate a fully populated file without opening FCI:
 

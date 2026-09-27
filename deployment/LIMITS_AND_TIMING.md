@@ -13,14 +13,14 @@ budget, and a 25 ms PPO inference budget. No PPO bundle has yet been qualified
 on hardware, so 30 Hz is measured reference-test history rather than a frozen
 policy interface.
 
-For new training, use this candidate clock contract:
+The new incremental-policy contract uses:
 
 - PhysX and the Franky torque law: 1 kHz.
 - PPO observations/actions: 50 Hz, or one update every 20 physics steps.
 - Hold each position target between policy updates; evaluate impedance torque
   every physics step.
-- Qualify policy inference and scheduling below 20 ms before freezing 50 Hz for
-  hardware. Choose tighter inference/watchdog thresholds from measured latency.
+- Qualify policy inference and scheduling against the pending 15 ms inference
+  deadline before authorizing 50 Hz hardware motion.
 - Train and deploy at the same policy rate. Do not convert an already-trained
   30 Hz policy to 50 Hz without retraining and reevaluation.
 
@@ -119,9 +119,9 @@ The separate startup-velocity check is 5% of model maximum:
 - Start pose tolerance: 0.005 rad per joint in the pending PPO template.
 - Active tracking-error fault threshold:
   `[0.08, 0.08, 0.08, 0.08, 0.06, 0.06, 0.04]` rad.
-- Current 30 Hz template: 50 ms state timeout, 50 ms callback-gap limit, 75 ms
-  action watchdog, and 25 ms inference timeout. These must be requalified and
-  tightened if the policy interface moves to 50 Hz.
+- Current 50 Hz PPO template: 40 ms state timeout, 40 ms callback-gap limit,
+  50 ms action watchdog, and 15 ms inference timeout. These remain pending
+  hardware timing qualification.
 - Robot errors, invalid mode, soft-position violation, tracking error, callback
   loss, inference timeout, and watchdog expiry are terminal for a session.
 
@@ -136,5 +136,6 @@ The separate startup-velocity check is 5% of model maximum:
 - Robot-description envelope and libfranka constants:
   `hardware_control_audit/2026-09-25/limits.json` and `FINDINGS.md`.
 
-The proposed 50 Hz clock is not yet an executable hardware setting. Freeze it
-only after simulator replay and host inference/scheduling qualification.
+The 50 Hz clock is fixed by the new training contract but is not authorized for
+hardware motion until simulator replay and host inference/scheduling qualification
+pass.
