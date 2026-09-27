@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "session_id": 2026092708,
+  "decision": "do_not_rerun_position_policy_through_native_velocity_adapter",
+  "terminal_state": "fault",
+  "terminal_reason": "tracking_error",
+  "motion_duration_s": 3.574,
+  "waypoints_reached": 5,
+  "fault_joint": 4,
+  "fault_tracking_error_rad": 0.0820608646739025,
+  "fault_tracking_limit_rad": 0.08,
+  "smooth_stop_ok": true,
+  "robot_errors_present": false,
+  "dropped_samples": 0,
+  "max_abs_dq_ref_rad_s": [0.4027, 0.4170, 0.3399, 0.3255, 0.4648, 0.4965, 0.0],
+  "max_abs_dq_d_rad_s": [0.2563, 0.4170, 0.3374, 0.2122, 0.4538, 0.4965, 0.0],
+  "max_abs_ddq_d_rad_s2": [3.0, 1.5, 2.0, 2.5, 2.9999, 3.9998, 0.0],
+  "max_abs_virtual_tracking_error_rad": [0.0374, 0.0644, 0.0447, 0.0821, 0.0736, 0.0747, 0.0],
+  "policy_velocity_sign_changes": [21, 16, 31, 26, 16, 10],
+  "native_velocity_motion_qualified": false,
+  "current_position_policy_compatible": false
+}

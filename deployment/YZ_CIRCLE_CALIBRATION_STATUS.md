@@ -60,12 +60,9 @@ logged metric. The DR model remains available for provenance but is not selected
 
 ## Remaining real-time gates
 
-1. Synchronize the active path hash and nominal selection to the real-time
-   machine.
-2. Re-acknowledge the unchanged cleared geometry with the new 2.0 s initial
-   waypoint timing and catalog hash.
-3. Prepare and separately authorize one immutable nominal-policy motion YAML.
-4. Execute only the staged controller-hold/near-home/path sequence with the
+1. Review the prepared immutable nominal-policy motion YAML and grant separate
+   motion authorization only to its final approved hash.
+2. Execute only the staged controller-hold/near-home/path sequence with the
    existing fail-closed safety and logging contract.
 
 Fake and real-FCI no-motion shadow runtime parity have passed. The operator
@@ -78,3 +75,22 @@ The executable calibration inputs are
 `config/yz_circle_calibration_v1.yaml`,
 `config/fr3_hardware_calibration_scenarios_v1.yaml`, and
 `../source/franka_rl/franka_rl/config/paths.yaml`.
+
+## Hardware completion and motion-quality finding
+
+Session 2026092705 completed the selected circle_yz path: 24/24 waypoints,
+zero timeouts, zero dropped samples, no robot errors, and a clean stop. The
+K=200 profile visibly jittered during the 1.48 s initial approach. Hardware
+trace comparison attributes this to K=200 amplifying the held 50 Hz position
+reference; the later circle was substantially calmer.
+
+The prepared presentation follow-up is session 2026092706 at the policy's
+K=100/D=20 training nominal with selectively relaxed J2/J5/J6 tracking fault
+thresholds. See hardware_control_audit/2026-09-27-first-motion-jitter/.
+
+## K=100 smoother follow-up
+
+Session 2026092706 completed 24/24 waypoints with zero timeouts, dropped samples,
+robot errors, or stop errors. It was visibly smoother than K=200. The remaining
+design issue is the held 50 Hz position staircase with desired velocity zero.
+The next training contract is deployment/CONTINUOUS_REFERENCE_REDESIGN.md.

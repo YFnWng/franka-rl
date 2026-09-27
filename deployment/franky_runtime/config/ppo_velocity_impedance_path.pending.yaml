@@ -1,5 +1,5 @@
 schema_version: 1
-runtime: franky_joint_impedance_tracking_v1
+runtime: franky_joint_velocity_impedance_tracking_v1
 execution_context: shadow
 mode: ppo
 session_id: 0
@@ -19,7 +19,7 @@ robot:
   external_load_kg: 0.0
   require_identity_f_t_ee: true
   control_interface: torque
-  controller_mode: franky_joint_impedance_tracking
+  controller_mode: franky_joint_velocity_impedance_tracking
   expected_franky_version: 2.0.1.dev58+gf88f0e9b.libfranka.0.21.2
   impedance_controller:
     stiffness_nm_rad:
@@ -113,7 +113,7 @@ robot:
     model_frame: Frame.Flange
     reported_pose_role: audit_only
 action_mapping:
-  type: normalized_position_increment
+  type: normalized_joint_velocity
   policy_joint_count: 6
   controlled_joint_names:
   - fr3_joint1
@@ -126,7 +126,7 @@ action_mapping:
   - fr3_joint7
   normalized_lower: -1.0
   normalized_upper: 1.0
-  integration: forward_euler
+  integration: controller_1khz_forward_euler
   initial_reference: measured_start_position
   max_reference_velocity_rad_s:
   - 0.435
@@ -135,13 +135,6 @@ action_mapping:
   - 0.435
   - 0.522
   - 0.522
-  max_position_increment_rad:
-  - 0.0087
-  - 0.0087
-  - 0.0087
-  - 0.0087
-  - 0.01044
-  - 0.01044
   soft_limit_projection: true
 timing:
   command_hz: 50
@@ -221,5 +214,7 @@ ppo:
     abort_on_timeout: false
     workspace_lower_base_m: null
     workspace_upper_base_m: null
+  required_contract_id: fr3_joint_velocity_impedance_29d_v1
+  required_previous_action_expression: previous_normalized_joint_velocity
 artifacts:
   root: null

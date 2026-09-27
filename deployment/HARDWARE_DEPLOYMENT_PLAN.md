@@ -222,8 +222,10 @@ The archived home flange was approximately
 2 s timeout and later waypoints 1 s. Fixed-delay simulation qualified the
 nominal position policy on the original 0.15 m `circle_yz`; the operator has
 cleared that geometry. Freeze and approve the active catalog hash rather than
-editing the catalog on the robot. The orientation-aware z-axis policy remains
-blocked.
+editing the catalog on the robot. Hardware path YAMLs must set
+`abort_on_timeout: true`; any missed waypoint causes a sticky fault and the
+normal torque-stop sequence instead of advancing. The orientation-aware z-axis
+policy remains blocked.
 
 Workspace review must cover the complete flange path and intervening motion,
 self-collision, table/base/fixture clearance, cable clearance, and the fact that

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 from dataclasses import dataclass
@@ -14,6 +15,10 @@ from .path_runtime import PathCatalog
 
 JOINTS = 7
 MODES = {"reference", "ppo"}
+RUNTIME_IMPEDANCE = "franky_joint_impedance_tracking_v1"
+RUNTIME_VELOCITY = "franky_joint_velocity_preemption_v1"
+RUNTIME_VELOCITY_IMPEDANCE = "franky_joint_velocity_impedance_tracking_v1"
+RUNTIMES = {RUNTIME_IMPEDANCE, RUNTIME_VELOCITY, RUNTIME_VELOCITY_IMPEDANCE}
 TERMINAL = {"complete", "fault", "stopped"}
 EXPECTED_JOINTS = [f"fr3_joint{i}" for i in range(1, 8)]
 FR3_MAX_VELOCITY = [2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]
@@ -83,8 +88,8 @@ def _approval(data: dict[str, Any], require_approved: bool) -> None:
 
 def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool) -> None:
     require(data.get("schema_version") == 1, "unsupported schema_version")
-    require(data.get("runtime") == "franky_joint_impedance_tracking_v1",
-            "runtime must be franky_joint_impedance_tracking_v1")
+    runtime = data.get("runtime")
+    require(runtime in RUNTIMES, f"runtime must be one of {sorted(RUNTIMES)}")
     require(data.get("mode") in MODES, "mode must be reference or ppo")
     require(data.get("execution_context") in {"fake", "shadow", "hardware"},
             "execution_context must be fake, shadow, or hardware")
@@ -100,9 +105,18 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     require(float(robot.get("external_load_kg", math.nan)) == 0.0, "robot.external_load_kg must be zero")
     require(robot.get("require_identity_f_t_ee") is True, "identity F_T_EE must be required")
     require(isinstance(robot.get("host"), str) and robot["host"], "robot.host required")
-    require(robot.get("control_interface") == "torque", "robot.control_interface must be torque")
-    require(robot.get("controller_mode") == "franky_joint_impedance_tracking",
-            "robot.controller_mode must be franky_joint_impedance_tracking")
+    if runtime in {RUNTIME_IMPEDANCE, RUNTIME_VELOCITY_IMPEDANCE}:
+        require(robot.get("control_interface") == "torque", "robot.control_interface must be torque")
+        expected_controller = ("franky_joint_impedance_tracking" if runtime == RUNTIME_IMPEDANCE else
+                               "franky_joint_velocity_impedance_tracking")
+        require(robot.get("controller_mode") == expected_controller,
+                f"robot.controller_mode must be {expected_controller}")
+    else:
+        require(data.get("mode") == "ppo", "native joint-velocity runtime supports PPO mode only")
+        require(robot.get("control_interface") == "joint_velocity",
+                "robot.control_interface must be joint_velocity")
+        require(robot.get("controller_mode") == "franka_internal_joint_impedance",
+                "robot.controller_mode must be franka_internal_joint_impedance")
     ee_feedback = robot.get("ee_feedback", {})
     require(ee_feedback.get("source") == "measured_joint_encoder_libfranka_fk",
             "robot.ee_feedback.source must be measured joint encoder libfranka FK")
@@ -124,33 +138,50 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
             "Franky constructor joint threshold must match source default 20 Nm")
     require(float(collision.get("cartesian_force_threshold_n", 0)) == 30.0,
             "Franky constructor force threshold must match source default 30 N")
-    impedance = robot.get("impedance_controller", {})
-    for key in ("stiffness_nm_rad", "damping_nms_rad", "constant_torque_offset_nm",
-                "expected_error_clip_rad"):
-        impedance[key] = vector(impedance.get(key), JOINTS, f"robot.impedance_controller.{key}")
-    require(all(v > 0 for v in impedance["stiffness_nm_rad"]), "impedance stiffness must be positive")
-    require(all(v >= 0 for v in impedance["damping_nms_rad"]), "impedance damping must be nonnegative")
-    require(all(v > 0 for v in impedance["expected_error_clip_rad"]), "impedance error clip must be positive")
-    require(impedance.get("compensate_coriolis") is True, "Coriolis compensation must be enabled")
-    for key in ("max_delta_tau_nm_per_ms", "gains_time_constant_s", "joint_limit_activation_distance_rad",
-                "joint_limit_stiffness_nm", "joint_limit_damping_nms_rad", "joint_limit_max_torque_nm"):
-        require(float(impedance.get(key, 0)) > 0, f"robot.impedance_controller.{key} must be positive")
-    friction = impedance.get("friction", {})
-    for key in ("coulomb_nm", "viscous_nms_rad", "max_torque_nm"):
-        friction[key] = vector(friction.get(key), JOINTS, f"robot.impedance_controller.friction.{key}")
-    require(all(v == 0 for v in friction["coulomb_nm"] + friction["viscous_nms_rad"]),
-            "friction compensation must remain disabled for initial deployment")
-    require(all(v > 0 for v in friction["max_torque_nm"]), "friction max torque must be positive")
-    require(float(friction.get("velocity_epsilon_rad_s", 0)) > 0, "friction velocity epsilon must be positive")
-    impedance["friction"] = friction
-    robot["impedance_controller"] = impedance
-    stop = robot.get("torque_stop", {})
-    stop["damping_nms_rad"] = vector(stop.get("damping_nms_rad"), JOINTS, "robot.torque_stop.damping_nms_rad")
-    require(all(v > 0 for v in stop["damping_nms_rad"]), "torque stop damping must be positive")
-    require(stop.get("compensate_coriolis") is True, "torque stop Coriolis compensation must be enabled")
-    for key in ("ramp_duration_s", "velocity_epsilon_rad_s", "max_duration_s", "max_delta_tau_nm_per_ms"):
-        require(float(stop.get(key, 0)) > 0, f"robot.torque_stop.{key} must be positive")
-    robot["torque_stop"] = stop
+    if runtime in {RUNTIME_IMPEDANCE, RUNTIME_VELOCITY_IMPEDANCE}:
+        impedance = robot.get("impedance_controller", {})
+        for key in ("stiffness_nm_rad", "damping_nms_rad", "constant_torque_offset_nm",
+                    "expected_error_clip_rad"):
+            impedance[key] = vector(impedance.get(key), JOINTS, f"robot.impedance_controller.{key}")
+        require(all(v > 0 for v in impedance["stiffness_nm_rad"]), "impedance stiffness must be positive")
+        require(all(v >= 0 for v in impedance["damping_nms_rad"]), "impedance damping must be nonnegative")
+        require(all(v > 0 for v in impedance["expected_error_clip_rad"]), "impedance error clip must be positive")
+        require(impedance.get("compensate_coriolis") is True, "Coriolis compensation must be enabled")
+        for key in ("max_delta_tau_nm_per_ms", "gains_time_constant_s", "joint_limit_activation_distance_rad",
+                    "joint_limit_stiffness_nm", "joint_limit_damping_nms_rad", "joint_limit_max_torque_nm"):
+            require(float(impedance.get(key, 0)) > 0, f"robot.impedance_controller.{key} must be positive")
+        friction = impedance.get("friction", {})
+        for key in ("coulomb_nm", "viscous_nms_rad", "max_torque_nm"):
+            friction[key] = vector(friction.get(key), JOINTS, f"robot.impedance_controller.friction.{key}")
+        require(all(v == 0 for v in friction["coulomb_nm"] + friction["viscous_nms_rad"]),
+                "friction compensation must remain disabled for initial deployment")
+        require(all(v > 0 for v in friction["max_torque_nm"]), "friction max torque must be positive")
+        require(float(friction.get("velocity_epsilon_rad_s", 0)) > 0, "friction velocity epsilon must be positive")
+        impedance["friction"] = friction
+        robot["impedance_controller"] = impedance
+        stop = robot.get("torque_stop", {})
+        stop["damping_nms_rad"] = vector(stop.get("damping_nms_rad"), JOINTS, "robot.torque_stop.damping_nms_rad")
+        require(all(v > 0 for v in stop["damping_nms_rad"]), "torque stop damping must be positive")
+        require(stop.get("compensate_coriolis") is True, "torque stop Coriolis compensation must be enabled")
+        for key in ("ramp_duration_s", "velocity_epsilon_rad_s", "max_duration_s", "max_delta_tau_nm_per_ms"):
+            require(float(stop.get(key, 0)) > 0, f"robot.torque_stop.{key} must be positive")
+        robot["torque_stop"] = stop
+    else:
+        motion = robot.get("joint_velocity_motion", {})
+        factors = vector(motion.get("relative_dynamics_factor"), 3,
+                         "robot.joint_velocity_motion.relative_dynamics_factor")
+        require(all(0.0 < value <= 1.0 for value in factors),
+                "joint velocity dynamics factors must be in (0,1]")
+        motion["relative_dynamics_factor"] = factors
+        require(int(motion.get("target_hold_duration_ms", 0)) > 0,
+                "joint velocity target hold duration must be positive")
+        require(motion.get("use_default_internal_impedance") is True,
+                "first native velocity run must preserve firmware impedance defaults")
+        require(motion.get("limit_rate") is False,
+                "Franky/Ruckig must be the only command-rate limiter")
+        require(float(motion.get("cutoff_frequency_hz", 0)) > 0,
+                "joint velocity cutoff frequency must be positive")
+        robot["joint_velocity_motion"] = motion
     data["robot"] = robot
 
     mapping = data.get("action_mapping", {})
@@ -163,8 +194,10 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
         mapping["scale_rad"] = vector(scale, JOINTS, "action_mapping.scale_rad")
         require(mapping.get("clip") is None, "reference action clipping is unsupported")
     else:
-        require(mapping.get("type") == "normalized_position_increment",
-                "PPO action mapping must be normalized_position_increment")
+        expected_action_type = ("normalized_joint_velocity" if runtime == RUNTIME_VELOCITY_IMPEDANCE else
+                                "normalized_position_increment")
+        require(mapping.get("type") == expected_action_type,
+                f"PPO action mapping must be {expected_action_type}")
         policy_joint_count = int(mapping.get("policy_joint_count", 0))
         require(policy_joint_count == 6, "PPO policy_joint_count must be 6")
         require(mapping.get("controlled_joint_names") == EXPECTED_JOINTS[:policy_joint_count],
@@ -174,15 +207,19 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
         require(float(mapping.get("normalized_lower", math.nan)) == -1.0 and
                 float(mapping.get("normalized_upper", math.nan)) == 1.0,
                 "PPO normalized action interval must be [-1, 1]")
-        require(mapping.get("integration") == "forward_euler", "PPO integration must be forward_euler")
+        expected_integration = ("controller_1khz_forward_euler" if runtime == RUNTIME_VELOCITY_IMPEDANCE else
+                                "forward_euler")
+        require(mapping.get("integration") == expected_integration,
+                f"PPO integration must be {expected_integration}")
         require(mapping.get("initial_reference") == "measured_start_position",
                 "PPO reference must initialize from measured start position")
         mapping["max_reference_velocity_rad_s"] = vector(
             mapping.get("max_reference_velocity_rad_s"), policy_joint_count,
             "action_mapping.max_reference_velocity_rad_s")
-        mapping["max_position_increment_rad"] = vector(
-            mapping.get("max_position_increment_rad"), policy_joint_count,
-            "action_mapping.max_position_increment_rad")
+        if runtime != RUNTIME_VELOCITY_IMPEDANCE:
+            mapping["max_position_increment_rad"] = vector(
+                mapping.get("max_position_increment_rad"), policy_joint_count,
+                "action_mapping.max_position_increment_rad")
         require(mapping.get("soft_limit_projection") is True, "PPO soft-limit projection must be enabled")
     data["action_mapping"] = mapping
 
@@ -190,7 +227,7 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
     expected_hz = 30.0 if data["mode"] == "reference" else 50.0
     require(float(timing.get("command_hz", 0)) == expected_hz,
             f"timing.command_hz must be exactly {expected_hz:g}")
-    if data["mode"] == "ppo":
+    if data["mode"] == "ppo" and runtime != RUNTIME_VELOCITY_IMPEDANCE:
         expected_increment = [value / expected_hz for value in mapping["max_reference_velocity_rad_s"]]
         require(all(abs(actual - expected) < 1.0e-12 for actual, expected in
                     zip(mapping["max_position_increment_rad"], expected_increment)),
@@ -291,7 +328,10 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         require(contract_path.is_file(), "PPO policy contract missing")
         contract = yaml.safe_load(contract_path.read_text())
         require(contract.get("schema_version") == 2, "PPO contract schema_version must be 2")
-        require(contract.get("contract_id") == "fr3_incremental_position_29d_v1",
+        expected_contract_id = ("fr3_joint_velocity_impedance_29d_v1"
+                                if data["runtime"] == RUNTIME_VELOCITY_IMPEDANCE
+                                else "fr3_incremental_position_29d_v1")
+        require(contract.get("contract_id") == expected_contract_id,
                 "unsupported PPO contract_id")
         require(contract.get("robot_model") == "fr3", "PPO contract robot_model must be fr3")
         require(contract.get("joint_names") == EXPECTED_JOINTS, "PPO contract joint order/model is not FR3")
@@ -302,7 +342,7 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
         action_contract = contract.get("action", {})
         require(action_contract.get("inference") == "deterministic_tanh",
                 "PPO contract must use deterministic tanh inference")
-        require(action_contract.get("type") == "normalized_position_increment",
+        require(action_contract.get("type") == data["action_mapping"]["type"],
                 "PPO contract action type mismatch")
         policy_joint_count = data["action_mapping"]["policy_joint_count"]
         require(int(action_contract.get("size", 0)) == policy_joint_count,
@@ -312,11 +352,12 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                        "bundle max reference velocity"),
                 data["action_mapping"]["max_reference_velocity_rad_s"]),
                 "PPO reference velocity mismatch")
-        require(vectors_close(
-                vector(action_contract.get("max_position_increment_rad"), policy_joint_count,
-                       "bundle max position increment"),
-                data["action_mapping"]["max_position_increment_rad"]),
-                "PPO position increment mismatch")
+        if data["runtime"] != RUNTIME_VELOCITY_IMPEDANCE:
+            require(vectors_close(
+                    vector(action_contract.get("max_position_increment_rad"), policy_joint_count,
+                           "bundle max position increment"),
+                    data["action_mapping"]["max_position_increment_rad"]),
+                    "PPO position increment mismatch")
         require(action_contract.get("controlled_joint_names") == data["action_mapping"]["controlled_joint_names"],
                 "PPO controlled joint names mismatch")
         require(action_contract.get("held_joint_names") == data["action_mapping"]["held_joint_names"],
@@ -338,26 +379,76 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                 source["start_position_rad"]), "PPO q_default/start position mismatch")
         require(int(contract.get("observation", {}).get("size", 0)) == 29,
                 "PPO observation size must be 29")
-        controller = contract.get("controller", {})
-        impedance = data["robot"]["impedance_controller"]
-        require(all(float(value) == float(controller.get("nominal_stiffness_nm_rad", 0))
-                    for value in impedance["stiffness_nm_rad"]),
-                "PPO nominal stiffness mismatch")
-        require(all(float(value) == float(controller.get("nominal_damping_nms_rad", 0))
-                    for value in impedance["damping_nms_rad"]),
-                "PPO nominal damping mismatch")
-        require(float(controller.get("position_error_clip_rad", 0)) ==
-                impedance["expected_error_clip_rad"][0],
-                "PPO position error clip mismatch")
-        require(float(controller.get("torque_slew_rate_nm_s", 0)) ==
-                1000.0 * float(impedance["max_delta_tau_nm_per_ms"]),
-                "PPO torque slew mismatch")
-        require(controller.get("coriolis_compensation") is impedance["compensate_coriolis"],
-                "PPO Coriolis compensation mismatch")
+        if data["runtime"] == RUNTIME_VELOCITY:
+            require(source.get("experimental_actuator_adapter") ==
+                    "position_increment_divided_by_policy_dt_to_franky_joint_velocity",
+                    "velocity runtime requires explicit experimental actuator-adapter acknowledgement")
+            require(source.get("controller_qualification") is None,
+                    "velocity adapter cannot claim impedance-controller qualification")
+        else:
+            controller = contract.get("controller", {})
+            impedance = data["robot"]["impedance_controller"]
+            nominal_stiffness = float(controller.get("nominal_stiffness_nm_rad", 0))
+            nominal_damping = float(controller.get("nominal_damping_nms_rad", 0))
+            nominal_match = (
+                all(float(value) == nominal_stiffness
+                    for value in impedance["stiffness_nm_rad"])
+                and all(float(value) == nominal_damping
+                        for value in impedance["damping_nms_rad"])
+            )
+            qualification_selection = source.get("controller_qualification")
+            if nominal_match:
+                require(qualification_selection is None,
+                        "nominal PPO controller must not specify an override qualification")
+            else:
+                require(isinstance(qualification_selection, dict),
+                        "non-nominal PPO controller requires controller_qualification")
+                qualification_path = resolved(
+                    source_path.parent, qualification_selection.get("path"),
+                    "ppo.controller_qualification.path")
+                qualification_digest = qualification_selection.get("sha256")
+                require(isinstance(qualification_digest, str) and len(qualification_digest) == 64,
+                        "ppo.controller_qualification.sha256 required")
+                require(qualification_path.is_file() and
+                        sha256(qualification_path) == qualification_digest,
+                        "PPO controller qualification trust anchor mismatch")
+                qualification = json.loads(qualification_path.read_text())
+                require(qualification.get("schema_version") == 1,
+                        "unsupported PPO controller qualification schema")
+                require(qualification.get("status") == "approved",
+                        "PPO controller qualification is not approved")
+                require(qualification.get("policy_manifest_sha256") == digest,
+                        "PPO controller qualification policy mismatch")
+                require(vectors_close(
+                        vector(qualification.get("stiffness_nm_rad"), JOINTS,
+                               "qualified stiffness"),
+                        impedance["stiffness_nm_rad"]),
+                        "PPO qualified stiffness mismatch")
+                require(vectors_close(
+                        vector(qualification.get("damping_nms_rad"), JOINTS,
+                               "qualified damping"),
+                        impedance["damping_nms_rad"]),
+                        "PPO qualified damping mismatch")
+                require(isinstance(qualification.get("evidence"), list) and
+                        len(qualification["evidence"]) >= 2,
+                        "PPO controller qualification requires simulation and hardware evidence")
+                qualification_selection["resolved_path"] = str(qualification_path)
+                qualification_selection["profile_id"] = qualification.get("profile_id")
+            require(float(controller.get("position_error_clip_rad", 0)) ==
+                    impedance["expected_error_clip_rad"][0],
+                    "PPO position error clip mismatch")
+            require(float(controller.get("torque_slew_rate_nm_s", 0)) ==
+                    1000.0 * float(impedance["max_delta_tau_nm_per_ms"]),
+                    "PPO torque slew mismatch")
+            require(controller.get("coriolis_compensation") is impedance["compensate_coriolis"],
+                    "PPO Coriolis compensation mismatch")
         expressions = [item.get("expression") for item in contract.get("observation_layout", [])]
+        previous_action_expression = ("previous_normalized_joint_velocity"
+                                      if data["runtime"] == RUNTIME_VELOCITY_IMPEDANCE
+                                      else "previous_normalized_position_increment")
         require(expressions == ["q_measured - q_default", "dq_measured",
                                 "target_base - fr3_flange_base", "q_reference_normalized",
-                                "previous_normalized_position_increment"],
+                                previous_action_expression],
                 "PPO observation layout mismatch")
         targets, path_selection = source.get("targets"), source.get("path")
         has_targets = isinstance(targets, list) and bool(targets)
@@ -395,6 +486,13 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                 raise ConfigError(f"invalid PPO path catalog: {exc}") from exc
             require(isinstance(path_selection.get("repetitions"), int) and
                     path_selection["repetitions"] > 0, "ppo.path.repetitions must be positive")
+            abort_on_timeout = path_selection.get("abort_on_timeout", False)
+            require(isinstance(abort_on_timeout, bool),
+                    "ppo.path.abort_on_timeout must be boolean")
+            if data["execution_context"] == "hardware":
+                require(abort_on_timeout is True,
+                        "hardware path execution must abort on waypoint timeout")
+            path_selection["abort_on_timeout"] = abort_on_timeout
             workspace_lower = vector(path_selection.get("workspace_lower_base_m"), 3,
                                      "ppo.path.workspace_lower_base_m")
             workspace_upper = vector(path_selection.get("workspace_upper_base_m"), 3,
@@ -451,6 +549,21 @@ def action_to_target(
     for i in range(action_size):
         target[i] = min(upper[i], max(lower[i], prior[i] + increment[i] * raw[i]))
     return target
+
+
+def action_to_velocity(config: dict[str, Any], action: list[float]) -> list[float]:
+    """Map a normalized velocity-policy action to a seven-joint velocity command."""
+    mapping = config["action_mapping"]
+    require(mapping.get("type") == "normalized_joint_velocity",
+            "velocity action requires normalized_joint_velocity mapping")
+    action_size = int(mapping["policy_joint_count"])
+    raw = vector(list(action), action_size, "policy action")
+    require(all(-1.0 <= value <= 1.0 for value in raw),
+            "velocity policy action exceeds [-1, 1]")
+    velocity = [0.0] * JOINTS
+    for i, value in enumerate(raw):
+        velocity[i] = value * mapping["max_reference_velocity_rad_s"][i]
+    return velocity
 
 
 @dataclass(frozen=True)
@@ -573,9 +686,6 @@ class SessionSupervisor:
             check_target(self.config, snapshot.q_d, "desired state")
         except ConfigError as exc:
             return self.fault(str(exc))
-        limit = self.config["safety"]["max_tracking_error_rad"]
-        if any(abs(snapshot.q[i] - snapshot.q_d[i]) > limit[i] for i in range(JOINTS)):
-            self.fault("tracking_error")
 
     def start(self) -> None:
         require(self.state == "ready", "session is not ready")

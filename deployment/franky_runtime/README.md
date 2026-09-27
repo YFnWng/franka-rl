@@ -99,6 +99,14 @@ soft-limit projection. The reference initializes from measured `q`; desired
 velocity is zero. The 29D observation contains measured q/dq, flange position
 error, normalized current reference, and the preceding increment action.
 
+A parallel explicit velocity-reference impedance route is implemented for newly
+trained velocity policies. Its C++ control loop integrates `q_ref` at 1 kHz and
+uses both `q_ref` and `dq_ref` in the torque law; it does not reuse the native
+Ruckig adapter tested in session `2026092708`. The separate contract, Franky
+source patch, build boundary, and pending template are documented in
+[`VELOCITY_IMPEDANCE_ROUTE.md`](VELOCITY_IMPEDANCE_ROUTE.md). Existing position
+policy bundles fail its contract checks.
+
 The flange position comes from forward kinematics of measured joint encoder `q`:
 `robot.model.pose(Frame.Flange, q, identity, identity)`. This is the physical
 `fr3_flange` pose in `fr3_link0`. The robot-reported `O_T_EE` is never policy or
@@ -121,7 +129,10 @@ waypoints, verifies every point lies inside the reviewed Cartesian bounds, and
 stores the resolved geometry in the run configuration. Waypoint reach/timeout is
 counted in exact 50 Hz policy steps. Reference integration and previous-action
 state persist across waypoint transitions, while a late result from the prior
-waypoint is recorded and discarded.
+waypoint is recorded and discarded. Hardware path configurations must set
+`abort_on_timeout: true`; a missed waypoint then produces a sticky fault and the
+normal torque-stop sequence instead of advancing to another target. Shadow and
+fake parity runs may keep it false to exercise every transition.
 
 Shadow mode constructs Franky and reads live FCI state but cannot call
 `Robot.move`, submit a target, or keep a motion alive. It still inherits the
@@ -148,7 +159,10 @@ execution require `motion_authorized: true`. Shadow execution requires
 `motion_authorized: false` and supports PPO only. The runtime checks the bare
 flange/zero-load/identity-`F_T_EE` inventory assumptions, reviewed start pose and
 velocity, soft position bounds, state-read and inference deadlines, callback
-continuity, tracking error, robot errors, trial timeout, and suite timeout.
+continuity, tracking error, robot errors, trial timeout, and suite timeout. Tracking error is computed from the time-coherent measured q and applied q_ref pair in the 1 kHz torque callback; RobotState.q_d is not the impedance reference in this control mode. A controller that differs from the bundle's training nominal requires a
+separately approved JSON qualification whose SHA-256, policy-manifest hash,
+stiffness vector, and damping vector all match the run configuration.
+
 Faults are sticky. It never recovers or resumes automatically.
 
 Hardware and shadow execution pause after preflight and require the operator to
@@ -239,3 +253,46 @@ workspace validation, exact transferred YZ geometry, path transitions and stale
 results, read-only shadow behavior, complete artifacts, and absence of automatic
 recovery calls. Offline tests do not qualify motion, thresholds, callback timing,
 or controller response on hardware.
+
+### Experimental native joint-velocity adapter
+
+Runtime `franky_joint_velocity_preemption_v1` preserves the existing nominal
+policy's 29D observation and virtual position-reference integrator, but changes
+the actuator route. For each accepted 50 Hz policy result it computes
+
+```text
+q_virtual[k+1] = project(q_virtual[k] + action[k] * max_increment)
+dq_target[k] = (q_virtual[k+1] - q_virtual[k]) / 0.02 s
+```
+
+and submits `dq_target` through a new asynchronous `JointVelocityMotion`.
+Franky/Ruckig owns the 1 kHz jerk-limited transition between velocity targets;
+the runtime does not implement another interpolation or motion-planning
+governor. The 0.02 s division produces the bundle limits directly: 0.435 rad/s
+for joints 1--4, 0.522 rad/s for joints 5--6, and zero for held joint 7.
+Repeated virtual positions are still submitted because they mean a zero velocity
+target. A stale command or normal completion uses `JointVelocityStopMotion`.
+
+This route explicitly selects the firmware joint-impedance controller and does
+not call `set_joint_impedance`; the K=100/D=20 host torque gains therefore do not
+apply. It logs the virtual position as `q_ref`, the requested velocity as
+`dq_ref`, and Franky's generated `q_d`, `dq_d`, and `ddq_d`. The first staged
+configuration is
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_motion/nominal.circle_yz.velocity-adapter.motion.2026092707.pending.yaml`.
+It is deliberately non-executable until the new actuator mismatch and 20%
+Ruckig dynamics setting are reviewed.
+
+Session 2026092707 faulted before starting a Franky motion because the velocity
+backend initially used a constructor-time encoder sample while the policy's
+virtual reference used the later preflight sample. Sub-milliradian encoder drift
+on held J7 therefore appeared as a nonzero finite-difference velocity. The
+runtime now calls `synchronize_reference` with the exact preflight `q` used to
+initialize the policy integrator before any command is submitted. Session
+2026092708 contains the identical policy and motion settings with this fix.
+
+Session 2026092708 showed that the implementation-correct finite-difference
+adapter is not dynamically compatible with the nominal position policy. It
+reached five waypoints but visibly jittered and faulted when J4 lagged the
+virtual reference by 0.082061 rad. Do not produce another approved hardware
+config for this policy/adapter pair by relaxing tracking thresholds. See
+`../hardware_control_audit/2026-09-27-native-velocity-adapter/`.

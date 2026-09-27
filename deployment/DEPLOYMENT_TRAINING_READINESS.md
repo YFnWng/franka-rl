@@ -46,8 +46,10 @@ policy, parity, and fake-runtime evidence is in
 - Both transferred policies pass bounded end-to-end fake runs with clean stops.
 - Both policies pass real-FCI, no-motion shadow runs with zero drops and clean
   stops; the measured hardware-matched delay is one 50 Hz policy step.
-- The operator confirmed physical clearance for the exact checked-in
-  `circle_yz` geometry; changes to the path require a new review.
+- The operator confirmed physical clearance for `circle_yz` and re-acknowledged
+  the active catalog hash with its 2 s initial waypoint timeout.
+- The pending nominal hardware YAML is structurally valid; live non-motion
+  preflight passed from the reviewed home state.
 
 ## Remaining blockers
 
@@ -71,3 +73,15 @@ policy, parity, and fake-runtime evidence is in
   `hardware_control_audit/2026-09-27-shadow-qualification/`.
 - `circle_yz` physical clearance:
   `hardware_control_audit/2026-09-27-circle-yz-clearance/`.
+
+## First hardware motion result
+
+Session 2026092703 stopped cleanly before reaching waypoint 0. The original
+guard used the wrong libfranka desired-state signal, and the corrected
+q-versus-applied-q_ref reconstruction also shows a real K=100 tracking-limit
+crossing. The unchanged K=100 run is blocked. The operator authorized direct
+local use of the already simulation-qualified K=200/D=28.284271 profile. A
+hashed local qualification record binds the unchanged policy manifest to the
+existing simulation and seven-joint hardware evidence. Hardware session
+2026092704 is approved with the corrected q-versus-q_ref guard. See
+hardware_control_audit/2026-09-27-nominal-first-motion/.

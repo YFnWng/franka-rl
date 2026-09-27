@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from franky_experiment.coordinator import Coordinator
-from franky_experiment.core import ConfigError, ReferencePlan, action_to_target, load_experiment, sha256
+from franky_experiment.backend import CallbackRecord
+from franky_experiment.coordinator import CommandMeta, Coordinator
+from franky_experiment.core import (ConfigError, ReferencePlan, SessionSupervisor,
+                                    action_to_target, action_to_velocity, load_experiment, sha256)
 from franky_experiment.path_runtime import PathCatalog, PathExecution
 
 HOME = [0.0, -math.pi / 4, 0.0, -3 * math.pi / 4, 0.0, math.pi / 2, 0.0]
@@ -105,6 +107,47 @@ def test_action_mapping_rejects_soft_limit_violation(tmp_path):
     with pytest.raises(ConfigError, match="soft joint bounds"):
         action_to_target(config, [20.0] * 7)
 
+
+
+def test_supervisor_does_not_treat_torque_mode_q_d_as_tracking_reference(tmp_path):
+    config = load_experiment(write_config(tmp_path, approved_reference(tmp_path)))
+    supervisor = SessionSupervisor(config)
+    supervisor.state = "running"
+    snapshot = SimpleNamespace(
+        has_errors=False, mode="Move", q=tuple([0.1] + HOME[1:]), q_d=tuple(HOME))
+    supervisor.validate_active(snapshot)
+    assert supervisor.state == "running"
+
+
+def test_callback_latches_tracking_error_against_applied_q_reference(tmp_path):
+    config = load_experiment(write_config(tmp_path, approved_reference(tmp_path, 43)))
+    coordinator = Coordinator(config, auto_start=True)
+    coordinator.supervisor.state = "running"
+    q_command = tuple([0.06] + HOME[1:])
+    record = CallbackRecord(
+        host_monotonic_ns=1, robot_time_s=1.0, time_step_s=0.001,
+        relative_time_s=0.0, absolute_time_s=1.0,
+        q_command=q_command, dq_command=(0.0,) * 7, tau_command=(0.0,) * 7,
+        q=tuple(HOME), dq=(0.0,) * 7, q_d=tuple(HOME), dq_d=(0.0,) * 7,
+        ddq_d=(0.0,) * 7, tau_joint=(0.0,) * 7,
+        tau_joint_desired=(0.0,) * 7, tau_external=(0.0,) * 7,
+        flange_position_m=(0.0,) * 3,
+        flange_orientation_xyzw=(0.0, 0.0, 0.0, 1.0),
+        ee_feedback_source="test", ee_feedback_base_frame="base",
+        ee_feedback_frame="flange", reported_flange_position_m=(0.0,) * 3,
+        encoder_fk_reported_position_error_m=0.0,
+        encoder_fk_reported_orientation_error_rad=0.0, encoder_fk_compute_ns=0,
+        mode="Move", current_errors="", last_motion_errors="",
+        command_success_rate=1.0)
+    meta = CommandMeta(1, 1, 1, (0.0,) * 7, q_command, 1, 1, 1, 1)
+    try:
+        coordinator._on_callback(record, meta)
+        assert coordinator.tracking_violation is not None
+        assert coordinator.tracking_violation["joint"] == 1
+        assert coordinator.tracking_violation["absolute_error_rad"] == pytest.approx(0.06)
+        assert coordinator.tracking_violation["limit_rad"] == pytest.approx(0.05)
+    finally:
+        coordinator.close()
 
 
 def test_reference_rejects_waveform_faster_than_reviewed_derivative_limits(tmp_path):
@@ -299,6 +342,56 @@ def approved_ppo(tmp_path, session_id=43):
     return value
 
 
+def test_non_nominal_controller_requires_hashed_local_qualification(tmp_path):
+    value = approved_ppo(tmp_path, 56)
+    value["robot"]["impedance_controller"]["stiffness_nm_rad"] = [200.0] * 7
+    value["robot"]["impedance_controller"]["damping_nms_rad"] = [2.0 * math.sqrt(200.0)] * 7
+    with pytest.raises(ConfigError, match="requires controller_qualification"):
+        load_experiment(write_config(tmp_path, value, "missing-qualification.yaml"))
+
+    qualification = tmp_path / "k200-qualification.json"
+    qualification.write_text(json.dumps({
+        "schema_version": 1,
+        "profile_id": "k200_critical_evaluated_v1",
+        "status": "approved",
+        "policy_manifest_sha256": value["ppo"]["manifest_sha256"],
+        "stiffness_nm_rad": [200.0] * 7,
+        "damping_nms_rad": [2.0 * math.sqrt(200.0)] * 7,
+        "evidence": [
+            {"kind": "simulation", "result": "16/16"},
+            {"kind": "hardware", "result": "all seven joints"},
+        ],
+    }))
+    value["ppo"]["controller_qualification"] = {
+        "path": str(qualification),
+        "sha256": sha256(qualification),
+    }
+    config = load_experiment(write_config(tmp_path, value, "qualified-k200.yaml"))
+    assert config["ppo"]["controller_qualification"]["profile_id"] == (
+        "k200_critical_evaluated_v1"
+    )
+
+
+def test_controller_qualification_is_bound_to_policy_manifest(tmp_path):
+    value = approved_ppo(tmp_path, 57)
+    value["robot"]["impedance_controller"]["stiffness_nm_rad"] = [200.0] * 7
+    value["robot"]["impedance_controller"]["damping_nms_rad"] = [2.0 * math.sqrt(200.0)] * 7
+    qualification = tmp_path / "wrong-policy.json"
+    qualification.write_text(json.dumps({
+        "schema_version": 1,
+        "profile_id": "k200_critical_evaluated_v1",
+        "status": "approved",
+        "policy_manifest_sha256": "0" * 64,
+        "stiffness_nm_rad": [200.0] * 7,
+        "damping_nms_rad": [2.0 * math.sqrt(200.0)] * 7,
+        "evidence": [{"kind": "simulation"}, {"kind": "hardware"}],
+    }))
+    value["ppo"]["controller_qualification"] = {
+        "path": str(qualification), "sha256": sha256(qualification)}
+    with pytest.raises(ConfigError, match="qualification policy mismatch"):
+        load_experiment(write_config(tmp_path, value, "wrong-policy.yaml"))
+
+
 class FakePolicyWorker:
     instances = []
 
@@ -411,6 +504,7 @@ def path_ppo(tmp_path, session_id=45, context="fake"):
         "catalog_sha256": sha256(catalog),
         "name": "stationary_three",
         "repetitions": 1,
+        "abort_on_timeout": context == "hardware",
         "workspace_lower_base_m": [0.40, -0.10, 0.30],
         "workspace_upper_base_m": [0.50, 0.10, 0.40],
     }
@@ -453,6 +547,41 @@ def test_path_config_requires_exclusive_source_hash_and_workspace(tmp_path):
     bad_workspace["ppo"]["path"]["workspace_upper_base_m"][0] = 0.44
     with pytest.raises(ConfigError, match="reviewed workspace"):
         load_experiment(write_config(tmp_path, bad_workspace, "bad-workspace.yaml"))
+
+
+
+def test_hardware_path_requires_abort_on_waypoint_timeout(tmp_path):
+    value, _ = path_ppo(tmp_path, 54, context="hardware")
+    value["ppo"]["path"]["abort_on_timeout"] = False
+    with pytest.raises(ConfigError, match="must abort on waypoint timeout"):
+        load_experiment(write_config(tmp_path, value, "unsafe-timeout.yaml"))
+
+
+def test_path_timeout_aborts_instead_of_advancing(tmp_path):
+    FakePolicyWorker.instances.clear()
+    value, catalog_path = path_ppo(tmp_path, 55)
+    document = yaml.safe_load(catalog_path.read_text())
+    document["paths"]["stationary_three"]["waypoints_m"] = [[0.46, 0.0, 0.35]] * 3
+    catalog_path.write_text(yaml.safe_dump(document, sort_keys=False))
+    value["ppo"]["path"]["catalog_sha256"] = sha256(catalog_path)
+    value["ppo"]["path"]["abort_on_timeout"] = True
+    config = load_experiment(write_config(tmp_path, value, "abort-timeout.yaml"))
+    coordinator = Coordinator(config, auto_start=True, worker_factory=FakePolicyWorker)
+    try:
+        code = coordinator.run()
+    finally:
+        coordinator.close()
+
+    assert code == 3
+    run = tmp_path / "runs" / "session-55"
+    final = json.loads((run / "final_metadata.json").read_text())
+    assert final["terminal_state"] == "fault"
+    assert final["terminal_reason"] == "waypoint_timeout"
+    assert len(final["path_summary"]["outcomes"]) == 1
+    events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+    assert any(event["event"] == "path_aborted" for event in events)
+    assert not any(event["event"] == "waypoint_start" and event["waypoint_index"] == 1
+                   for event in events)
 
 
 def test_fake_path_runtime_completes_and_records_waypoints(tmp_path):
@@ -577,3 +706,125 @@ def test_ee_feedback_contract_rejects_reported_cartesian_pose(tmp_path):
     value["robot"]["ee_feedback"]["source"] = "robot_reported_O_T_EE"
     with pytest.raises(ConfigError, match="measured joint encoder"):
         load_experiment(write_config(tmp_path, value, "reported-pose.yaml"))
+
+
+def approved_velocity_ppo(tmp_path, session_id=70):
+    value = approved_ppo(tmp_path, session_id)
+    value["runtime"] = "franky_joint_velocity_preemption_v1"
+    value["robot"]["control_interface"] = "joint_velocity"
+    value["robot"]["controller_mode"] = "franka_internal_joint_impedance"
+    value["robot"].pop("impedance_controller")
+    value["robot"].pop("torque_stop")
+    value["robot"]["joint_velocity_motion"] = {
+        "relative_dynamics_factor": [0.2, 0.2, 0.2],
+        "target_hold_duration_ms": 1000,
+        "use_default_internal_impedance": True,
+        "limit_rate": False,
+        "cutoff_frequency_hz": 100.0,
+    }
+    value["ppo"]["experimental_actuator_adapter"] = (
+        "position_increment_divided_by_policy_dt_to_franky_joint_velocity")
+    return value
+
+
+def test_velocity_adapter_converts_policy_increment_to_velocity(tmp_path):
+    from franky_experiment.backend import FakeBackend
+
+    config = load_experiment(write_config(tmp_path, approved_velocity_ppo(tmp_path)))
+    backend = FakeBackend(config)
+    # Model constructor/preflight encoder drift, including the held joint. The
+    # coordinator must synchronize the finite-difference origin before motion.
+    backend.target += np.asarray([1e-5] * 7)
+    backend.synchronize_reference(HOME)
+    records = []
+    target = action_to_target(config, [1.0] * 6, HOME)
+    backend.send_target(target, records.append)
+    assert records[-1].q_command == pytest.approx(target)
+    assert records[-1].dq_command == pytest.approx([0.435] * 4 + [0.522] * 2 + [0.0])
+
+    backend.send_target(target, records.append)
+    assert records[-1].dq_command == pytest.approx([0.0] * 7)
+
+
+def test_velocity_adapter_requires_explicit_controller_mismatch_acknowledgement(tmp_path):
+    value = approved_velocity_ppo(tmp_path)
+    value["ppo"].pop("experimental_actuator_adapter")
+    with pytest.raises(ConfigError, match="actuator-adapter acknowledgement"):
+        load_experiment(write_config(tmp_path, value))
+
+
+def test_coordinator_synchronizes_velocity_origin_from_preflight_snapshot():
+    source = (Path(__file__).parents[1] / "franky_experiment" / "coordinator.py").read_text()
+    assert "self.backend.synchronize_reference(self.ppo_reference)" in source
+    assert 'source="preflight_snapshot_q"' in source
+
+
+def test_native_velocity_backend_uses_franky_ruckig_motion_and_stop():
+    source = (Path(__file__).parents[1] / "franky_experiment" / "backend.py").read_text()
+    tree = ast.parse(source)
+    velocity_class = next(node for node in tree.body
+                          if isinstance(node, ast.ClassDef) and node.name == "FrankyVelocityBackend")
+    calls = [node.func.attr for node in ast.walk(velocity_class)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
+    assert "JointVelocityMotion" in calls
+    assert "JointVelocityStopMotion" in calls
+    assert "set_joint_impedance" not in calls
+
+
+
+def approved_velocity_impedance_ppo(tmp_path, session_id=80):
+    value = approved_ppo(tmp_path, session_id)
+    value["runtime"] = "franky_joint_velocity_impedance_tracking_v1"
+    value["robot"]["controller_mode"] = "franky_joint_velocity_impedance_tracking"
+    value["action_mapping"]["type"] = "normalized_joint_velocity"
+    value["action_mapping"]["integration"] = "controller_1khz_forward_euler"
+    value["action_mapping"].pop("max_position_increment_rad")
+    contract_path = Path(value["ppo"]["bundle_path"]) / "policy_contract.yaml"
+    contract = yaml.safe_load(contract_path.read_text())
+    contract["contract_id"] = "fr3_joint_velocity_impedance_29d_v1"
+    contract["action"]["type"] = "normalized_joint_velocity"
+    contract["action"]["integration"] = "controller_1khz_forward_euler"
+    contract["action"].pop("max_position_increment_rad")
+    contract["observation_layout"][-1]["expression"] = "previous_normalized_joint_velocity"
+    contract_path.write_text(yaml.safe_dump(contract, sort_keys=False))
+    return value
+
+
+def test_velocity_impedance_contract_maps_action_without_python_position_integration(tmp_path):
+    config = load_experiment(write_config(
+        tmp_path, approved_velocity_impedance_ppo(tmp_path), "velocity-impedance.yaml"))
+    velocity = action_to_velocity(config, [1.0, -1.0, 0.5, 0.0, 0.25, -0.25])
+    assert velocity == pytest.approx([0.435, -0.435, 0.2175, 0.0, 0.1305, -0.1305, 0.0])
+    with pytest.raises(ConfigError, match=r"exceeds \[-1, 1\]"):
+        action_to_velocity(config, [1.01] * 6)
+
+
+def test_fake_velocity_impedance_runtime_uses_previous_applied_reference(tmp_path):
+    FakePolicyWorker.instances.clear()
+    value = approved_velocity_impedance_ppo(tmp_path, 81)
+    config = load_experiment(write_config(tmp_path, value, "velocity-impedance-fake.yaml"))
+    coordinator = Coordinator(config, auto_start=True, worker_factory=FakePolicyWorker)
+    try:
+        code = coordinator.run(max_runtime_s=0.12)
+    finally:
+        coordinator.close()
+    assert code == 0
+    worker = FakePolicyWorker.instances[-1]
+    assert len(worker.requests) >= 2
+    # q_reference_normalized occupies observation indices 17:23. Zero actions
+    # keep the applied reference from the preceding interval unchanged.
+    initial_reference_observation = worker.requests[0]["observation"][17:23]
+    assert all(request["observation"][17:23] == pytest.approx(initial_reference_observation)
+               for request in worker.requests[1:])
+
+
+def test_velocity_impedance_backend_requires_cpp_realtime_motion():
+    source = (Path(__file__).parents[1] / "franky_experiment" / "backend.py").read_text()
+    tree = ast.parse(source)
+    cls = next(node for node in tree.body
+               if isinstance(node, ast.ClassDef) and node.name == "FrankyVelocityImpedanceBackend")
+    attributes = [node.attr for node in ast.walk(cls) if isinstance(node, ast.Attribute)]
+    assert "JointVelocityImpedanceTrackingMotion" in attributes
+    assert "set_velocity" in attributes
+    assert "get_applied_reference" in attributes
+    assert "JointVelocityMotion" not in attributes

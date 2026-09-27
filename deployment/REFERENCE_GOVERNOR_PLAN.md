@@ -6,6 +6,15 @@ Native/Python tests and Isaac API-stub conformance run on the RT host. Isaac
 runtime, ROS adapter, controller response and hardware commissioning are unverified.
 The three controller choices below remain unchanged. Existing bundles are immutable.
 
+## 2026-09-27 path-tracking revision
+
+Hardware sessions 2026092705 and 2026092706 showed that a held 50 Hz q_ref with
+dq_ref=0 creates an avoidable gain-versus-jitter tradeoff. For the next training
+generation, bounded_quintic_v1 is not selected as-is because its rest-to-rest
+segments also force zero velocity at ordinary policy boundaries. The active
+redesign is continuous_velocity_governor_v2 in
+[CONTINUOUS_REFERENCE_REDESIGN.md](CONTINUOUS_REFERENCE_REDESIGN.md).
+
 ## Controller options to retain
 
 | Option | Policy output | Low-level controller | First-demo assessment |

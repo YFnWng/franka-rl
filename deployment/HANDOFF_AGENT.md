@@ -1,3 +1,5 @@
+> **Canonical workstation task (2026-09-27):** [SIMULATION_WORKSTATION_HANDOFF.md](SIMULATION_WORKSTATION_HANDOFF.md) supersedes older next-step proposals below.
+
 # Instructions for the receiving Franka deployment agent
 
 Read `REAL_ROBOT_DEPLOYMENT_PLAN.md` and `README.md` before implementation.
@@ -1055,3 +1057,188 @@ and one initial traversal. The path geometry is unchanged from the operator's
 clearance, but waypoint 0 now permits 2.0 s; re-acknowledge that timing/hash.
 Motion requires separate authorization of the exact YAML. No training-workstation
 communication is needed during the run.
+
+
+## 2026-09-27 nominal hardware-run preparation
+
+The real-time machine froze the active catalog hash
+`39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69`
+and prepared session `2026092703` for nominal model 149, K=100/D=20, 50 Hz,
+one `circle_yz` traversal. The pending config is
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_motion/nominal.circle_yz.motion.2026092703.pending.yaml`,
+SHA-256 `2ac9353031095cfcfa1aad6e987a1c66cdfa088c0fe2b54c2aa5a2f4029d58ef`.
+It remains fail-closed and is not motion-authorized.
+
+The operator re-acknowledged the unchanged geometry together with the active
+2.0/1.0 s waypoint timing. A live non-motion FCI probe found the robot idle,
+error-free, outside control, at zero external load with identity `F_T_EE`.
+Maximum home error was 0.000290 rad and maximum speed was 0.000880 rad/s, within
+the configured 0.005 rad and per-joint start-velocity limits.
+
+Hardware path configs now require `abort_on_timeout: true`. A missed waypoint
+produces a sticky `waypoint_timeout` fault and torque-stop rather than advancing
+to another waypoint. The runtime suite passes 24 tests. The exact pending YAML
+must still receive separate approval provenance and motion authorization before
+`--execute`; approval applies to the resulting final YAML hash.
+
+## 2026-09-27 first hardware motion fault and workstation action
+
+Nominal session 2026092703 stopped cleanly during the initial approach to
+circle_yz waypoint 0. It did not reach the waypoint. Full evidence and exact
+crossings are in hardware_control_audit/2026-09-27-nominal-first-motion/.
+
+Two issues were separated:
+
+1. the old runtime guard incorrectly used abs(q - RobotState.q_d); q_d remains
+   near the loop start in this external torque-control mode;
+2. the intended callback metric abs(q - q_ref) also exceeded the configured
+   threshold at 0.154 s on J5 (0.061475 rad versus 0.06 rad), with J6 at
+   0.059470 rad and both later peaking near 0.082 rad.
+
+The hardware runtime has been corrected to use the time-coherent 1 kHz q/q_ref
+pair and to log detailed violation evidence. Its runtime tests pass. Do not
+rerun the unchanged K=100 bundle.
+
+The operator authorized direct local K=200 approval to avoid another transfer.
+The original bundle still records K=100/D=20 as its training nominal. A hashed
+local qualification record binds that exact policy manifest to the evaluated
+K=200/D=28.284271 profile using the existing 16/16 simulation result and
+seven-joint hardware response evidence. The corrected runtime accepts only an
+exact controller/profile/hash/policy-manifest match. Approved hardware session
+2026092704 keeps the ONNX policy, 50 Hz action mapping, fixed one-step delay,
+circle_yz path, and tracking limits unchanged.
+
+## 2026-09-27 K=200 tracking-threshold follow-up
+
+K=200 hardware session 2026092704 stopped cleanly when J5 reached 0.061849 rad
+tracking error against the 0.06 rad threshold; J6 peaked at 0.061683 rad. Robot
+and last-motion error fields stayed empty, maximum commanded torque was
+6.85 Nm, and q-reference error was already falling before the stop.
+
+The locally approved follow-up is session 2026092705. It raises only J5/J6 to
+0.08 rad, matching J1-J4; J7 remains 0.04 rad. The policy, K=200/D=28.284271
+controller, action mapping, fixed delay, path, and all other safety gates remain
+unchanged.
+
+## 2026-09-27 completed path and initial jitter
+
+K=200 session 2026092705 completed all 24 circle_yz waypoints with no timeout,
+robot error, sample loss, or stop error. The operator observed heavy jitter in
+the initial approach. Trace analysis localizes it to waypoint 0: J5/J6 reached
+0.97/1.07 rad/s and approximately 45-48 rad/s2 99th-percentile acceleration,
+versus 0.21/0.19 rad/s and about 15-16 rad/s2 after waypoint 0.
+
+The hardware runtime applies the 50 Hz incremental output as a held q reference
+with desired velocity zero. Comparing the same first 0.21 s, K=100 produced only
+about 7-8 rad/s2 on J5/J6, while K=200 produced about 45-48 rad/s2. The immediate
+presentation profile therefore returns to the training nominal K=100/D=20.
+Session 2026092706 keeps J1/J3/J4 at 0.08 rad and J7 at 0.04 rad, and sets only
+J2/J5/J6 tracking limits to 0.12 rad based on the earlier approximately
+0.082 rad K=100 peaks. The policy, path, delay, and action mapping are unchanged.
+
+Evidence is in hardware_control_audit/2026-09-27-first-motion-jitter/.
+
+## 2026-09-27 continuous-reference redesign
+
+K=100 session 2026092706 completed 24/24 circle_yz waypoints and was visibly
+smoother than K=200. The completed traces confirm that the held 50 Hz q_ref with
+dq_ref=0 is appropriate for pose holding but creates a poor path-tracking
+interface. K=200 reduces position lag while amplifying reference edges; K=100
+reduces acceleration while increasing lag.
+
+The next training generation must use continuous_velocity_governor_v2 described
+in deployment/CONTINUOUS_REFERENCE_REDESIGN.md. The 50 Hz actor output maps to a
+held desired reference velocity. A shared 1 kHz jerk-limited governor integrates
+continuous q_ref/dq_ref/ddq_ref, and the impedance law consumes both q_ref and
+dq_ref. Preserve the measured one-step delay and do not insert the existing
+rest-to-rest bounded_quintic_v1 unchanged.
+
+## 2026-09-27 native Franky velocity experiment supersedes custom-governor plan
+
+The custom `continuous_velocity_governor_v2` is deferred. Franky already offers
+native joint-velocity trajectory generation with online preemption and Ruckig
+velocity/acceleration/jerk limiting. For the requested experiment, the current
+nominal position policy is retained unchanged: its virtual q-reference is still
+integrated and included in the 29D observation, while the actuator receives
+`dq_target = (q_virtual_next - q_virtual_previous) / 0.02 s`. Thus normalized
+action magnitude one maps to 0.435 rad/s on J1--J4 and 0.522 rad/s on J5--J6;
+J7 remains zero.
+
+The hardware implementation is runtime
+`franky_joint_velocity_preemption_v1` in `deployment/franky_runtime`. It uses a
+new `JointVelocityMotion` for every consumed 50 Hz result, including zero/repeated
+increments, lets Franky replan continuously at 1 kHz, and stops with
+`JointVelocityStopMotion`. The firmware joint-impedance controller is selected
+explicitly and its default gains are preserved, so prior host-side K=50/100/200
+impedance results do not describe this actuator route. The policy/controller
+mismatch is intentionally named in the config and must not be mistaken for a
+newly trained velocity policy.
+
+The non-executable staged hardware config is
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_motion/nominal.circle_yz.velocity-adapter.motion.2026092707.pending.yaml`.
+Offline validation accepts it and the runtime suite passes 29 tests. The first
+motion should be treated as actuator-route qualification: inspect requested
+`dq_ref`, generated `dq_d`/`ddq_d`, virtual-reference tracking error, preemption
+continuity, and stop behavior before interpreting circle tracking performance.
+
+Native-velocity initialization correction: session 2026092707 faulted before
+motion (`last_callback_sequence: 0`) because the backend and policy used two
+different encoder samples as the finite-difference origin. It issued no native
+velocity motion and had no robot or stop errors. The coordinator now seeds the
+backend from the exact preflight `q` used for `ppo_reference`, and logs
+`velocity_reference_synchronized`. A drift-injection regression test covers all
+seven joints. The corrected, otherwise identical session is 2026092708; the
+runtime suite passes 30 tests.
+
+## 2026-09-27 native-velocity adapter result: incompatible with position policy
+
+Corrected session 2026092708 entered native joint-velocity control and reached
+five circle_yz waypoints, but the arm visibly jittered and the session stopped
+on J4 virtual-reference tracking error: 0.082061 rad versus the 0.08 rad guard.
+There were no robot errors, missed 1 kHz periods, dropped samples, or stop
+failures. Franky's generated acceleration stayed at the configured 20% limits.
+
+The experiment rejects the assumption that `position increment / dt` makes the
+existing position-trained policy compatible with native velocity control. The
+actor produced frequent velocity reversals while its virtual q-reference ran
+ahead of the Ruckig/firmware response. Do not relax the tracking threshold or
+rerun this bundle through the velocity adapter. Use the K=100 explicit-impedance
+result for the existing policy, or train a new policy against the native
+velocity/Ruckig actuator model. Full metrics are in
+`deployment/hardware_control_audit/2026-09-27-native-velocity-adapter/`.
+
+## 2026-09-27 explicit velocity-reference impedance contract for next training
+
+The failed native-velocity adapter does not imply that velocity actions are
+unsuitable. It shows that the existing incremental-position actor cannot be
+reinterpreted after training. A parallel explicit velocity-reference impedance
+route is now implemented for a newly trained policy.
+
+Use runtime `franky_joint_velocity_impedance_tracking_v1` and contract
+`fr3_joint_velocity_impedance_29d_v1`. The 50 Hz action is
+`normalized_joint_velocity`; scale remains `[0.435]*4 + [0.522]*2` rad/s for
+J1--J6 and J7 is zero. A persistent Franky C++ torque motion integrates q_ref at
+the 1 kHz libfranka time step and evaluates
+
+    tau = K (q_ref - q) + D (dq_ref - dq) + coriolis + limit terms
+
+with K=100/D=20 nominally, the existing 0.5 rad error clip, 1 Nm/ms torque slew,
+and reviewed soft bounds. This is a zero-order-held velocity command with no
+Ruckig replanning and no Python-side virtual reference.
+
+At actor step k, the observation contains the q_ref actually applied over the
+preceding interval and the preceding velocity action. The actor's new output is
+then installed for the next interval. The observation remains 29D:
+measured q-q_default (7), measured dq (7), Cartesian position error (3),
+normalized applied q_ref for J1--J6 (6), and previous normalized velocity action
+(6). Train with the same one-policy-step action delay measured in shadow.
+
+Implementation and exact math are in
+`deployment/franky_runtime/VELOCITY_IMPEDANCE_ROUTE.md`. The source patch
+`deployment/franky_runtime/franky_velocity_impedance.patch` applies to pinned
+Franky commit f88f0e9b and has been compile-checked against libfranka 0.21.2,
+Ruckig 0.17.3, pybind11 3.0.4 headers, and Python 3.12. The fail-closed hardware
+shape is `deployment/franky_runtime/config/ppo_velocity_impedance_path.pending.yaml`.
+The current position-policy bundles are rejected by this contract; the
+simulation workstation must train/export a matching velocity-policy bundle
+before fake, shadow, or hardware qualification.

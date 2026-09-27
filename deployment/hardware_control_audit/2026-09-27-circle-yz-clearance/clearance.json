@@ -37,5 +37,13 @@
     "This record does not select a policy.",
     "This record does not authorize robot motion.",
     "A changed path catalog or geometry requires a new clearance review."
-  ]
+  ],
+  "active_catalog_acknowledgement": {
+    "catalog_sha256": "39455c82dfec508cdac0d26befda5a701501006c3758d1c115adc868a1ff6c69",
+    "geometry_unchanged": true,
+    "first_waypoint_timeout_s": 2.0,
+    "later_waypoint_timeout_s": 1.0,
+    "operator_reacknowledged": true,
+    "source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_motion/circle_yz.active_timing_acknowledgement.json"
+  }
 }

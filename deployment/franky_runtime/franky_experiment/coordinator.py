@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 import queue
 import select
 import signal
@@ -17,9 +18,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .backend import CallbackRecord, FakeBackend, FrankyBackend, ShadowBackend, Snapshot
-from .core import (ConfigError, ReferencePlan, SessionSupervisor, TERMINAL,
-                   action_to_target, assemble_policy_observation, load_experiment)
+from .backend import (CallbackRecord, FakeBackend, FrankyBackend, FrankyVelocityBackend,
+                      FrankyVelocityImpedanceBackend, ShadowBackend, Snapshot)
+from .core import (ConfigError, ReferencePlan, RUNTIME_VELOCITY,
+                   RUNTIME_VELOCITY_IMPEDANCE, SessionSupervisor, TERMINAL,
+                   action_to_target, action_to_velocity, assemble_policy_observation, load_experiment)
 from .path_runtime import PathExecution, PathSpec
 
 
@@ -221,6 +224,12 @@ class Coordinator:
         self.last_submitted_target: tuple[float, ...] | None = None
         self.previous_q_ref: tuple[float, ...] | None = None
         self.previous_dq_ref = (0.0,) * 7
+        # Set by the 1 kHz callback from a time-coherent measured/reference
+        # pair, then consumed by the 50 Hz coordinator thread. RobotState.q_d
+        # is the motion-generator desired state and remains at the control-loop
+        # start pose during this external torque-control mode; it is therefore
+        # not the impedance tracker's position reference.
+        self.tracking_violation: dict[str, Any] | None = None
 
         root = Path(config["artifacts"]["root"])
         self.run_dir = root / f"session-{config['session_id']}"
@@ -236,6 +245,9 @@ class Coordinator:
             context = config["execution_context"]
             self.backend = (FakeBackend(config) if context == "fake" else
                             ShadowBackend(config) if context == "shadow" else
+                            FrankyVelocityBackend(config) if config["runtime"] == RUNTIME_VELOCITY else
+                            FrankyVelocityImpedanceBackend(config)
+                            if config["runtime"] == RUNTIME_VELOCITY_IMPEDANCE else
                             FrankyBackend(config))
             self.event("initialized", mode=config["mode"], execution_context=config["execution_context"],
                        config_sha256=config["_config_sha256"],
@@ -291,6 +303,21 @@ class Coordinator:
         dq_ref = record.dq_command
         ddq_ref = (0.0,) * 7
         self.previous_q_ref, self.previous_dq_ref = record.q_command, dq_ref
+        tracking_limit = self.config["safety"]["max_tracking_error_rad"]
+        tracking_error = tuple(abs(record.q[i] - record.q_command[i]) for i in range(7))
+        if self.supervisor.state == "running" and self.tracking_violation is None:
+            violating = [i for i in range(7) if tracking_error[i] > tracking_limit[i]]
+            if violating:
+                joint = max(violating, key=lambda i: tracking_error[i] / tracking_limit[i])
+                self.tracking_violation = {
+                    "joint": joint + 1,
+                    "measured_rad": record.q[joint],
+                    "reference_rad": record.q_command[joint],
+                    "absolute_error_rad": tracking_error[joint],
+                    "limit_rad": tracking_limit[joint],
+                    "callback_sequence": self.callback_sequence,
+                    "robot_time_s": record.robot_time_s,
+                }
         row: dict[str, Any] = {
             "session_id": self.config["session_id"], "trial_id": meta.trial_id,
             "rt_sequence": self.callback_sequence, "policy_sequence": meta.policy_sequence,
@@ -348,7 +375,8 @@ class Coordinator:
         from .core import check_target
         q_target = check_target(self.config, target)
         q_target_tuple = tuple(q_target)
-        if (self.last_submitted_target == q_target_tuple and
+        if (self.config["runtime"] != RUNTIME_VELOCITY and
+                self.last_submitted_target == q_target_tuple and
                 self.config["execution_context"] != "shadow"):
             self.backend.keepalive()
             self.event("target_held", trial_id=trial_id, policy_sequence=self.sequence,
@@ -391,10 +419,54 @@ class Coordinator:
             self.backend.send_target(q_target, callback)
             self.last_submitted_target = q_target_tuple
         returned = raw_ns()
-        self.event("impedance_reference_updated", trial_id=trial_id, policy_sequence=self.sequence,
+        event_name = ("velocity_target_updated" if self.config["runtime"] == RUNTIME_VELOCITY
+                      else "impedance_reference_updated")
+        self.event(event_name, trial_id=trial_id, policy_sequence=self.sequence,
                    observation_sequence=observation_sequence, command_consumed_ns=consumed,
                    command_submitted_ns=submitted, command_api_returned_ns=returned,
                    target=q_target)
+
+    def send_velocity(self, velocity: list[float], raw_action: list[float], trial_id: int,
+                      observation_sequence: int, completed_ns: int,
+                      observation_ns: int | None = None) -> None:
+        if self.config["runtime"] != RUNTIME_VELOCITY_IMPEDANCE:
+            raise RuntimeError("velocity command used outside velocity-impedance runtime")
+        if len(velocity) != 7 or not all(math.isfinite(value) for value in velocity):
+            raise RuntimeError("velocity command must contain seven finite values")
+        limits = self.config["action_mapping"]["max_reference_velocity_rad_s"]
+        if any(abs(velocity[i]) > limits[i] + 1.0e-12 for i in range(len(limits))):
+            raise RuntimeError("velocity command exceeds policy contract")
+        if any(abs(value) > 1.0e-12 for value in velocity[len(limits):]):
+            raise RuntimeError("held joint received a nonzero velocity command")
+        self.sequence += 1
+        consumed = raw_ns()
+        submitted = raw_ns()
+        if self.first_command_ns == 0:
+            self.first_command_ns = submitted
+        observed = completed_ns if observation_ns is None else observation_ns
+        reference = tuple(self.ppo_reference or self.config["ppo"]["start_position_rad"])
+        meta = CommandMeta(self.sequence, observation_sequence, trial_id, tuple(raw_action),
+                           reference, observed, completed_ns, consumed, submitted)
+        if self.config["execution_context"] == "shadow":
+            dt = 1.0 / float(self.config["timing"]["command_hz"])
+            lower, upper = self.config["safety"]["soft_lower_rad"], self.config["safety"]["soft_upper_rad"]
+            self.ppo_reference = [min(upper[i], max(lower[i], reference[i] + velocity[i] * dt))
+                                  for i in range(7)]
+            self.event("shadow_velocity_updated", trial_id=trial_id, policy_sequence=self.sequence,
+                       observation_sequence=observation_sequence, velocity=velocity,
+                       reference=self.ppo_reference)
+            return
+
+        def callback(record: CallbackRecord, command_meta: CommandMeta = meta) -> None:
+            self._on_callback(record, command_meta)
+
+        with self.command_lock:
+            self.current_meta = meta
+            self.backend.send_velocity(velocity, callback)
+        self.event("velocity_impedance_target_updated", trial_id=trial_id,
+                   policy_sequence=self.sequence, observation_sequence=observation_sequence,
+                   command_consumed_ns=consumed, command_submitted_ns=submitted,
+                   velocity=velocity)
 
     def _reference_tick(self, now: int) -> None:
         point = self.plan.point((now - self.started_ns) / 1e9)
@@ -426,6 +498,11 @@ class Coordinator:
                 return
             self.event("waypoint_resolved", **result)
             self.trial_started_ns = now
+            if (result["outcome"] == "timed_out" and
+                    self.config["ppo"]["path"]["abort_on_timeout"]):
+                self.event("path_aborted", reason="waypoint_timeout", **result)
+                self.fault("waypoint_timeout")
+                return
             if self.path_execution.complete:
                 summary = self.path_execution.summary()
                 self.event("path_complete", **summary)
@@ -473,11 +550,17 @@ class Coordinator:
                 action = [float(v) for v in result["action"]]
                 if self.ppo_reference is None:
                     raise RuntimeError("PPO reference was not initialized")
-                target = action_to_target(self.config, action, self.ppo_reference)
-                self.send_target(target, action, trial_id, int(result["observation_sequence"]),
-                                 int(result["completed_monotonic_ns"]),
-                                 int(result["observation_monotonic_ns"]))
-                self.ppo_reference = target
+                if self.config["runtime"] == RUNTIME_VELOCITY_IMPEDANCE:
+                    velocity = action_to_velocity(self.config, action)
+                    self.send_velocity(velocity, action, trial_id, int(result["observation_sequence"]),
+                                       int(result["completed_monotonic_ns"]),
+                                       int(result["observation_monotonic_ns"]))
+                else:
+                    target = action_to_target(self.config, action, self.ppo_reference)
+                    self.send_target(target, action, trial_id, int(result["observation_sequence"]),
+                                     int(result["completed_monotonic_ns"]),
+                                     int(result["observation_monotonic_ns"]))
+                    self.ppo_reference = target
                 self.previous_action = action
         if self.worker.inflight is not None:
             if now - self.worker.sent_ns > timeout_ns:
@@ -488,6 +571,9 @@ class Coordinator:
             return
         if self.ppo_reference is None:
             raise RuntimeError("PPO reference was not initialized")
+        if (self.config["runtime"] == RUNTIME_VELOCITY_IMPEDANCE and
+                self.config["execution_context"] != "shadow"):
+            self.ppo_reference = list(self.backend.current_reference())
         observation = assemble_policy_observation(
             snapshot.q, snapshot.dq, target, snapshot.flange_position_m,
             self.ppo_reference, self.previous_action, self.config["ppo"]["start_position_rad"],
@@ -534,6 +620,11 @@ class Coordinator:
             # Match simulation reset: the incremental integrator starts at the
             # measured joint position, not at an unrelated fixed offset.
             self.ppo_reference = list(snapshot.q)
+            if (self.config["runtime"] in {RUNTIME_VELOCITY, RUNTIME_VELOCITY_IMPEDANCE}
+                    and self.config["execution_context"] != "shadow"):
+                self.backend.synchronize_reference(self.ppo_reference)
+                self.event("velocity_reference_synchronized", reference=self.ppo_reference,
+                           source="preflight_snapshot_q")
         if self.auto_start:
             if self.config["execution_context"] != "fake":
                 raise RuntimeError("--auto-start is allowed only for fake execution")
@@ -584,6 +675,10 @@ class Coordinator:
             self.state_sequence += 1
             self.supervisor.validate_active(snapshot)
             if self.supervisor.state != "running":
+                break
+            if self.tracking_violation is not None:
+                self.event("tracking_error", **self.tracking_violation)
+                self.fault("tracking_error")
                 break
             if self.config["execution_context"] != "shadow":
                 callback_limit_ms = float(self.config["timing"]["callback_gap_ms"])

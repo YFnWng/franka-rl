@@ -1,3 +1,5 @@
+> **Current simulation-workstation task:** [SIMULATION_WORKSTATION_HANDOFF.md](SIMULATION_WORKSTATION_HANDOFF.md). This older real-time-machine package description is retained for provenance.
+
 # Franka real-time-machine handoff
 
 Read `AGENTS.md`, then `REAL_ROBOT_DEPLOYMENT_PLAN.md`. All hardware experiment

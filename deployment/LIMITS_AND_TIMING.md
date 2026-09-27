@@ -119,6 +119,14 @@ The separate startup-velocity check is 5% of model maximum:
 - Start pose tolerance: 0.005 rad per joint in the pending PPO template.
 - Active tracking-error fault threshold:
   `[0.08, 0.08, 0.08, 0.08, 0.06, 0.06, 0.04]` rad.
+  The error is sampled in the 1 kHz torque callback as abs(q - q_ref), using
+  measured encoder position and the impedance tracker's applied position
+  reference from the same callback. RobotState.q_d is not used: in external
+  torque-control mode it can remain at the control-loop start pose while the
+  impedance reference moves.
+  The J5/J6 values were raised from 0.06 to 0.08 rad after K=200 session
+  2026092704 peaked at 0.06185/0.06168 rad with no robot errors, a clean stop,
+  and maximum commanded torque of 6.85 Nm. Other joint thresholds are unchanged.
 - Current 50 Hz PPO template: 40 ms state timeout, 40 ms callback-gap limit,
   50 ms action watchdog, and 15 ms inference timeout. These remain pending
   hardware timing qualification.
