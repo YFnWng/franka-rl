@@ -150,6 +150,9 @@ def _load_common(data: dict[str, Any], source_path: Path, require_approved: bool
         for key in ("max_delta_tau_nm_per_ms", "gains_time_constant_s", "joint_limit_activation_distance_rad",
                     "joint_limit_stiffness_nm", "joint_limit_damping_nms_rad", "joint_limit_max_torque_nm"):
             require(float(impedance.get(key, 0)) > 0, f"robot.impedance_controller.{key} must be positive")
+        if runtime == RUNTIME_VELOCITY_IMPEDANCE:
+            require(float(impedance.get("command_filter_cutoff_hz", 0)) > 0,
+                    "velocity-impedance command_filter_cutoff_hz must be positive")
         friction = impedance.get("friction", {})
         for key in ("coulomb_nm", "viscous_nms_rad", "max_torque_nm"):
             friction[key] = vector(friction.get(key), JOINTS, f"robot.impedance_controller.friction.{key}")
@@ -442,6 +445,10 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
                     "PPO torque slew mismatch")
             require(controller.get("coriolis_compensation") is impedance["compensate_coriolis"],
                     "PPO Coriolis compensation mismatch")
+            if data["runtime"] == RUNTIME_VELOCITY_IMPEDANCE:
+                require(float(controller.get("torque_filter_cutoff_hz", 0)) ==
+                        float(impedance["command_filter_cutoff_hz"]),
+                        "PPO torque filter cutoff mismatch")
         expressions = [item.get("expression") for item in contract.get("observation_layout", [])]
         previous_action_expression = ("previous_normalized_joint_velocity"
                                       if data["runtime"] == RUNTIME_VELOCITY_IMPEDANCE
@@ -489,9 +496,11 @@ def load_experiment(path: str | Path, require_approved: bool = True) -> dict[str
             abort_on_timeout = path_selection.get("abort_on_timeout", False)
             require(isinstance(abort_on_timeout, bool),
                     "ppo.path.abort_on_timeout must be boolean")
-            if data["execution_context"] == "hardware":
-                require(abort_on_timeout is True,
-                        "hardware path execution must abort on waypoint timeout")
+            if data["execution_context"] == "hardware" and not abort_on_timeout:
+                require(data["runtime"] == RUNTIME_VELOCITY_IMPEDANCE,
+                        "only velocity-impedance hardware paths may advance on waypoint timeout")
+                require(path_selection.get("timeout_advance_acknowledged") is True,
+                        "hardware timeout advance requires explicit acknowledgement")
             path_selection["abort_on_timeout"] = abort_on_timeout
             workspace_lower = vector(path_selection.get("workspace_lower_base_m"), 3,
                                      "ppo.path.workspace_lower_base_m")

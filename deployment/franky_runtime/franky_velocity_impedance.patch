@@ -182,17 +182,19 @@ index 0000000..17c9525
 +  (void)abs_time;
 +  (void)previous_command;
 +  const double dt = time_step.toSec();
-+  if (!(dt > 0.0)) throw std::runtime_error("non-positive control time step");
-+
 +  target_velocity_ = velocity_handle_.getUnsafe();
 +  const auto &lower = *params().safety.lower_joint_limits;
 +  const auto &upper = *params().safety.upper_joint_limits;
-+  for (Eigen::Index i = 0; i < target_.size(); ++i) {
-+    const double candidate = target_[i] + target_velocity_[i] * dt;
-+    target_[i] = std::clamp(candidate, lower[i], upper[i]);
-+    if ((target_[i] <= lower[i] && target_velocity_[i] < 0.0) ||
-+        (target_[i] >= upper[i] && target_velocity_[i] > 0.0)) {
-+      target_velocity_[i] = 0.0;
++  // libfranka supplies a zero-period first control callback. Publish the seeded
++  // reference and compute the first bounded torque command without integrating.
++  if (dt > 0.0) {
++    for (Eigen::Index i = 0; i < target_.size(); ++i) {
++      const double candidate = target_[i] + target_velocity_[i] * dt;
++      target_[i] = std::clamp(candidate, lower[i], upper[i]);
++      if ((target_[i] <= lower[i] && target_velocity_[i] < 0.0) ||
++          (target_[i] >= upper[i] && target_velocity_[i] > 0.0)) {
++        target_velocity_[i] = 0.0;
++      }
 +    }
 +  }
 +

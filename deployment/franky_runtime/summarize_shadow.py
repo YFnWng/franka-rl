@@ -40,7 +40,8 @@ def summarize(run_directory: str | Path) -> dict[str, Any]:
     events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
     observations = [event for event in events
                     if event.get("event") == "policy_observation_submitted"]
-    updates = [event for event in events if event.get("event") == "shadow_reference_updated"]
+    updates = [event for event in events if event.get("event") in
+               {"shadow_reference_updated", "shadow_velocity_updated"}]
     if not observations or not updates:
         raise ValueError("shadow run has no observation or consumed-result events")
 
@@ -58,7 +59,8 @@ def summarize(run_directory: str | Path) -> dict[str, Any]:
                 event.get("ee_feedback_frame") != "fr3_flange"):
             raise ValueError("shadow EE feedback is invalid or ambiguous")
     for event in updates:
-        action, target = event.get("raw_action", []), event.get("target", [])
+        action = event.get("raw_action", [])
+        target = event.get("target", event.get("reference", []))
         if (len(action) != 6 or len(target) != 7 or
                 not all(math.isfinite(float(value)) for value in action + target) or
                 any(abs(float(value)) > 1.0 + 1e-6 for value in action)):

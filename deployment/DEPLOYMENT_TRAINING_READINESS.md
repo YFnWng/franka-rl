@@ -1,5 +1,14 @@
 # Deployment-level PPO readiness
 
+> **Current velocity-policy status (2026-09-27):** The sections below preserve
+> the earlier incremental-position deployment record. The current candidate is
+> `fr3_velocity_impedance_position_only_nominal_model149_v1` under contract
+> `fr3_joint_velocity_impedance_29d_v1`. Its random-point evaluation passed, but
+> final `circle_yz` qualification was 0/16. Only no-motion shadow and a separately
+> approved reduced waypoint-0 commissioning run are staged. See the final section
+> of `HANDOFF_AGENT.md` and the real-time machine's
+> `hardware_inventory/2026-09-27/franky_velocity_impedance/PREPARATION_STATUS.md`.
+
 ## Current decision
 
 The selected first hardware-demo policy is the transferred 29D/6D

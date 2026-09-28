@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-27",
+  "policy_bundle": "fr3_velocity_impedance_position_only_nominal_model149_v1",
+  "path": "circle_yz",
+  "runs": {
+    "k100_d20": {
+      "session_id": 2026092715,
+      "terminal_state": "complete",
+      "duration_s": 22.574,
+      "sample_count": 22575,
+      "dropped_samples": 0,
+      "robot_errors": 0,
+      "last_motion_errors": 0,
+      "smooth_stop_ok": true,
+      "waypoints_reached": 7,
+      "waypoints_timed_out": 17,
+      "waypoint_count": 24,
+      "final_waypoint_error_m": {"mean": 0.0233905, "median": 0.0179562, "maximum": 0.0433943},
+      "geometric_circle_error_m": {"mean": 0.0242481, "median": 0.0188050, "p95": 0.0560259, "maximum_including_initial_approach": 0.190699},
+      "max_abs_q_minus_qref_rad": 0.0362384,
+      "p99_abs_q_minus_qref_rad": 0.0361159,
+      "max_abs_joint_velocity_rad_s": 0.416588,
+      "p99_abs_joint_velocity_rad_s": 0.285207,
+      "max_abs_estimated_acceleration_rad_s2": 43.1554,
+      "p99_abs_estimated_acceleration_rad_s2": 3.0460,
+      "max_abs_commanded_torque_nm": 6.19867,
+      "p99_abs_commanded_torque_nm": 2.35351,
+      "max_callback_interval_ms": 5.5255,
+      "p99_callback_interval_ms": 1.4761,
+      "artifact_hashes": {
+        "events_jsonl": "3b9acf69641b856f32a0916e4624d03b926c47f471efd3af5e1c410950209eb7",
+        "final_metadata_json": "fb4a2ac90dc0c5c4b48d5a50e12931b7fd07592a7d92d6c87a13dd9e74fbf27a",
+        "resolved_config_json": "b7bb3526e684ee6883d7acd7b5fb5e6968dec619165b68f16277b04f17efc153",
+        "samples_csv": "7cebccb5f14f13f5aee047c079114c361c4a42aa8635a65a962e7016548e7a35"
+      }
+    },
+    "k200_d40": {
+      "session_id": 2026092717,
+      "terminal_state": "complete",
+      "duration_s": 22.574,
+      "sample_count": 22575,
+      "dropped_samples": 0,
+      "robot_errors": 0,
+      "last_motion_errors": 0,
+      "smooth_stop_ok": true,
+      "waypoints_reached": 6,
+      "waypoints_timed_out": 18,
+      "waypoint_count": 24,
+      "final_waypoint_error_m": {"mean": 0.0243387, "median": 0.0185634, "maximum": 0.0443327},
+      "geometric_circle_error_m": {"mean": 0.0240192, "median": 0.0188106, "p95": 0.0517068, "maximum_including_initial_approach": 0.190713},
+      "max_abs_q_minus_qref_rad": 0.0228477,
+      "p99_abs_q_minus_qref_rad": 0.0225296,
+      "max_abs_joint_velocity_rad_s": 1.172110,
+      "p99_abs_joint_velocity_rad_s": 0.341667,
+      "max_abs_estimated_acceleration_rad_s2": 102.2127,
+      "p99_abs_estimated_acceleration_rad_s2": 27.8323,
+      "max_abs_commanded_torque_nm": 11.03331,
+      "p99_abs_commanded_torque_nm": 4.08353,
+      "max_callback_interval_ms": 2.3165,
+      "p99_callback_interval_ms": 1.21536,
+      "artifact_hashes": {
+        "events_jsonl": "39d2e6aa336d9791664619895864e0ccdd7011c9697bc1a00b5b47c3899c81da",
+        "final_metadata_json": "df0227bdbc75990e35512af5026ac074d4cc45e6376d71856c24ed4382c4962a",
+        "resolved_config_json": "db284727a9957971c0ff1bb0adccadf2b1ad80b452953674b08483226cd643a5",
+        "samples_csv": "9c35a44067ad73ef8d6d1300859b46ad80d81bac81c9d08b053d7fbfea0b7bb8"
+      }
+    }
+  },
+  "conclusion": {
+    "selected_nominal_profile": "K100_D20",
+    "k200_d40_status": "completed_cleanly_but_not_selected",
+    "reason": "K200/D40 reduced joint-reference lag but did not improve strict path completion or mean geometric tracking enough to justify substantially larger velocity, estimated acceleration, and torque transients.",
+    "do_not_increase_gain_further": true
+  },
+  "notes": [
+    "Acceleration is estimated by finite-differencing measured joint velocity using host timestamps.",
+    "The largest K200/D40 velocity and acceleration transients occurred on joint 6 during the initial approach, before steady circle traversal.",
+    "The geometric-error maximum includes the initial move from the home pose and should not be read as steady circle error."
+  ]
+}

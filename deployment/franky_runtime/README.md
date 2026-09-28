@@ -1,11 +1,15 @@
 # Franky deployment runtime
 
-Pinned environment:
+Pinned environments:
 
-- Python: 3.12.14
-- Environment: `/home/chen-lab/yifan/venvs/franky-server10`
-- Franky: `2.0.1.dev58+gf88f0e9b.libfranka.0.21.2`
-- Robot FCI server: 10
+- Position/reference runtime: `/home/chen-lab/yifan/venvs/franky-server10` with Franky `2.0.1.dev58+gf88f0e9b.libfranka.0.21.2`.
+- Explicit velocity-impedance runtime: `/home/chen-lab/yifan/venvs/franky-velocity-impedance-zdt-server10` with Franky `2.0.1.dev60+gf88f0e9bvelimpzdt.libfranka.0.21.2`.
+- Both use Python 3.12 and libfranka 0.21.2 against robot FCI server 10.
+- Repaired velocity-impedance wheel SHA-256: `8590e1241a8e305cf046c148968b7dc9055d2f58bcb944ddb5db33ebda70c00d`.
+
+Use the second environment only for configurations whose runtime is
+`franky_joint_velocity_impedance_tracking_v1`; the original environment remains
+the validated position/reference runtime.
 
 `read_only_probe.py` has no motion operations. Without `--connect`, it only
 checks and describes the local environment. With `--connect`, it constructs
@@ -208,7 +212,11 @@ After the lab separately authorizes that exact YAML and the physical-stop/worksp
 review is complete, the hardware command is:
 
 ```bash
-/home/chen-lab/yifan/venvs/franky-server10/bin/python \
+RUNTIME_PY=/home/chen-lab/yifan/venvs/franky-server10/bin/python
+# For franky_joint_velocity_impedance_tracking_v1 instead use:
+# RUNTIME_PY=/home/chen-lab/yifan/venvs/franky-velocity-impedance-zdt-server10/bin/python
+
+"$RUNTIME_PY" \
   /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/run_coordinator.py \
   --config /absolute/path/to/experiment.approved.yaml \
   --execute
@@ -246,7 +254,7 @@ PYTHONPATH=/home/chen-lab/yifan/franka-rl/deployment/franky_runtime \
   /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/tests
 ```
 
-The current suite has 19 tests. Coverage includes fail-closed pending
+The current suite has 33 tests. Coverage includes fail-closed pending
 configuration, exact constructor collision contract, reference generation,
 soft-bound rejection, full fake reference and PPO runs, strict catalog/hash and
 workspace validation, exact transferred YZ geometry, path transitions and stale

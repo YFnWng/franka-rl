@@ -75,7 +75,12 @@ PY
 ```
 
 The complete C++ core and Python module were built against libfranka 0.21.2,
-Ruckig 0.17.3, pybind11 3.0.4, and Python 3.12. An offline binding smoke test
-constructed the new motion and exercised its initial-reference, velocity, and
-applied-reference API without opening FCI. Hardware motion remains pending a
-velocity-policy bundle, a separate environment, and a fake/shadow review.
+Ruckig 0.17.3, pybind11 3.0.4, and Python 3.12. The repaired wheel is
+`/home/chen-lab/yifan/deployment_wheels/2026-09-27/franky_control-2.0.1.dev60+gf88f0e9bvelimpzdt.libfranka.0.21.2-cp312-cp312-manylinux_2_35_x86_64.whl`,
+SHA-256 `8590e1241a8e305cf046c148968b7dc9055d2f58bcb944ddb5db33ebda70c00d`.
+It is installed in the isolated environment
+`/home/chen-lab/yifan/venvs/franky-velocity-impedance-zdt-server10`. An offline
+binding smoke test exercised initial-reference, velocity, and applied-reference
+APIs without opening FCI. The received velocity-policy bundle passed native/ONNX
+verification and the full fake runtime. No-motion shadow and reduced-target
+hardware commissioning still require approval of their exact YAML files.

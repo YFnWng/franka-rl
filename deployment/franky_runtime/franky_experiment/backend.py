@@ -182,6 +182,7 @@ class FrankyBackend:
         )
         self._encoder_fk = EncoderForwardKinematics(self.robot, self._franky)
         self.impedance = config["robot"]["impedance_controller"]
+        self.command_filter_cutoff_hz = float(self.impedance.get("command_filter_cutoff_hz", 100.0))
         self.stop_config = config["robot"]["torque_stop"]
         self.soft_lower = tuple(config["safety"]["soft_lower_rad"])
         self.soft_upper = tuple(config["safety"]["soft_upper_rad"])
@@ -320,7 +321,7 @@ class FrankyBackend:
                 self._motion.register_callback(self._on_update)
                 self._last_target_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
                 self.robot.move(self._motion, asynchronous=True,
-                                limit_rate=False, cutoff_frequency=100.0)
+                                limit_rate=False, cutoff_frequency=self.command_filter_cutoff_hz)
             self._reference, self._velocity_reference = q, dq
             self._motion.set_reference(f.JointReference(q=q, dq=dq))
             self._last_target_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
@@ -410,7 +411,7 @@ class FrankyVelocityImpedanceBackend(FrankyBackend):
                 self._motion.register_callback(self._on_update)
                 self._last_target_ns = time.clock_gettime_ns(time.CLOCK_MONOTONIC_RAW)
                 self.robot.move(self._motion, asynchronous=True,
-                                limit_rate=False, cutoff_frequency=100.0)
+                                limit_rate=False, cutoff_frequency=self.command_filter_cutoff_hz)
             else:
                 self._motion.set_velocity(dq)
             self._velocity_reference = dq

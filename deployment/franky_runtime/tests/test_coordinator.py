@@ -3,6 +3,7 @@ import csv
 import json
 import math
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -146,8 +147,12 @@ def test_callback_latches_tracking_error_against_applied_q_reference(tmp_path):
         assert coordinator.tracking_violation["joint"] == 1
         assert coordinator.tracking_violation["absolute_error_rad"] == pytest.approx(0.06)
         assert coordinator.tracking_violation["limit_rad"] == pytest.approx(0.05)
+        coordinator._on_callback(replace(record, dq_command=(0.1,) * 7), meta)
     finally:
         coordinator.close()
+    with (tmp_path / "runs" / "session-43" / "samples.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert float(rows[-1]["ddq_ref_j1"]) == pytest.approx(100.0)
 
 
 def test_reference_rejects_waveform_faster_than_reviewed_derivative_limits(tmp_path):
@@ -550,11 +555,40 @@ def test_path_config_requires_exclusive_source_hash_and_workspace(tmp_path):
 
 
 
-def test_hardware_path_requires_abort_on_waypoint_timeout(tmp_path):
+def test_position_hardware_path_requires_abort_on_waypoint_timeout(tmp_path):
     value, _ = path_ppo(tmp_path, 54, context="hardware")
     value["ppo"]["path"]["abort_on_timeout"] = False
-    with pytest.raises(ConfigError, match="must abort on waypoint timeout"):
+    with pytest.raises(ConfigError, match="only velocity-impedance"):
         load_experiment(write_config(tmp_path, value, "unsafe-timeout.yaml"))
+
+
+def test_velocity_impedance_hardware_path_requires_explicit_timeout_advance_ack(tmp_path):
+    value = approved_velocity_impedance_ppo(tmp_path, 541)
+    catalog = tmp_path / "velocity-path-catalog.yaml"
+    catalog.write_text(yaml.safe_dump({
+        "version": 1,
+        "paths": {"stationary_three": {
+            "type": "waypoints", "description": "test path",
+            "waypoints_m": [[0.45, 0.0, 0.35]] * 3,
+            "target_orientation_xyzw": [0.0, 1.0, 0.0, 0.0],
+            "waypoint_timeout_s": 0.04, "position_threshold_m": 0.001,
+        }},
+    }, sort_keys=False))
+    for key in ("targets", "success", "repetitions"):
+        value["ppo"].pop(key)
+    value["ppo"]["path"] = {
+        "catalog_path": str(catalog), "catalog_sha256": sha256(catalog),
+        "name": "stationary_three", "repetitions": 1,
+        "abort_on_timeout": False,
+        "workspace_lower_base_m": [0.40, -0.10, 0.30],
+        "workspace_upper_base_m": [0.50, 0.10, 0.40],
+    }
+    value["execution_context"] = "hardware"
+    with pytest.raises(ConfigError, match="explicit acknowledgement"):
+        load_experiment(write_config(tmp_path, value, "unacknowledged-timeout.yaml"))
+    value["ppo"]["path"]["timeout_advance_acknowledged"] = True
+    config = load_experiment(write_config(tmp_path, value, "acknowledged-timeout.yaml"))
+    assert config["ppo"]["path"]["abort_on_timeout"] is False
 
 
 def test_path_timeout_aborts_instead_of_advancing(tmp_path):
@@ -776,6 +810,7 @@ def approved_velocity_impedance_ppo(tmp_path, session_id=80):
     value = approved_ppo(tmp_path, session_id)
     value["runtime"] = "franky_joint_velocity_impedance_tracking_v1"
     value["robot"]["controller_mode"] = "franky_joint_velocity_impedance_tracking"
+    value["robot"]["impedance_controller"]["command_filter_cutoff_hz"] = 100.0
     value["action_mapping"]["type"] = "normalized_joint_velocity"
     value["action_mapping"]["integration"] = "controller_1khz_forward_euler"
     value["action_mapping"].pop("max_position_increment_rad")
@@ -785,6 +820,7 @@ def approved_velocity_impedance_ppo(tmp_path, session_id=80):
     contract["action"]["type"] = "normalized_joint_velocity"
     contract["action"]["integration"] = "controller_1khz_forward_euler"
     contract["action"].pop("max_position_increment_rad")
+    contract["controller"]["torque_filter_cutoff_hz"] = 100.0
     contract["observation_layout"][-1]["expression"] = "previous_normalized_joint_velocity"
     contract_path.write_text(yaml.safe_dump(contract, sort_keys=False))
     return value

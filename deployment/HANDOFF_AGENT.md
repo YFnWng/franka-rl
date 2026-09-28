@@ -1270,3 +1270,84 @@ reviewed reduced point-to-point commissioning YAML only. It does not authorize
 a full circle or any physical motion. Keep abort-on-timeout and terminal faults.
 Canonical details, evidence paths, and receiving gates are in the updated
 `SIMULATION_WORKSTATION_HANDOFF.md`.
+
+## 2026-09-27 real-time receipt and velocity-policy staging
+
+The real-time machine received and independently verified bundle
+`fr3_velocity_impedance_position_only_nominal_model149_v1`. Manifest SHA-256 is
+`8d19cb788f43530241dffba708cb47ca964e469ecaa085a51bb4ddc09cb5982c`;
+1,024 native/ONNX vectors passed at maximum absolute error `6.7800283e-7`.
+
+The patched Franky extension was built as repaired wheel version
+`2.0.1.dev59+gf88f0e9bvelimp.libfranka.0.21.2`, wheel SHA-256
+`82d96c759ff0f41134fddf5304fe5f88991207b1ed7c427db032ae0f7795052b`,
+and installed separately at
+`/home/chen-lab/yifan/venvs/franky-velocity-impedance-server10`. The wheel-private
+libfranka 0.21.2/Ruckig dependencies and new motion API passed offline checks.
+The coordinator enforces the bundle's 100 Hz torque filter and its 33 tests pass.
+
+Fake session 2026092713 completed 25 end-to-end policy cycles with zero dropped
+samples, held-J7 velocity exactly zero, and a clean fake stop lifecycle. A
+no-motion FCI shadow config and a reduced hardware target at the already-cleared
+first circle waypoint `[0.475, 0, 0.5]` are staged under
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-09-27/franky_velocity_impedance/`.
+Both remain fail-closed pending explicit lab approval. The final 0/16 simulated
+circle qualification continues to prohibit full-circle hardware motion. Details,
+trust anchors, commands, and staged file paths are in `PREPARATION_STATUS.md` in
+that directory.
+
+
+## 2026-09-27 velocity-impedance first-control-cycle correction
+
+Hardware session 2026092714 faulted on `callback_gap` before publishing a single
+1 kHz callback (`last_callback_sequence: 0`, no sample rows). The arm reported no
+robot or last-motion errors and stopped cleanly. Root cause was the custom C++
+motion rejecting libfranka's normal zero-duration first callback before Franky
+published registered callbacks. The fix skips reference integration for that one
+cycle and computes the ordinary bounded impedance command.
+
+The failed dev59 wheel is retired. Corrected version `2.0.1.dev60+gf88f0e9bvelimpzdt.libfranka.0.21.2`, wheel
+SHA-256 `8590e1241a8e305cf046c148968b7dc9055d2f58bcb944ddb5db33ebda70c00d`, is installed in
+`/home/chen-lab/yifan/venvs/franky-velocity-impedance-zdt-server10`. Compile,
+binding, shared-library, fake-lifecycle, and 34-test offline checks pass. New
+session 2026092715 is fail-closed pending approval of the changed binary pin.
+
+## 2026-09-27 velocity-impedance hardware gain comparison
+
+Corrected runtime session 2026092715 completed the full scheduled `circle_yz`
+run at K=100/D=20, and comparison session 2026092717 completed it at
+K=200/D=40. Both ran 22.574 seconds with 22,575 samples, no dropped samples,
+no robot or last-motion errors, and clean smooth stops.
+
+K200/D40 reduced maximum `abs(q-q_ref)` from 0.0362 to 0.0228 rad, but reached
+6/24 strict waypoints versus 7/24 for K100/D20. Mean geometric circle error was
+effectively unchanged (24.02 versus 24.25 mm). K200/D40 increased maximum
+measured velocity from 0.417 to 1.172 rad/s, p99 estimated acceleration from
+3.05 to 27.83 rad/s^2, and maximum commanded torque from 6.20 to 11.03 Nm. Its
+largest transients were on joint 6 during the initial approach.
+
+Select K100/D20 as the nominal hardware-demo profile. K200/D40 remains a clean
+comparison run but is not the preferred profile, and gains should not be raised
+further. The remaining path error points to policy/path behavior and waypoint
+timing rather than insufficient impedance stiffness. Full metrics and evidence
+hashes are in
+`deployment/hardware_control_audit/2026-09-27-velocity-impedance-gain-comparison/`.
+
+## 2026-09-27 completed hardware tracking data transfer
+
+The four physical tracking sessions with terminal state `complete` are packaged
+for workstation analysis at
+`/home/chen-lab/yifan/transfer_2026-09-27/hardware_tracking_2026-09-27_complete.tar.gz`.
+The archive contains position-reference sessions 2026092705 (K200/D28.2843)
+and 2026092706 (K100/D20), plus explicit velocity-reference sessions
+2026092715 (K100/D20) and 2026092717 (K200/D40). Each includes raw approximately
+1 kHz samples, events, final metadata, resolved config, and hashes. Approved
+YAMLs, the exact path catalog, controller-route documentation, and the gain
+comparison audit are included. Fake, shadow, and faulted commissioning sessions
+are intentionally excluded.
+
+The extracted directory is
+`/home/chen-lab/yifan/transfer_2026-09-27/hardware_tracking_2026-09-27_complete`.
+Read `README.md` and `MANIFEST.json`, then verify with
+`sha256sum -c SHA256SUMS`. The archive SHA-256 is
+`b3a17100946433632b7aba7deae5b74c608062a01c53fbb43d5f8e0771d9e47b`.

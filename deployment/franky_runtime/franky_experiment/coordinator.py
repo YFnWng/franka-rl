@@ -301,7 +301,11 @@ class Coordinator:
         self.last_callback_robot_time_s = record.robot_time_s
         self.callback_started = True
         dq_ref = record.dq_command
-        ddq_ref = (0.0,) * 7
+        if record.time_step_s > 0.0:
+            ddq_ref = tuple((dq_ref[i] - self.previous_dq_ref[i]) / record.time_step_s
+                            for i in range(7))
+        else:
+            ddq_ref = (0.0,) * 7
         self.previous_q_ref, self.previous_dq_ref = record.q_command, dq_ref
         tracking_limit = self.config["safety"]["max_tracking_error_rad"]
         tracking_error = tuple(abs(record.q[i] - record.q_command[i]) for i in range(7))
@@ -453,8 +457,16 @@ class Coordinator:
             self.ppo_reference = [min(upper[i], max(lower[i], reference[i] + velocity[i] * dt))
                                   for i in range(7)]
             self.event("shadow_velocity_updated", trial_id=trial_id, policy_sequence=self.sequence,
-                       observation_sequence=observation_sequence, velocity=velocity,
-                       reference=self.ppo_reference)
+                       observation_sequence=observation_sequence,
+                       observation_monotonic_ns=observed,
+                       policy_completed_ns=completed_ns, command_consumed_ns=consumed,
+                       inference_latency_ns=max(0, completed_ns - observed),
+                       completion_to_consumption_ns=max(0, consumed - completed_ns),
+                       state_to_reference_consumption_ns=max(0, consumed - observed),
+                       effective_delay_policy_steps=(max(0, consumed - observed) /
+                           (1e9 / float(self.config["timing"]["command_hz"]))),
+                       raw_action=raw_action, velocity=velocity,
+                       reference=self.ppo_reference, target=self.ppo_reference)
             return
 
         def callback(record: CallbackRecord, command_meta: CommandMeta = meta) -> None:
