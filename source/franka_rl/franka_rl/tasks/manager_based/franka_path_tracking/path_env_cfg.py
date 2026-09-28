@@ -6,6 +6,7 @@ from isaaclab.utils.configclass import configclass
 
 from franka_rl.utils.paths import PathCatalog
 
+from ..franka_impedance.impedance_env_cfg import Fr3FrankyImpedanceEnvCfg
 from ..franka_incremental_impedance.incremental_impedance_env_cfg import (
     Fr3FrankyIncremental6DImpedanceEnvCfg,
 )
@@ -84,6 +85,20 @@ class Fr3FrankyIncremental6DCirclePathEnvCfg(
             + (len(path.waypoints_m) - 1) * path.waypoint_timeout_s
             + 1.0
         )
+
+
+@configclass
+class Fr3FrankyAbsolutePositionCirclePathEnvCfg(Fr3FrankyImpedanceEnvCfg):
+    """Evaluate the absolute-position policy over a deterministic path."""
+
+    evaluation_protocol: str = "waypoint_path"
+    path_name: str = "circle_xy"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.configure_path(self.path_name)
+
+    configure_path = Fr3FrankyIncremental6DCirclePathEnvCfg.configure_path
 
 
 @configclass

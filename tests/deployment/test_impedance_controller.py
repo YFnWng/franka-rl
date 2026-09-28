@@ -160,3 +160,32 @@ def test_impedance_controller_tracks_velocity_reference_and_defaults_to_zero():
 
     assert torch.allclose(velocity_torque, torch.full_like(zeros, 4.0), atol=1.0e-4)
     assert torch.count_nonzero(position_torque) == 0
+
+
+def test_impedance_controller_accepts_independent_hardware_damping():
+    controller = MODULE.FrankyImpedanceController(
+        num_envs=1,
+        num_joints=7,
+        device="cpu",
+        dtype=torch.float32,
+        dt=0.001,
+        nominal_stiffness=200.0,
+        nominal_damping=40.0,
+        gain_alpha_range=None,
+        position_error_clip=0.5,
+        torque_slew_rate=1.0e9,
+        filter_cutoff_hz=1.0e9,
+        lower=LOWER,
+        upper=UPPER,
+        limit_activation_distance=0.0,
+        limit_stiffness=0.0,
+        limit_damping=0.0,
+        limit_max_torque=0.0,
+    )
+    controller.reset(slice(None))
+    zeros = torch.zeros((1, 7))
+    torque = controller.compute(
+        zeros, zeros, zeros, zeros, zeros,
+        velocity_reference=torch.full_like(zeros, 0.2),
+    )
+    assert torch.allclose(torque, torch.full_like(zeros, 8.0), atol=1.0e-4)

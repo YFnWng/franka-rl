@@ -82,9 +82,17 @@ class FrankyImpedanceController:
         limit_stiffness: float,
         limit_damping: float,
         limit_max_torque: float,
+        nominal_damping: float | None = None,
     ) -> None:
         self.dt = float(dt)
         self.nominal_stiffness = float(nominal_stiffness)
+        self.nominal_damping = (
+            None if nominal_damping is None else float(nominal_damping)
+        )
+        if self.nominal_stiffness <= 0.0:
+            raise ValueError("nominal_stiffness must be positive")
+        if self.nominal_damping is not None and self.nominal_damping <= 0.0:
+            raise ValueError("nominal_damping must be positive when provided")
         self.gain_alpha_range = gain_alpha_range
         self.position_error_clip = float(position_error_clip)
         self.torque_step = float(torque_slew_rate) * self.dt
@@ -127,7 +135,13 @@ class FrankyImpedanceController:
         velocity_reference: torch.Tensor | None = None,
     ) -> torch.Tensor:
         stiffness = self.nominal_stiffness * self.gain_alpha
-        damping = 2.0 * torch.sqrt(stiffness)
+        if self.nominal_damping is None:
+            damping = 2.0 * torch.sqrt(stiffness)
+        else:
+            # Scale D by sqrt(alpha) so gain randomization preserves the
+            # nominal damping ratio while exact replay may choose K and D
+            # independently (for example the hardware K=200, D=40 cell).
+            damping = self.nominal_damping * torch.sqrt(self.gain_alpha)
         error = torch.clamp(
             position_reference - position,
             -self.position_error_clip,

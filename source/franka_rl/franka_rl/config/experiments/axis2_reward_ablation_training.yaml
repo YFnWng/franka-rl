@@ -1,0 +1,56 @@
+version: 1
+name: axis2_incremental_reward_ablation_three_seed
+scenario: nominal
+target_seeds: [42, 123, 456]
+num_envs: 1024
+max_iterations: 150
+device: cuda:0
+
+# Coarse Cartesian tracking and self-collision remain fixed in every variant.
+# The full-reward seed-42 checkpoint is the established incremental baseline.
+policies:
+  full_reward:
+    description: Complete six-axis position-increment reward.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis2_full_reward
+    existing_checkpoints:
+      42: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt
+
+  no_fine_tracking:
+    description: Remove only the narrow terminal-position reward.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-NoFineReward-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis2_no_fine_tracking
+    existing_checkpoints: {}
+
+  no_reference_acceleration:
+    description: Remove physical reference-acceleration smoothing.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-NoReferenceAcceleration-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis2_no_reference_acceleration
+    existing_checkpoints: {}
+
+  no_near_target_velocity:
+    description: Remove the near-target settling objective.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-NoNearTargetVelocity-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis2_no_near_target_velocity
+    existing_checkpoints: {}
+
+  no_constraint_shaping:
+    description: Remove measured-speed, action-clipping, and joint-reference projection penalties together.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-NoConstraintShaping-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis2_no_constraint_shaping
+    existing_checkpoints: {}

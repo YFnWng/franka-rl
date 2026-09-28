@@ -102,6 +102,7 @@ class EvaluationConfig:
 
     job_id: str | None = None
     target_set: dict[str, Any] | None = None
+    hardware_replay: dict[str, Any] | None = None
     scenario: dict[str, Any] = field(default_factory=dict)
     record_domain_parameters: bool = True
     domain_parameter_schema: dict[str, Any] = field(default_factory=dict)
@@ -170,6 +171,8 @@ class EvaluationResults:
     peak_joint_velocity_ratio: torch.Tensor
     mean_command_difference_norm_rad: torch.Tensor
     peak_command_difference_norm_rad: torch.Tensor
+    mean_reference_acceleration_ratio: torch.Tensor
+    peak_reference_acceleration_ratio: torch.Tensor
     action_clipping_fraction: torch.Tensor
     peak_action_clipping: torch.Tensor
     peak_applied_torque_norm_nm: torch.Tensor
@@ -260,6 +263,15 @@ class EvaluationResults:
             ),
             "worst_command_difference_norm_rad": (
                 float(self.peak_command_difference_norm_rad.float().max()) if count else None
+            ),
+            "mean_reference_acceleration_ratio": (
+                float(self.mean_reference_acceleration_ratio.float().mean()) if count else None
+            ),
+            "mean_peak_reference_acceleration_ratio": (
+                float(self.peak_reference_acceleration_ratio.float().mean()) if count else None
+            ),
+            "worst_reference_acceleration_ratio": (
+                float(self.peak_reference_acceleration_ratio.float().max()) if count else None
             ),
             "mean_action_clipping_fraction": (float(self.action_clipping_fraction.float().mean()) if count else None),
             "worst_action_clipping": (float(self.peak_action_clipping.float().max()) if count else None),
@@ -494,6 +506,8 @@ class EvaluationResults:
                 "peak_joint_velocity_ratio",
                 "mean_command_difference_norm_rad",
                 "peak_command_difference_norm_rad",
+                "mean_reference_acceleration_ratio",
+                "peak_reference_acceleration_ratio",
                 "action_clipping_fraction",
                 "peak_action_clipping",
                 "peak_applied_torque_norm_nm",
@@ -590,6 +604,8 @@ class EvaluationResults:
                     "peak_joint_velocity_ratio": float(self.peak_joint_velocity_ratio[index]),
                     "mean_command_difference_norm_rad": float(self.mean_command_difference_norm_rad[index]),
                     "peak_command_difference_norm_rad": float(self.peak_command_difference_norm_rad[index]),
+                    "mean_reference_acceleration_ratio": float(self.mean_reference_acceleration_ratio[index]),
+                    "peak_reference_acceleration_ratio": float(self.peak_reference_acceleration_ratio[index]),
                     "action_clipping_fraction": float(self.action_clipping_fraction[index]),
                     "peak_action_clipping": float(self.peak_action_clipping[index]),
                     "peak_applied_torque_norm_nm": float(self.peak_applied_torque_norm_nm[index]),
@@ -761,6 +777,8 @@ class PolicyEvaluator:
         peak_joint_velocity_ratio = torch.full_like(final_position_error_m, float("nan"))
         mean_command_difference_norm_rad = torch.full_like(final_position_error_m, float("nan"))
         peak_command_difference_norm_rad = torch.full_like(final_position_error_m, float("nan"))
+        mean_reference_acceleration_ratio = torch.full_like(final_position_error_m, float("nan"))
+        peak_reference_acceleration_ratio = torch.full_like(final_position_error_m, float("nan"))
         action_clipping_fraction = torch.full_like(final_position_error_m, float("nan"))
         peak_action_clipping = torch.full_like(final_position_error_m, float("nan"))
         peak_applied_torque_norm_nm = torch.full_like(final_position_error_m, float("nan"))
@@ -789,6 +807,8 @@ class PolicyEvaluator:
         current_peak_joint_velocity_ratio = torch.zeros(self.num_envs, device=self.device)
         current_command_difference_sum = torch.zeros(self.num_envs, device=self.device)
         current_peak_command_difference = torch.zeros(self.num_envs, device=self.device)
+        current_reference_acceleration_sum = torch.zeros(self.num_envs, device=self.device)
+        current_peak_reference_acceleration = torch.zeros(self.num_envs, device=self.device)
         current_clipping_steps = torch.zeros(self.num_envs, device=self.device)
         current_peak_action_clipping = torch.zeros(self.num_envs, device=self.device)
         current_peak_applied_torque = torch.zeros(self.num_envs, device=self.device)
@@ -870,6 +890,9 @@ class PolicyEvaluator:
                     command_difference = trajectory_state.get(
                         "command_difference_norm_rad", torch.full_like(position_error, float("nan"))
                     )
+                    reference_acceleration_ratio = trajectory_state.get(
+                        "reference_acceleration_ratio", torch.full_like(position_error, float("nan"))
+                    )
                     action_clipping = trajectory_state.get(
                         "action_clipping", torch.full_like(position_error, float("nan"))
                     )
@@ -929,6 +952,13 @@ class PolicyEvaluator:
                     current_peak_command_difference[active] = torch.maximum(
                         current_peak_command_difference[active],
                         torch.nan_to_num(command_difference[active]),
+                    )
+                    current_reference_acceleration_sum[active] += torch.nan_to_num(
+                        reference_acceleration_ratio[active]
+                    )
+                    current_peak_reference_acceleration[active] = torch.maximum(
+                        current_peak_reference_acceleration[active],
+                        torch.nan_to_num(reference_acceleration_ratio[active]),
                     )
                     current_clipping_steps[active] += torch.nan_to_num(action_clipping[active]) > 0.0
                     current_peak_action_clipping[active] = torch.maximum(
@@ -1043,6 +1073,12 @@ class PolicyEvaluator:
                         current_command_difference_sum[env_ids] / current_steps[env_ids]
                     )
                     peak_command_difference_norm_rad[env_ids, episode_ids] = current_peak_command_difference[env_ids]
+                    mean_reference_acceleration_ratio[env_ids, episode_ids] = (
+                        current_reference_acceleration_sum[env_ids] / current_steps[env_ids]
+                    )
+                    peak_reference_acceleration_ratio[env_ids, episode_ids] = (
+                        current_peak_reference_acceleration[env_ids]
+                    )
                     action_clipping_fraction[env_ids, episode_ids] = (
                         current_clipping_steps[env_ids] / current_steps[env_ids]
                     )
@@ -1077,6 +1113,8 @@ class PolicyEvaluator:
                     current_peak_joint_velocity_ratio[dones] = 0.0
                     current_command_difference_sum[dones] = 0.0
                     current_peak_command_difference[dones] = 0.0
+                    current_reference_acceleration_sum[dones] = 0.0
+                    current_peak_reference_acceleration[dones] = 0.0
                     current_clipping_steps[dones] = 0.0
                     current_peak_action_clipping[dones] = 0.0
                     current_peak_applied_torque[dones] = 0.0
@@ -1151,6 +1189,8 @@ class PolicyEvaluator:
             peak_joint_velocity_ratio=peak_joint_velocity_ratio,
             mean_command_difference_norm_rad=mean_command_difference_norm_rad,
             peak_command_difference_norm_rad=peak_command_difference_norm_rad,
+            mean_reference_acceleration_ratio=mean_reference_acceleration_ratio,
+            peak_reference_acceleration_ratio=peak_reference_acceleration_ratio,
             action_clipping_fraction=action_clipping_fraction,
             peak_action_clipping=peak_action_clipping,
             peak_applied_torque_norm_nm=peak_applied_torque_norm_nm,
@@ -1244,6 +1284,8 @@ class PolicyEvaluator:
         peak_joint_velocity_ratio: torch.Tensor,
         mean_command_difference_norm_rad: torch.Tensor,
         peak_command_difference_norm_rad: torch.Tensor,
+        mean_reference_acceleration_ratio: torch.Tensor,
+        peak_reference_acceleration_ratio: torch.Tensor,
         action_clipping_fraction: torch.Tensor,
         peak_action_clipping: torch.Tensor,
         peak_applied_torque_norm_nm: torch.Tensor,
@@ -1300,6 +1342,8 @@ class PolicyEvaluator:
             peak_joint_velocity_ratio=(peak_joint_velocity_ratio[recorded].cpu()),
             mean_command_difference_norm_rad=(mean_command_difference_norm_rad[recorded].cpu()),
             peak_command_difference_norm_rad=(peak_command_difference_norm_rad[recorded].cpu()),
+            mean_reference_acceleration_ratio=(mean_reference_acceleration_ratio[recorded].cpu()),
+            peak_reference_acceleration_ratio=(peak_reference_acceleration_ratio[recorded].cpu()),
             action_clipping_fraction=(action_clipping_fraction[recorded].cpu()),
             peak_action_clipping=peak_action_clipping[recorded].cpu(),
             peak_applied_torque_norm_nm=(peak_applied_torque_norm_nm[recorded].cpu()),
@@ -1313,6 +1357,7 @@ class PolicyEvaluator:
                 "checkpoint_sha256": _sha256(checkpoint_path),
                 "job_id": self.config.job_id,
                 "target_set": self.config.target_set,
+                "hardware_replay": self.config.hardware_replay,
                 "initial_state_recording": "episode_start",
                 "initial_joint_names": list(self.config.initial_joint_names),
                 "seed": self.config.seed,
@@ -1336,6 +1381,9 @@ class PolicyEvaluator:
                 "joint_limit_margin": "minimum distance to any soft joint-position limit",
                 "velocity_ratio": "1 kHz peak measured speed divided by the 20-percent hardware envelope",
                 "command_difference": "L2 norm of consecutive physical held joint-position commands",
+                "reference_acceleration_ratio": (
+                    "maximum absolute joint reference acceleration divided by its reviewed envelope"
+                ),
                 "action_clipping": "maximum amount outside normalized [-1, 1] before clipping",
                 "applied_torque": "L2 norm of the 1 kHz peak absolute per-joint torque vector",
                 "tracking_error": "L2 norm of measured joint position minus the held seven-joint reference",

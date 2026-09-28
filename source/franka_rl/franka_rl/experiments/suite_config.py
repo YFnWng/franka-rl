@@ -11,7 +11,6 @@ from typing import Any
 
 import yaml
 
-
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
@@ -20,6 +19,7 @@ class PolicySpec:
     name: str
     checkpoint: Path
     description: str = ""
+    task: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,15 +91,19 @@ class EvaluationSuiteConfig:
         for policy_name, value in raw_policies.items():
             policy_name = _safe_name(policy_name, "policy name")
             policy = _mapping(value, f"policy {policy_name!r}")
-            _unknown(policy, {"checkpoint", "description"}, f"policy {policy_name!r}")
+            _unknown(policy, {"checkpoint", "description", "task"}, f"policy {policy_name!r}")
             checkpoint = policy.get("checkpoint")
             if not isinstance(checkpoint, str) or not checkpoint:
                 raise TypeError(f"Policy {policy_name!r} must define a checkpoint path.")
+            task = policy.get("task")
+            if task is not None and (not isinstance(task, str) or not task):
+                raise TypeError(f"Policy {policy_name!r} task must be a non-empty string or null.")
             policies.append(
                 PolicySpec(
                     name=policy_name,
                     checkpoint=Path(checkpoint).expanduser().resolve(),
                     description=str(policy.get("description", "")),
+                    task=task,
                 )
             )
         if not policies:
@@ -120,7 +124,11 @@ class EvaluationSuiteConfig:
             scenario_file = None
         elif isinstance(scenario_file_value, str) and scenario_file_value:
             scenario_path = Path(scenario_file_value).expanduser()
-            scenario_file = (source.parent / scenario_path).resolve() if not scenario_path.is_absolute() else scenario_path.resolve()
+            scenario_file = (
+                (source.parent / scenario_path).resolve()
+                if not scenario_path.is_absolute()
+                else scenario_path.resolve()
+            )
         else:
             raise TypeError("scenario_file must be null or a non-empty path string.")
 

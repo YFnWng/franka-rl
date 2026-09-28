@@ -14,6 +14,9 @@ class FrankyImpedanceActionCfg(ActionTermCfg):
     joint_names: list[str] = MISSING
     preserve_order: bool = True
     nominal_stiffness: float = 100.0
+    # None preserves the training convention D = 2 sqrt(K). Hardware replay
+    # supplies the independently recorded damping coefficient.
+    nominal_damping: float | None = None
     gain_alpha_range: tuple[float, float] | None = None
     position_error_clip: float = 0.5
     torque_slew_rate: float = 1000.0

@@ -115,3 +115,59 @@ class Fr3FrankyIncremental6DImpedanceEnvCfg(Fr3FrankyIncrementalImpedanceEnvCfg)
         # Joint 7 is held by construction, so an uncontrollable posture reward
         # would add a reset-dependent constant rather than a learning signal.
         self.rewards.joint_7_posture = None
+
+
+
+@configclass
+class Fr3FrankyIncremental6DNoFineRewardEnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Axis-2 ablation without the narrow terminal-position kernel."""
+
+    reward_ablation: str = "no_fine_tracking"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.rewards.fine_position_tracking = None
+
+
+@configclass
+class Fr3FrankyIncremental6DNoReferenceAccelerationEnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Axis-2 ablation without physical reference-acceleration shaping."""
+
+    reward_ablation: str = "no_reference_acceleration"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.rewards.reference_acceleration = None
+
+
+@configclass
+class Fr3FrankyIncremental6DNoNearTargetVelocityEnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Axis-2 ablation without the near-target settling objective."""
+
+    reward_ablation: str = "no_near_target_velocity"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.rewards.near_target_reference_velocity = None
+
+
+@configclass
+class Fr3FrankyIncremental6DNoConstraintShapingEnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Axis-2 ablation of velocity, clipping, and reference-bound shaping."""
+
+    reward_ablation: str = "no_constraint_shaping"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.rewards.measured_velocity_envelope = None
+        self.rewards.action_clipping_overshoot = None
+        self.rewards.reference_projection = None
+
+
+
+@configclass
+class Fr3FrankyIncremental6DDeploymentDREnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Six-axis incremental task reserved for the focused deployment DR scenario."""
+
+    required_training_scenario: str = "fr3_incremental_deployment_dr_v1"
+    domain_randomization_contract: str = "gain_delay_payload_v1"

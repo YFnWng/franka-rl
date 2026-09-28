@@ -21,7 +21,6 @@ from .artifact_reader import read_artifacts
 from .suite_config import EvaluationSuiteConfig, PolicySpec
 from .target_sets import ensure_target_set
 
-
 DEFAULT_DATA_ROOT = Path("/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data")
 MIN_FREE_BYTES = 100 * 1024 * 1024
 
@@ -123,6 +122,7 @@ class EvaluationSuiteCoordinator:
                     descriptor = {
                         "suite_sha256": self.config.source_sha256,
                         "policy": policy.name,
+                        "task": policy.task or self.config.evaluation.task,
                         "checkpoint_sha256": checkpoint_sha256,
                         "scenario": scenario,
                         "scenario_catalog_sha256": self._scenario_catalog_sha256,
@@ -173,6 +173,7 @@ class EvaluationSuiteCoordinator:
                 "scenario": job.scenario,
                 "seed": job.seed,
                 "checkpoint": str(job.policy.checkpoint),
+                "task": job.policy.task or self.config.evaluation.task,
                 "checkpoint_sha256": job.checkpoint_sha256,
                 "target_set": (
                     {"path": str(job.target_set_path), "sha256": job.target_set_sha256}
@@ -210,7 +211,7 @@ class EvaluationSuiteCoordinator:
             "-u",
             str(self.evaluate_script),
             "--task",
-            evaluation.task,
+            job.policy.task or evaluation.task,
             "--checkpoint",
             str(job.policy.checkpoint),
             "--scenario",

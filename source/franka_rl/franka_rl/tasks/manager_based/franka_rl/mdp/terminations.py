@@ -116,6 +116,7 @@ class EvaluationStateMetrics(ManagerTermBase):
         self.joint_limit_margin_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.joint_velocity_ratio = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.command_difference_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
+        self.reference_acceleration_ratio = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.action_clipping = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.applied_torque_norm_nm = torch.full((self.num_envs,), float("nan"), device=self.device)
         self.tracking_error_norm_rad = torch.full((self.num_envs,), float("nan"), device=self.device)
@@ -170,6 +171,7 @@ class EvaluationStateMetrics(ManagerTermBase):
 
         if action_name is None:
             self.command_difference_norm_rad.fill_(float("nan"))
+            self.reference_acceleration_ratio.fill_(float("nan"))
             self.action_clipping.fill_(float("nan"))
             self.applied_torque_norm_nm.fill_(float("nan"))
             self.tracking_error_norm_rad.fill_(float("nan"))
@@ -178,11 +180,25 @@ class EvaluationStateMetrics(ManagerTermBase):
             action = env.action_manager.get_term(action_name)
             command_difference = getattr(action, "command_difference", None)
             action_clipping = getattr(action, "action_clipping", None)
+            reference_velocity = getattr(action, "reference_velocity", None)
+            previous_reference_velocity = getattr(action, "previous_reference_velocity", None)
+            max_reference_acceleration = getattr(action, "max_reference_acceleration", None)
             applied_torque = getattr(action, "peak_applied_torque", None)
             if command_difference is None:
                 self.command_difference_norm_rad.fill_(float("nan"))
             else:
                 self.command_difference_norm_rad.copy_(torch.linalg.vector_norm(command_difference, dim=1))
+            if (
+                reference_velocity is None
+                or previous_reference_velocity is None
+                or max_reference_acceleration is None
+            ):
+                self.reference_acceleration_ratio.fill_(float("nan"))
+            else:
+                acceleration = (reference_velocity - previous_reference_velocity) / float(env.step_dt)
+                self.reference_acceleration_ratio.copy_(
+                    torch.amax(torch.abs(acceleration) / max_reference_acceleration, dim=1)
+                )
             if action_clipping is None:
                 self.action_clipping.fill_(float("nan"))
             else:

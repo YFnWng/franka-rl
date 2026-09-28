@@ -1,0 +1,38 @@
+version: 1
+name: axis1_policy_output_three_seed
+scenario: nominal
+target_seeds: [42, 123, 456]
+num_envs: 1024
+max_iterations: 150
+device: cuda:0
+
+policies:
+  absolute_position:
+    description: Full-range absolute joint-position output.
+    train_task: Franka-FR3v2-FrankyImpedance-Reach-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Reach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-CirclePath-v0
+    experiment_name: fr3_impedance_reach
+    run_name_prefix: axis1_absolute_position
+    existing_checkpoints:
+      42: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_impedance_reach/2026-09-26_18-23-18_fr3_impedance_nominal_v3_bounded_150/model_149.pt
+
+  position_increment:
+    description: Six-axis bounded position-increment output.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis1_position_increment
+    existing_checkpoints:
+      42: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt
+
+  velocity_reference:
+    description: Six-axis joint-velocity reference output.
+    train_task: Franka-FR3v2-FrankyVelocityImpedance-Reach-v0
+    point_task: Franka-FR3v2-FrankyVelocityImpedance-Reach-v0
+    circle_task: Franka-FR3v2-FrankyVelocityImpedance-CirclePath-v0
+    experiment_name: fr3_velocity_impedance_reach
+    run_name_prefix: axis1_velocity_reference
+    existing_checkpoints:
+      123: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_velocity_impedance_reach/2026-09-27_17-35-37_fr3_velocity_impedance_accel_objective_v2/model_149.pt

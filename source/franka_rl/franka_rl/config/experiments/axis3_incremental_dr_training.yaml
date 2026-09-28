@@ -1,0 +1,29 @@
+version: 1
+name: axis3_incremental_nominal_vs_deployment_dr_three_seed
+scenario: nominal
+target_seeds: [42, 123, 456]
+num_envs: 1024
+max_iterations: 150
+device: cuda:0
+
+policies:
+  nominal_incremental:
+    description: Six-axis position-increment control trained without domain randomization.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    scenario: nominal
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach
+    run_name_prefix: axis3_nominal_incremental
+    existing_checkpoints:
+      42: ${FRANKA_RL_DATA_ROOT}/runs/logs/rsl_rl/fr3_incremental_6d_impedance_reach/2026-09-26_19-55-38_fr3_incremental_6d_fine_nominal_v1/model_149.pt
+
+  deployment_dr:
+    description: Same policy contract with reset-sampled gains, delay, and flange payload.
+    train_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-DR-v0
+    scenario: fr3_incremental_deployment_dr_v1
+    point_task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-v0
+    circle_task: Franka-FR3v2-FrankyImpedance-Incremental6DCirclePath-v0
+    experiment_name: fr3_incremental_6d_impedance_reach_dr
+    run_name_prefix: axis3_deployment_dr
+    existing_checkpoints: {}

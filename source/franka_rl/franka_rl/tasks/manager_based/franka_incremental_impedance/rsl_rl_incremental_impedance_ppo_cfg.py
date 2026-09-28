@@ -1,6 +1,7 @@
 """PPO defaults for the 50 Hz incremental-position impedance task."""
 
 from isaaclab.utils.configclass import configclass
+
 from isaaclab_rl.rsl_rl import RslRlMLPModelCfg
 
 from ..franka_rl.agents.rsl_rl_ppo_cfg import PPORunnerCfg
@@ -46,3 +47,11 @@ class Incremental6DImpedancePPORunnerCfg(PPORunnerCfg):
         )
         self.algorithm.gamma = 0.99 ** (30.0 / 50.0)
         self.algorithm.lam = 0.95 ** (30.0 / 50.0)
+
+
+
+@configclass
+class Incremental6DDeploymentDRPPORunnerCfg(Incremental6DImpedancePPORunnerCfg):
+    """Separate logging namespace for the deployment-focused DR policy."""
+
+    experiment_name = "fr3_incremental_6d_impedance_reach_dr"

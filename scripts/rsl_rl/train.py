@@ -158,6 +158,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     """Train with RSL-RL agent."""
     scenario_catalog = ScenarioCatalog.from_yaml(args_cli.scenario_file)
     scenario = scenario_catalog.get(args_cli.scenario)
+    required_training_scenario = getattr(env_cfg, "required_training_scenario", None)
+    if required_training_scenario is not None and scenario.name != required_training_scenario:
+        raise ValueError(
+            f"Task {args_cli.task!r} requires training scenario {required_training_scenario!r}; "
+            f"received {scenario.name!r}. Pass --scenario {required_training_scenario}."
+        )
     if scenario.type == "specified":
         raise ValueError(
             f"Specified scenario {scenario.name!r} is intended for robustness evaluation, not training. "

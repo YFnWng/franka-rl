@@ -141,6 +141,15 @@ parser.add_argument(
     help="Optional deterministic target-set JSON for paired evaluation.",
 )
 parser.add_argument(
+    "--hardware-session",
+    type=Path,
+    default=None,
+    help=(
+        "Packaged hardware session directory for exact controller, path, "
+        "checkpoint, and initial-state replay. Requires one environment and episode."
+    ),
+)
+parser.add_argument(
     "--scenario",
     default="nominal",
     help="Named scenario from the scenario YAML catalog.",
@@ -223,6 +232,36 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     data_root = Path(os.environ.get("FRANKA_RL_DATA_ROOT", DEFAULT_DATA_ROOT)).expanduser().resolve()
     validate_data_root(data_root)
+
+    hardware_replay = None
+    hardware_replay_metadata = None
+    if args_cli.hardware_session is not None:
+        from franka_rl.utils.hardware_replay import HardwareSessionReplay
+
+        hardware_replay = HardwareSessionReplay.from_directory(
+            args_cli.hardware_session, data_root=data_root
+        )
+        hardware_replay.validate_task(args_cli.task)
+        hardware_replay.validate_path_metadata(path_metadata)
+        if args_cli.target_set is not None:
+            raise ValueError("--hardware-session cannot be combined with --target-set")
+        if args_cli.num_envs != 1 or args_cli.num_episodes != 1:
+            raise ValueError("Hardware replay requires --num_envs 1 --num_episodes 1")
+        if scenario.control.action_delay_steps != 1:
+            raise ValueError(
+                "Hardware replay requires a scenario with exactly one policy-step delay"
+            )
+        if Path(args_cli.checkpoint).expanduser().resolve() != hardware_replay.checkpoint:
+            raise ValueError(
+                "--checkpoint does not match the checkpoint recorded by the hardware bundle"
+            )
+        controller_metadata = hardware_replay.apply_controller_config(
+            env_cfg.actions.arm_action
+        )
+        hardware_replay_metadata = {
+            **hardware_replay.artifact_metadata(),
+            "simulator_controller": controller_metadata,
+        }
 
     if args_cli.output_dir is None:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
@@ -340,6 +379,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 ),
                 "payload_reference": "fr3_flange origin",
             }
+        if hardware_replay_metadata is not None:
+            scenario_metadata["hardware_replay"] = hardware_replay_metadata
         print("[INFO] Robustness scenario:")
         print_dict(scenario_metadata, nesting=4)
 
@@ -355,6 +396,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "joint_limit_margin_rad": evaluation_state_term.joint_limit_margin_rad,
                 "joint_velocity_ratio": evaluation_state_term.joint_velocity_ratio,
                 "command_difference_norm_rad": evaluation_state_term.command_difference_norm_rad,
+                "reference_acceleration_ratio": evaluation_state_term.reference_acceleration_ratio,
                 "action_clipping": evaluation_state_term.action_clipping,
                 "applied_torque_norm_nm": evaluation_state_term.applied_torque_norm_nm,
                 "tracking_error_norm_rad": evaluation_state_term.tracking_error_norm_rad,
@@ -365,6 +407,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # environment exist. An eager custom Isaac command import initializes
         # USD/pxr too early and can make native Kit startup crash.
         replay_controller = None
+        if hardware_replay is not None:
+            from franka_rl.utils.hardware_replay import HardwareInitialStateController
+
+            hardware_initial_state = HardwareInitialStateController(
+                hardware_replay.initial_joint_position,
+                hardware_replay.initial_joint_velocity,
+            )
+            hardware_initial_state.install(env.unwrapped, reset_event_name="reset_arm")
         if args_cli.target_set is not None:
             from franka_rl.utils.target_replay import TargetReplayController
 
@@ -383,6 +433,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
         robot = env.unwrapped.scene["robot"]
         initial_joint_ids, initial_joint_names = robot.find_joints("panda_joint.*")
+        trace_action_term = None
+        if hardware_replay is not None:
+            trace_action_term = env.unwrapped.action_manager.get_term("arm_action")
+            trace_ticks = math.ceil(env_cfg.episode_length_s / env_cfg.sim.dt) + 2000
+            trace_action_term.start_diagnostic_trace(trace_ticks, env_id=0)
 
         def initial_state_reader(_env):
             return {
@@ -502,9 +557,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         startup_auto_reset_prime = bool(
             getattr(env.unwrapped.cfg, "evaluation_startup_auto_reset_prime", False)
         )
-        if startup_auto_reset_prime and args_cli.target_set is not None:
+        if startup_auto_reset_prime and (
+            args_cli.target_set is not None or hardware_replay is not None
+        ):
             startup_auto_reset_prime = False
-            initialization_reason = "disabled_for_paired_target_replay"
+            initialization_reason = (
+                "disabled_for_hardware_replay"
+                if hardware_replay is not None
+                else "disabled_for_paired_target_replay"
+            )
         else:
             initialization_reason = "task_contract"
         scenario_metadata["runtime_initialization"] = {
@@ -517,6 +578,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         evaluation_cfg = EvaluationConfig(
             job_id=args_cli.job_id,
             target_set=target_set_metadata,
+            hardware_replay=hardware_replay_metadata,
             scenario=scenario_metadata,
             record_domain_parameters=scenario_modifier.records_episode_parameters,
             domain_parameter_schema=domain_parameter_schema,
@@ -554,6 +616,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 raise RuntimeError("Evaluation stopped before recording all requested episodes.")
             results.print_summary()
             results.save()
+            if hardware_replay is not None:
+                from franka_rl.utils.hardware_replay import save_simulation_trace
+
+                trace_action_term.stop_diagnostic_trace()
+                save_simulation_trace(
+                    trace_action_term.diagnostic_trace(),
+                    output_dir,
+                    physics_dt_s=float(env_cfg.sim.dt),
+                    circle_path=hardware_replay.path,
+                )
             completion = {
                 "status": "complete",
                 "job_id": args_cli.job_id,

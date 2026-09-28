@@ -56,6 +56,8 @@ class FrankyImpedanceAction(ActionTerm):
         self._diagnostic_trace_index = 0
         self._diagnostic_env_id = 0
         self._diagnostic_trace_active = False
+        self._diagnostic_body_id: int | None = None
+        self._env_ref = env
 
         dtype = self._raw_actions.dtype
         self._controller = FrankyImpedanceController(
@@ -65,6 +67,7 @@ class FrankyImpedanceAction(ActionTerm):
             dtype,
             dt=self._physics_dt,
             nominal_stiffness=cfg.nominal_stiffness,
+            nominal_damping=cfg.nominal_damping,
             gain_alpha_range=cfg.gain_alpha_range,
             position_error_clip=cfg.position_error_clip,
             torque_slew_rate=cfg.torque_slew_rate,
@@ -148,14 +151,16 @@ class FrankyImpedanceAction(ActionTerm):
         return self._faulted
 
     def start_diagnostic_trace(self, max_ticks: int, env_id: int = 0) -> None:
-        """Enable a bounded, GPU-resident 1 kHz velocity-controller trace."""
+        """Enable a bounded GPU-resident 1 kHz controller/kinematic trace."""
 
-        if not hasattr(self, "_target_reference_velocity") or self.action_dim != 6:
-            raise TypeError("Diagnostic tracing is only supported by the 6D velocity-reference action")
         if max_ticks < 1:
             raise ValueError("max_ticks must be positive")
         if env_id < 0 or env_id >= self.num_envs:
             raise ValueError(f"env_id must be in [0, {self.num_envs}), got {env_id}")
+        body_ids, _ = self._asset.find_bodies("fr3_flange")
+        if len(body_ids) != 1:
+            raise ValueError("Diagnostic trace requires exactly one fr3_flange body")
+        self._diagnostic_body_id = int(body_ids[0])
         joint_shape = (max_ticks, 7)
         self._diagnostic_trace = {
             "joint_position": torch.empty(joint_shape, device=self.device),
@@ -163,11 +168,13 @@ class FrankyImpedanceAction(ActionTerm):
             "position_reference": torch.empty(joint_shape, device=self.device),
             "target_velocity_reference": torch.empty(joint_shape, device=self.device),
             "applied_velocity_reference": torch.empty(joint_shape, device=self.device),
-            "normalized_action": torch.empty((max_ticks, 6), device=self.device),
+            "normalized_action": torch.empty((max_ticks, self.action_dim), device=self.device),
             "requested_torque": torch.empty(joint_shape, device=self.device),
             "slew_limited_torque": torch.empty(joint_shape, device=self.device),
             "filtered_torque": torch.empty(joint_shape, device=self.device),
             "applied_torque": torch.empty(joint_shape, device=self.device),
+            "end_effector_position_base": torch.empty((max_ticks, 3), device=self.device),
+            "waypoint_index": torch.empty((max_ticks, 1), device=self.device),
         }
         self._diagnostic_trace_index = 0
         self._diagnostic_env_id = env_id
@@ -204,13 +211,24 @@ class FrankyImpedanceAction(ActionTerm):
         trace["joint_velocity"][index].copy_(joint_velocity[env_id])
         trace["position_reference"][index].copy_(self._mapped_target[env_id])
         trace["target_velocity_reference"][index].zero_()
-        trace["target_velocity_reference"][index, :6].copy_(self._target_reference_velocity[env_id])
+        target_velocity = getattr(self, "_target_reference_velocity", None)
+        if target_velocity is not None:
+            trace["target_velocity_reference"][index, :6].copy_(target_velocity[env_id])
         trace["applied_velocity_reference"][index].copy_(applied_velocity_reference[env_id])
         trace["normalized_action"][index].copy_(self._processed_actions[env_id])
         trace["requested_torque"][index].copy_(self._controller.requested_torque[env_id])
         trace["slew_limited_torque"][index].copy_(self._controller.previous_limited_torque[env_id])
         trace["filtered_torque"][index].copy_(self._controller.filtered_torque[env_id])
         trace["applied_torque"][index].copy_(self._controller.applied_torque[env_id])
+        body_position = self._asset.data.body_pos_w.torch[env_id, self._diagnostic_body_id]
+        trace["end_effector_position_base"][index].copy_(
+            body_position - self._env_ref.scene.env_origins[env_id]
+        )
+        try:
+            command = self._env_ref.command_manager.get_term("ee_pose")
+            trace["waypoint_index"][index, 0].copy_(command.waypoint_index[env_id])
+        except (AttributeError, KeyError):
+            trace["waypoint_index"][index, 0] = -1
         self._diagnostic_trace_index += 1
 
     def process_actions(self, actions: torch.Tensor) -> None:
@@ -249,6 +267,9 @@ class FrankyImpedanceAction(ActionTerm):
             self._mapped_target,
             coriolis,
             gravity,
+        )
+        self._record_diagnostic_tick(
+            joint_position, joint_velocity, torch.zeros_like(joint_velocity)
         )
         self._peak_applied_torque.copy_(torch.maximum(self._peak_applied_torque, torch.abs(torque)))
         self._asset.set_joint_effort_target_index(target=torque, joint_ids=self._joint_ids)
