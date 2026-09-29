@@ -408,6 +408,20 @@ scenarios:
       action_delay_range: [0, 1]
       impedance_gain_alpha_range: [0.50, 2.00]
 
+  fr3_incremental_deployment_dr_warmup_v1:
+    type: random
+    description: Mild first curriculum stage warm-started from the matched nominal incremental policy.
+    resampling: reset
+    physics:
+      payload_mass_kg: {distribution: uniform, low: 0.00, high: 0.25}
+      payload_com_offset_m:
+        - {distribution: uniform, low: -0.01, high: 0.01}
+        - {distribution: uniform, low: -0.01, high: 0.01}
+        - {distribution: uniform, low: 0.00, high: 0.02}
+    control:
+      action_delay_range: [0, 0]
+      impedance_gain_alpha_range: [0.80, 1.25]
+
   fr3_impedance_gain_dr_v1:
     type: random
     description: Deployment-focused DR for the explicit Franky impedance controller and bare-flange FR3.

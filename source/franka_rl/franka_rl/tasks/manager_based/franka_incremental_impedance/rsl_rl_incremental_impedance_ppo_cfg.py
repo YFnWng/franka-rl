@@ -52,6 +52,13 @@ class Incremental6DImpedancePPORunnerCfg(PPORunnerCfg):
 
 @configclass
 class Incremental6DDeploymentDRPPORunnerCfg(Incremental6DImpedancePPORunnerCfg):
-    """Separate logging namespace for the deployment-focused DR policy."""
+    """Numerically instrumented configuration for deployment-focused DR."""
 
     experiment_name = "fr3_incremental_6d_impedance_reach_dr"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.algorithm.class_name = "franka_rl.utils.diagnostic_ppo:DiagnosticPPO"
+        self.algorithm.learning_rate = 3.0e-4
+        self.algorithm.schedule = "fixed"
+        self.save_interval = 5

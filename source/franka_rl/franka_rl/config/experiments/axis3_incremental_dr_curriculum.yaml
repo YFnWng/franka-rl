@@ -1,0 +1,26 @@
+version: 1
+name: axis3_incremental_dr_curriculum_three_seed
+target_seeds: [42, 123, 456]
+num_envs: 1024
+device: cuda:0
+source_manifest: ${FRANKA_RL_DATA_ROOT}/training_matrices/axis1_policy_output_three_seed/checkpoint_manifest.json
+source_policy: position_increment
+experiment_name: fr3_incremental_6d_impedance_reach_dr_curriculum
+
+# Each seed begins from its matched 150-iteration nominal checkpoint. Loading
+# restores actor, critic, and iteration while --reset-optimizer prevents the
+# nominal adaptive optimizer state from entering the fixed-rate DR stages.
+stages:
+  - name: mild
+    task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-DR-Warmup-v0
+    scenario: fr3_incremental_deployment_dr_warmup_v1
+    iterations: 50
+    learning_rate: 0.0003
+    schedule: fixed
+
+  - name: full
+    task: Franka-FR3v2-FrankyImpedance-Incremental6DReach-DR-v0
+    scenario: fr3_incremental_deployment_dr_v1
+    iterations: 100
+    learning_rate: 0.0003
+    schedule: fixed

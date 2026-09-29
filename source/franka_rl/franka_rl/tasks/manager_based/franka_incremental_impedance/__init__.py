@@ -68,6 +68,21 @@ _register_reward_ablation(
 
 
 gym.register(
+    id="Franka-FR3v2-FrankyImpedance-Incremental6DReach-DR-Warmup-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": (
+            f"{__name__}.incremental_impedance_env_cfg:Fr3FrankyIncremental6DCurriculumWarmupEnvCfg"
+        ),
+        "rsl_rl_cfg_entry_point": (
+            f"{__name__}.rsl_rl_incremental_impedance_ppo_cfg:Incremental6DDeploymentDRPPORunnerCfg"
+        ),
+    },
+)
+
+
+gym.register(
     id="Franka-FR3v2-FrankyImpedance-Incremental6DReach-DR-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,

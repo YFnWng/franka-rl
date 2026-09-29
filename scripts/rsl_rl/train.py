@@ -97,6 +97,12 @@ parser.add_argument(
     help="When resuming, restore model weights and iteration but start with a fresh optimizer.",
 )
 parser.add_argument(
+    "--resume-path",
+    type=Path,
+    default=None,
+    help="Exact checkpoint path for a cross-experiment warm start. Requires --resume.",
+)
+parser.add_argument(
     "--scenario",
     default="nominal",
     help="Named nominal or random scenario from the scenario YAML catalog.",
@@ -186,6 +192,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             agent_cfg.algorithm.schedule = args_cli.schedule
         if args_cli.reset_optimizer and not agent_cfg.resume:
             raise ValueError("--reset-optimizer requires --resume")
+        if args_cli.resume_path is not None and not agent_cfg.resume:
+            raise ValueError("--resume-path requires --resume")
+        if args_cli.resume_path is not None and (args_cli.load_run is not None or args_cli.checkpoint is not None):
+            raise ValueError("--resume-path cannot be combined with --load_run or --checkpoint")
 
         # handle deprecated configurations
         agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, installed_version)
@@ -312,8 +322,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             env = multi_agent_to_single_agent(env)
 
         # save resume path before creating a new log_dir
-        if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+        if args_cli.resume_path is not None:
+            resume_path_obj = args_cli.resume_path.expanduser().resolve()
+            if not resume_path_obj.is_file():
+                raise FileNotFoundError(f"Resume checkpoint does not exist: {resume_path_obj}")
+            resume_path = str(resume_path_obj)
+            scenario_metadata["training_resume"]["checkpoint"] = resume_path
+        elif agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
             resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+            scenario_metadata["training_resume"]["checkpoint"] = resume_path
 
         # wrap for video recording
         if args_cli.video:
@@ -339,6 +356,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
         else:
             raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
+        if hasattr(runner.alg, "set_diagnostic_dir"):
+            runner.alg.set_diagnostic_dir(log_dir)
+            print(f"[INFO] PPO numerical diagnostics enabled: {log_dir}")
         # configure_seed must be called after runner construction so that PyTorch deterministic settings
         # do not interfere with the runner's internal initialization.
         if args_cli.deterministic:

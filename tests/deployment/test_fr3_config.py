@@ -14,6 +14,7 @@ from franka_rl.tasks.manager_based.franka_impedance.rsl_rl_impedance_ppo_cfg imp
     ImpedancePPORunnerCfg,
 )
 from franka_rl.tasks.manager_based.franka_incremental_impedance.incremental_impedance_env_cfg import (
+    Fr3FrankyIncremental6DCurriculumWarmupEnvCfg,
     Fr3FrankyIncremental6DImpedanceEnvCfg,
     Fr3FrankyIncrementalImpedanceEnvCfg,
 )
@@ -94,6 +95,29 @@ def test_velocity_dr_configures_only_velocity_relevant_controls(tmp_path, monkey
     assert getattr(cfg.events, "scenario_effort_limits", None) is None
     assert metadata["configured_values"]["velocity_target_scale_range"] == (0.85, 1.15)
     assert metadata["configured_values"]["acceleration_scale_range"] == (0.75, 1.25)
+
+
+def test_incremental_dr_curriculum_warmup_is_mild(tmp_path, monkeypatch):
+    asset = tmp_path / "test.usda"
+    asset.write_text("#usda 1.0\n")
+    monkeypatch.setenv("FRANKA_RL_FR3_USD", str(asset))
+    cfg = Fr3FrankyIncremental6DCurriculumWarmupEnvCfg()
+    catalog = ScenarioCatalog.from_yaml()
+
+    metadata = ScenarioModifier(
+        catalog.get("fr3_incremental_deployment_dr_warmup_v1"), catalog
+    ).apply(cfg)
+
+    payload = cfg.events.scenario_payload_mass.params
+    assert cfg.required_training_scenario == "fr3_incremental_deployment_dr_warmup_v1"
+    assert cfg.actions.arm_action.gain_alpha_range == (0.8, 1.25)
+    assert metadata["control"]["action_delay_range"] == (0, 0)
+    assert payload["payload_mass_distribution_params"] == (0.0, 0.25)
+    assert payload["com_offset_distribution_params"] == (
+        (-0.01, 0.01),
+        (-0.01, 0.01),
+        (0.0, 0.02),
+    )
 
 
 def test_impedance_task_uses_hardware_timing_limits_and_gain_dr(tmp_path, monkeypatch):

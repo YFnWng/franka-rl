@@ -166,6 +166,14 @@ class Fr3FrankyIncremental6DNoConstraintShapingEnvCfg(Fr3FrankyIncremental6DImpe
 
 
 @configclass
+class Fr3FrankyIncremental6DCurriculumWarmupEnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
+    """Six-axis incremental task for the mild first DR curriculum stage."""
+
+    required_training_scenario: str = "fr3_incremental_deployment_dr_warmup_v1"
+    domain_randomization_contract: str = "gain_payload_curriculum_warmup_v1"
+
+
+@configclass
 class Fr3FrankyIncremental6DDeploymentDREnvCfg(Fr3FrankyIncremental6DImpedanceEnvCfg):
     """Six-axis incremental task reserved for the focused deployment DR scenario."""
 

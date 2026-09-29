@@ -8,15 +8,17 @@ The strongest representation was **joint-position increment**. Across three trai
 
 Four hardware sessions completed safely with no dropped 1 kHz samples. Paired hardware-conditioned replay reproduced circle geometry within 0.26 mm for both position-reference sessions and within 0.05 mm for the low-gain velocity session. It did **not** reproduce high-gain velocity dynamics: simulation reached 1,679 rad/s² p99 joint acceleration versus 27.8 rad/s² on hardware. The simulator is useful for policy and geometric studies, but the present high-gain velocity plant/controller model is not a validated hardware safety surrogate.
 
+Focused domain randomization produced a qualified negative result. Training from scratch with the full gain/delay/payload distribution was numerically stable at a fixed `3e-4` learning rate but severely underfit. A nominal warm start followed by 50 mild-DR and 100 full-DR iterations restored 100% success across all matched evaluation cells. However, the curriculum policies did not improve terminal accuracy and were consistently more aggressive: command differences increased 7.3%, mean reference acceleration 27.5%, and episode-level velocity-envelope exceedance 5.9 percentage points. Curriculum solved optimization, not the desired robustness-smoothness tradeoff.
+
 ### Completion audit
 
-Three axes now have compiled evaluation results. Axis 1 compares policy outputs, Axis 2 evaluates reward ablations, and Axis 4 pairs simulation with four hardware sessions. Axis 3 remains incomplete: its first DR seed stopped because PPO's learned `log_std` became non-finite, so no three-seed DR comparison exists. That failure is reported explicitly rather than converted into an unsupported robustness claim.
+All four axes now have complete evaluation artifacts. Axis 3 includes three matched nominal and curriculum-DR seeds, exact target and initial-state replay, and fixed cells for gain, delay, payload, combined boundary, and randomized in-distribution conditions.
 
 | Axis | Artifact status | Defensible conclusion |
 |---|---|---|
 | 1. Policy output | **Complete:** 3 outputs × 3 seeds, paired point and circle evaluation | Position increment is the preferred contract |
 | 2. Reward tuning | **Complete:** 5 variants × 3 seeds, paired point and circle evaluation | Fine tracking and near-target braking are important; constraint shaping showed no benefit |
-| 3. Domain randomization | **Incomplete:** DR seed 42 diverged; seeds 123/456 were not launched | No final incremental-policy DR claim |
+| 3. Domain randomization | **Complete:** 3 matched nominal/DR seeds × 9 paired conditions | Curriculum restores success but increases aggressiveness without an accuracy benefit |
 | 4. Sim versus real | **Complete:** 4 hardware-conditioned replay jobs | Strong geometric parity in 3 cells; high-gain velocity dynamics mismatch |
 
 ## System and policy contract
@@ -97,9 +99,29 @@ The focused incremental-policy DR task was designed around variables that can ch
 - flange payload mass in `[0,1]` kg; and
 - payload COM x/y in `[-0.03,0.03]` m and z in `[0,0.05]` m.
 
-It excludes friction, armature, observation noise, link-inertia scales, and extra reset spread so the comparison answers a narrow deployment question. Nominal controls for seeds 42/123/456 were imported from Axis 1. The DR run for seed 42 stopped roughly halfway through the 150-iteration budget when learned `log_std` became non-finite. Its last snapshot had 25.8 mm training error and 100% batch success, but an incomplete pre-divergence snapshot is not a comparable final policy. Seeds 123 and 456 were not launched by the fail-fast sequence.
+It excludes friction, armature, observation noise, link-inertia scales, and extra reset spread so the experiment addresses deployment-adjustable variation. The first attempt used PPO's adaptive learning rate and failed when `log_std` became non-finite. Numerical instrumentation subsequently found a rare per-sample absolute log-probability ratio of 71.6 even while mean KL remained only 0.0065; a mean-KL schedule could therefore miss a dangerous outlier and raise the learning rate too aggressively. A fixed `3e-4` rate removed that numerical failure, but direct full-range DR from scratch still underfit: its three policies achieved only 4.3 ± 2.8% success on the nominal plant.
 
-Earlier Panda absolute-position and broad-DR pilots remain hypothesis-generating only. They cannot establish that DR helps the preferred incremental controller. Recovery requires stabilizing PPO variance/learning rate, training three complete DR seeds, then running paired cells for low/high PD, one-step delay, payload mass, payload+COM, and a combined in-distribution condition.
+The corrected experiment warm-started each seed from its matched 150-iteration nominal checkpoint, reset the optimizer, trained for 50 iterations under mild DR, and then trained for 100 iterations under the full distribution. All three curricula completed with finite checkpoints. The evaluation crossed the three nominal and three curriculum policies with nine conditions: nominal; gain scales 0.5 and 2.0; one- and two-step delay; 0.5 kg payload; 1 kg payload with 5 cm z COM offset; a combined boundary case; and the randomized training distribution. Every cell used 256 deterministic episodes with identical target and initial-state replay, for 13,824 episodes total.
+
+| Metric, averaged over 27 matched seed/scenario pairs | Nominal | Curriculum DR | DR change |
+|---|---:|---:|---:|
+| Success rate | 100.0% | 100.0% | 0.0 pp |
+| Unsafe failure rate | 0.0% | 0.0% | 0.0 pp |
+| Final position error | 20.292 mm | 20.291 mm | -0.002 mm |
+| Mean trajectory position error | 166.85 mm | 167.56 mm | +0.71 mm |
+| Time to success | 1.932 s | 1.915 s | -0.016 s |
+| Episodes ever exceeding velocity envelope | 88.6% | 94.5% | +5.9 pp |
+| Mean peak velocity/envelope ratio | 1.029× | 1.056× | +0.027× |
+| Mean command difference | 0.01456 rad | 0.01563 rad | +7.3% |
+| Mean reference-acceleration ratio | 0.487 | 0.621 | +27.5% |
+| Mean peak applied-torque norm | 33.09 Nm | 33.52 Nm | +0.44 Nm |
+| Mean joint tracking error | 0.1348 rad | 0.1422 rad | +5.5% |
+
+The 3 cm success criterion is saturated: every policy solved every completed episode, and termination after five consecutive successful steps makes the approximately 20 mm final error a threshold-crossing measurement rather than steady-state precision. The curriculum DR policies were about 16 ms faster, but their terminal accuracy was indistinguishable from nominal. Training-seed effects were larger than the submillimeter accuracy differences between groups.
+
+The motion-quality result was consistent across conditions. Curriculum DR increased command variation, acceleration, peak velocity, torque, and joint tracking error. The velocity-envelope statistic is episode-level—an episode counts if any policy step exceeds the configured envelope—so 94.5% does not mean the robot spends 94.5% of its time above the envelope. It nevertheless shows that curriculum DR made excursions more common rather than reducing them. Action clipping and reference projection remained zero, so these differences came from the learned commands and closed-loop response rather than a saturated action map or joint-limit correction.
+
+The experiment therefore separates two issues. Direct full-range DR from scratch is an optimization failure under this budget; nominal warm-start curriculum fixes that failure. Once learning succeeds, the tested DR distribution still provides no measurable accuracy robustness and shifts the policy toward faster, less smooth behavior. The defensible conclusion is not that DR is universally ineffective, but that this formulation and reward do not improve the robustness-smoothness tradeoff. A further DR iteration would need an explicit selection objective for motion quality or a distribution/weighting change, followed by the same paired fixed-cell evaluation.
 
 ## Axis 4 — Paired simulation versus hardware
 
@@ -122,7 +144,7 @@ All hardware sessions stopped normally, reported no robot/last-motion errors, an
 
 1. **Use position increments for this task.** They separate total range from per-step smoothness and dominate the other contracts in the controlled comparison.
 2. **Keep fine tracking and near-target braking.** Fine tracking is required for precision and safety; near-target velocity is required for reliable waypoint completion. Reference acceleration remains a conservative reliability guard, while constraint shaping is mostly dormant.
-3. **Do not claim focused DR success yet.** The intended experiment is sound, but the recorded DR training diverged.
+3. **Curriculum fixes DR optimization, not behavior quality.** Nominal warm starts recovered 100% success under all tested variations, but DR produced no accuracy gain and increased command variation, acceleration, velocity excursions, torque, and tracking error.
 4. **Treat simulator dynamics as controller-region dependent.** Geometry was reproduced well at low gains, while high-gain velocity dynamics were not.
 5. **The deployment is complete and reproducible.** The project carries a learned policy from batched simulation to deterministic ONNX inference, YAML path scheduling, a 1 kHz real-time controller, and auditable hardware logs.
 
@@ -130,7 +152,11 @@ All hardware sessions stopped normally, reported no robot/last-motion errors, an
 
 - Axis 1 compiled results: `${FRANKA_RL_DATA_ROOT}/evaluation_suites/axis1_policy_output_three_seed/`
 - Axis 2 compiled results: `${FRANKA_RL_DATA_ROOT}/evaluation_suites/2026-09-28_11-38-52_axis2_reward_ablation_three_seed/`
-- Axis 3 failed manifest/log: `${FRANKA_RL_DATA_ROOT}/training_matrices/2026-09-28_10-20-32_axis3_incremental_nominal_vs_deployment_dr_three_seed/`
+- Axis 3 fixed-rate training manifest: `${FRANKA_RL_DATA_ROOT}/training_matrices/2026-09-28_21-35-46_axis3_incremental_nominal_vs_deployment_dr_three_seed/`
+- Axis 3 nominal/combined evaluation: `${FRANKA_RL_DATA_ROOT}/evaluation_suites/2026-09-28_22-05-31_axis3_dr_fixed_lr/`
+- Axis 3 original numerical-failure record: `${FRANKA_RL_DATA_ROOT}/training_matrices/2026-09-28_10-20-32_axis3_incremental_nominal_vs_deployment_dr_three_seed/`
+- Axis 3 curriculum manifest: `${FRANKA_RL_DATA_ROOT}/training_matrices/axis3_incremental_dr_curriculum_three_seed/curriculum_manifest.json`
+- Axis 3 paired curriculum comparison: `${FRANKA_RL_DATA_ROOT}/evaluation_suites/axis3_curriculum_dr_comparison/`
 - Axis 4 compiled replay: `${FRANKA_RL_DATA_ROOT}/evaluation_suites/2026-09-28_10-39-01_axis4_hardware_paired_replay/`
 - Complete hardware package: `${FRANKA_RL_DATA_ROOT}/hardware_tracking_2026-09-27_complete/`
 - Experiment runners: [`scripts/experiments`](scripts/experiments/)

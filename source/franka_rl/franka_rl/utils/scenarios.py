@@ -87,6 +87,7 @@ class ControlSpec:
     action_delay_range: tuple[int, int] | None = None
     velocity_target_scale_range: tuple[float, float] | None = None
     acceleration_scale_range: tuple[float, float] | None = None
+    impedance_gain_alpha: float | None = None
     impedance_gain_alpha_range: tuple[float, float] | None = None
 
 
@@ -254,7 +255,11 @@ class ScenarioModifier:
         ranges = {
             "velocity_target_scale_range": control.velocity_target_scale_range,
             "acceleration_scale_range": control.acceleration_scale_range,
-            "gain_alpha_range": control.impedance_gain_alpha_range,
+            "gain_alpha_range": (
+                (control.impedance_gain_alpha, control.impedance_gain_alpha)
+                if control.impedance_gain_alpha is not None
+                else control.impedance_gain_alpha_range
+            ),
         }
         for attribute, value in ranges.items():
             if value is None:
@@ -1103,6 +1108,7 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
             "action_delay_range",
             "velocity_target_scale_range",
             "acceleration_scale_range",
+            "impedance_gain_alpha",
             "impedance_gain_alpha_range",
         },
         f"control for scenario {scenario_name!r}",
@@ -1132,6 +1138,21 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
         if delay_range[0] < 0 or delay_range[0] > delay_range[1]:
             raise ValueError(f"{scenario_name}.action_delay_range must be ordered and nonnegative.")
         parsed_range = (delay_range[0], delay_range[1])
+    fixed_gain = mapping.get("impedance_gain_alpha")
+    gain_range = mapping.get("impedance_gain_alpha_range")
+    if fixed_gain is not None and gain_range is not None:
+        raise ValueError(
+            f"Scenario {scenario_name!r} cannot define both fixed and random impedance gain."
+        )
+    if fixed_gain is not None:
+        if scenario_type != "specified":
+            raise ValueError(
+                f"Only specified scenarios may define impedance_gain_alpha."
+            )
+        fixed_gain = _require_number(fixed_gain, f"{scenario_name}.impedance_gain_alpha")
+        if fixed_gain <= 0.0:
+            raise ValueError(f"{scenario_name}.impedance_gain_alpha must be strictly positive.")
+
     continuous_ranges: dict[str, tuple[float, float] | None] = {}
     for name in (
         "velocity_target_scale_range",
@@ -1156,6 +1177,7 @@ def _parse_control(value: Any, scenario_type: ScenarioType, scenario_name: str) 
     return ControlSpec(
         action_delay_steps=delay,
         action_delay_range=parsed_range,
+        impedance_gain_alpha=fixed_gain,
         **continuous_ranges,
     )
 
