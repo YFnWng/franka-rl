@@ -1,16 +1,16 @@
 # Sim-to-Real Reinforcement Learning for FR3 Reaching and Circle Tracking
 
-## Executive summary
+## summary
 
 This project built a manager-based Isaac Lab task, trained PPO policies for a Franka Research 3 (FR3), exported them to ONNX, and deployed two learned control contracts on the real robot. The stack runs at 50 Hz above a 1 kHz Franky/libfranka impedance loop with measured-state feedback, gravity/Coriolis compensation, YAML-defined waypoint suites, and runtime safety checks.
 
-The strongest representation was **joint-position increment**. Across three training seeds it achieved 100% success on 1,536 held-out point-reaching episodes and the best circle result (17.9/24 waypoints on average). Absolute joint-position output failed under the shared deployment delay and demanded roughly 9.5 times the configured velocity envelope. Joint-velocity reference also reached random points, but was less accurate, less seed-stable on the circle, and exposed unstable high-gain regions in simulation.
+<!-- The strongest representation was **joint-position increment**. Across three training seeds it achieved 100% success on 1,536 held-out point-reaching episodes and the best circle result (17.9/24 waypoints on average). Absolute joint-position output failed under the shared deployment delay and demanded roughly 9.5 times the configured velocity envelope. Joint-velocity reference also reached random points, but was less accurate, less seed-stable on the circle, and exposed unstable high-gain regions in simulation.
 
 Four hardware sessions completed safely with no dropped 1 kHz samples. Paired hardware-conditioned replay reproduced circle geometry within 0.26 mm for both position-reference sessions and within 0.05 mm for the low-gain velocity session. It did **not** reproduce high-gain velocity dynamics: simulation reached 1,679 rad/s² p99 joint acceleration versus 27.8 rad/s² on hardware. The simulator is useful for policy and geometric studies, but the present high-gain velocity plant/controller model is not a validated hardware safety surrogate.
 
-Focused domain randomization produced a qualified negative result. Training from scratch with the full gain/delay/payload distribution was numerically stable at a fixed `3e-4` learning rate but severely underfit. A nominal warm start followed by 50 mild-DR and 100 full-DR iterations restored 100% success across all matched evaluation cells. However, the curriculum policies did not improve terminal accuracy and were consistently more aggressive: command differences increased 7.3%, mean reference acceleration 27.5%, and episode-level velocity-envelope exceedance 5.9 percentage points. Curriculum solved optimization, not the desired robustness-smoothness tradeoff.
+Focused domain randomization produced a qualified negative result. Training from scratch with the full gain/delay/payload distribution was numerically stable at a fixed `3e-4` learning rate but severely underfit. A nominal warm start followed by 50 mild-DR and 100 full-DR iterations restored 100% success across all matched evaluation cells. However, the curriculum policies did not improve terminal accuracy and were consistently more aggressive: command differences increased 7.3%, mean reference acceleration 27.5%, and episode-level velocity-envelope exceedance 5.9 percentage points. Curriculum solved optimization, not the desired robustness-smoothness tradeoff. -->
 
-### Completion audit
+<!-- ### Completion audit
 
 All four axes now have complete evaluation artifacts. Axis 3 includes three matched nominal and curriculum-DR seeds, exact target and initial-state replay, and fixed cells for gain, delay, payload, combined boundary, and randomized in-distribution conditions.
 
@@ -19,7 +19,7 @@ All four axes now have complete evaluation artifacts. Axis 3 includes three matc
 | 1. Policy output | **Complete:** 3 outputs × 3 seeds, paired point and circle evaluation | Position increment is the preferred contract |
 | 2. Reward tuning | **Complete:** 5 variants × 3 seeds, paired point and circle evaluation | Fine tracking and near-target braking are important; constraint shaping showed no benefit |
 | 3. Domain randomization | **Complete:** 3 matched nominal/DR seeds × 9 paired conditions | Curriculum restores success but increases aggressiveness without an accuracy benefit |
-| 4. Sim versus real | **Complete:** 4 hardware-conditioned replay jobs | Strong geometric parity in 3 cells; high-gain velocity dynamics mismatch |
+| 4. Sim versus real | **Complete:** 4 hardware-conditioned replay jobs | Strong geometric parity in 3 cells; high-gain velocity dynamics mismatch | -->
 
 ## System and policy contract
 
@@ -35,7 +35,55 @@ All four axes now have complete evaluation artifacts. Axis 3 includes three matc
 | Hardware controller | 1 kHz impedance loop, `tau = K(q_ref-q) + D(dq_ref-dq) + coriolis` |
 | Path scheduler | Advance on tolerance or per-waypoint timeout; future waypoints are hidden |
 
+![Simulation-to-hardware system architecture](franka-rl-diagram.drawio.png)
+
 The circle is a sequence of unseen move-and-settle targets, not a trajectory-preview tracking problem.
+
+### Reward
+
+The following reward is the exact full reward used by the preferred six-action position-increment task and the Axis 2 ablation. Let $e_t=p_t^*-p_t$ be Cartesian position error; $v_{t,i}^{ref}$ the physical reference velocity implied by consecutive position increments; $v_i^{max}$ and $a_i^{max}$ the reviewed per-joint velocity and acceleration scales; $v_{t,i}^{peak}$ the maximum measured speed during the twenty 1 ms controller steps; $a_{t,i}^{raw}$ and $a_{t,i}$ the raw and bounded policy actions; and $\delta q_{t,i}^{proj}$ the part removed by soft-limit projection. With six controlled joints,
+
+$$
+\begin{aligned}
+r_t ={}& \exp\!\left(-\frac{\lVert e_t\rVert_2^2}{0.05}\right)
+      + \exp\!\left(-\frac{\lVert e_t\rVert_2^2}{0.0025}\right) \\
+&-10^{-3}c_{acc}
+ -2\!\times\!10^{-3}c_{settle}
+ -2\!\times\!10^{-3}c_{vel}
+ -10^{-1}c_{clip}
+ -10^{-1}c_{proj}
+ -c_{contact}.
+\end{aligned}
+$$
+
+The component costs are
+
+$$
+\begin{aligned}
+c_{acc} &= \frac{1}{6}\sum_{i=1}^{6}
+ \left(\frac{(v_{t,i}^{ref}-v_{t-1,i}^{ref})/\Delta t}{a_i^{max}}\right)^2, \\
+c_{settle} &= \mathbf{1}[\lVert e_t\rVert_2<0.05]
+ \frac{1}{6}\sum_{i=1}^{6}\left(\frac{v_{t,i}^{ref}}{v_i^{max}}\right)^2, \\
+c_{vel} &= \frac{1}{6}\sum_{i=1}^{6}
+ \operatorname{ReLU}\!\left(\frac{v_{t,i}^{peak}}{v_i^{max}}-1\right)^2, \\
+c_{clip} &= \frac{1}{6}\sum_{i=1}^{6}(a_{t,i}^{raw}-a_{t,i})^2, \\
+c_{proj} &= \frac{1}{6}\sum_{i=1}^{6}(\delta q_{t,i}^{proj})^2, \\
+c_{contact} &= \sum_b \mathbf{1}\!\left[\max_{k\in\text{control window}}\lVert F_{b,k}\rVert_2>1\ \mathrm{N}\right].
+\end{aligned}
+$$
+
+| Term | Weight | Purpose | Policy-contract scope |
+|---|---:|---|---|
+| Coarse position tracking | +1.0 | Broad Cartesian approach signal | All reported reaching contracts |
+| Fine position tracking | +1.0 | Terminal precision | Six-action incremental and inherited velocity-reference contracts; not the absolute-position baseline |
+| Reference acceleration | -0.001 | Smooth changes in physical reference velocity | Position increment; velocity reference uses the same form with weight -0.01 |
+| Near-target reference velocity | -0.002 | Brake inside 5 cm | Position-increment and velocity-reference contracts |
+| Measured velocity envelope | -0.002 | Penalize measured speed beyond the reviewed envelope | Franky impedance contracts |
+| Action-clipping overshoot | -0.1 | Penalize raw output outside $[-1,1]$ | Bounded Franky impedance actions |
+| Reference projection | -0.1 | Penalize requests removed at soft joint limits | Integrated position-increment and velocity-reference contracts |
+| Self-contact | -1.0 | Count moving-link contacts above 1 N | Franky impedance contracts; held fixed in Axis 2 |
+
+The absolute-position contract uses a command-step violation term instead of reference-acceleration and near-target reference-velocity shaping. The velocity-reference contract inherits the tracking, settling, envelope, clipping, projection, and contact terms, strengthens $c_{acc}$ to -0.01, and adds a weak $-5\times10^{-4}$ hinge on acceleration beyond $a_i^{max}$. Position-plus-z-axis policies additionally use coarse and fine orientation kernels; those terms are outside the position-only ablation reported here.
 
 ## Axis 1 — Policy output and controller choice
 
@@ -57,18 +105,7 @@ The velocity policy had lower reference-tracking error but not better Cartesian 
 
 ## Axis 2 — Reward tuning on position increments
 
-The reward matrix keeps the task-defining coarse Cartesian reward and self-collision guard fixed and removes only interpretable terms/groups.
-
-| Term | Weight | Purpose |
-|---|---:|---|
-| Coarse position tracking | +1.0 | Exponential approach signal (`sigma=0.05`) |
-| Fine position tracking | +1.0 | Terminal precision (`sigma=0.0025`) |
-| Reference acceleration | -0.001 | Penalize changes in physical reference velocity |
-| Near-target reference velocity | -0.002 | Encourage braking inside 5 cm |
-| Measured velocity envelope | -0.002 | Penalize measured speed above the configured envelope |
-| Action-clipping overshoot | -0.1 | Penalize raw actor output beyond `[-1,1]` |
-| Reference projection | -0.1 | Penalize requests removed by soft joint-limit projection |
-| Self-collision/contact | -1.0 | Safety guard, held fixed |
+The ablation uses the six-action position-increment reward contract defined above. It keeps the task-defining coarse Cartesian reward and self-contact guard fixed and removes only interpretable terms or groups.
 
 All 15 checkpoints were evaluated with the same one-step delay, replayed point targets/initial states, and `circle_yz` path. Point totals are 1,536 episodes per variant; circle totals are 48 attempts per variant. Values are mean ± sample standard deviation across seeds.
 
@@ -125,14 +162,18 @@ The experiment therefore separates two issues. Direct full-range DR from scratch
 
 ## Axis 4 — Paired simulation versus hardware
 
+The hardware path-tracking traces show the executed flange trajectories against the same commanded YZ circle and waypoint schedule used in simulation.
+
+![Hardware circle path tracking](docs/report_assets/hardware_results.png)
+
 Each replay verifies an immutable hardware session, resolves the deployed checkpoint, initializes simulation from the first measured `q,dq`, installs recorded waypoints/timeouts, and applies the recorded route, K/D gains, limits, delay, and reference contract.
 
-| Session | Route and gains | HW / sim waypoints | HW / sim mean circle error | HW / sim p99 acceleration | HW / sim peak speed | Fault mismatch |
-|---|---|---:|---:|---:|---:|---|
-| 2026092705 | Position, K200/D28.3 | 24 / 24 | 6.87 / 6.76 mm | 31.0 / 10.6 rad/s² | 1.07 / 0.53 rad/s | No |
-| 2026092706 | Position, K100/D20 | 24 / 24 | 7.60 / 7.34 mm | 3.52 / 6.35 rad/s² | 0.50 / 0.50 rad/s | No |
-| 2026092715 | Velocity, K100/D20 | 7 / 6 | 18.76 / 18.81 mm | 3.05 / 2.00 rad/s² | 0.42 / 0.44 rad/s | **Yes: sim fault** |
-| 2026092717 | Velocity, K200/D40 | 6 / 10 | 18.91 / 21.88 mm | 27.8 / **1,679.3** rad/s² | 1.17 / **5.26** rad/s | No |
+| Route and gains | HW / sim waypoints | HW / sim mean circle error | HW / sim p99 acceleration | HW / sim peak speed | Fault mismatch |
+|---|---:|---:|---:|---:|---|
+| Position, K200/D28.3 | 24 / 24 | 6.87 / 6.76 mm | 31.0 / 10.6 rad/s² | 1.07 / 0.53 rad/s | No |
+| Position, K100/D20 | 24 / 24 | 7.60 / 7.34 mm | 3.52 / 6.35 rad/s² | 0.50 / 0.50 rad/s | No |
+| Velocity, K100/D20 | 7 / 6 | 18.76 / 18.81 mm | 3.05 / 2.00 rad/s² | 0.42 / 0.44 rad/s | **Yes: sim fault** |
+| Velocity, K200/D40 | 6 / 10 | 18.91 / 21.88 mm | 27.8 / **1,679.3** rad/s² | 1.17 / **5.26** rad/s | No |
 
 ![Paired simulation and hardware replay](docs/report_assets/axis4_sim_real_parity.png)
 

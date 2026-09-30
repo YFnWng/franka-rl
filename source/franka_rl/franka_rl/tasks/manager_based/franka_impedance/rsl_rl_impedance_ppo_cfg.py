@@ -37,3 +37,10 @@ class ImpedancePPORunnerCfg(PPORunnerCfg):
         # Preserve approximately the original discount per wall-clock second.
         self.algorithm.gamma = 0.99 ** (30.0 / 50.0)
         self.algorithm.lam = 0.95 ** (30.0 / 50.0)
+
+
+@configclass
+class FineSettleImpedancePPORunnerCfg(ImpedancePPORunnerCfg):
+    """Single-seed absolute-position reward-matching experiment."""
+
+    experiment_name = "fr3_impedance_reach_fine_settle"

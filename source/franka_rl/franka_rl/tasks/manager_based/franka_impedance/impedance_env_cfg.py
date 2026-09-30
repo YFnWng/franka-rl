@@ -146,3 +146,39 @@ class Fr3FrankyImpedanceEnvCfg(Fr3BareFlangeEnvCfg):
             time_out=False,
             params={"action_name": "arm_action"},
         )
+
+
+@configclass
+class Fr3FrankyImpedanceFineSettleEnvCfg(Fr3FrankyImpedanceEnvCfg):
+    """Absolute-position comparison with matched terminal tracking and braking.
+
+    Reference projection is intentionally absent: direct normalized position
+    commands map into the soft range by construction and have no integrated
+    reference state that can project past a joint limit. The existing action-
+    clipping term is the absolute contract's corresponding boundary guard.
+    """
+
+    reward_variant: str = "fine_tracking_near_target_command_velocity"
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        flange = SceneEntityCfg("robot", body_names=["fr3_flange"])
+        self.rewards.fine_position_tracking = RewTerm(
+            func=mdp.position_tracking_exp,
+            weight=1.0,
+            params={
+                "command_name": "ee_pose",
+                "asset_cfg": flange,
+                "sigma": 0.0025,
+            },
+        )
+        self.rewards.near_target_reference_velocity = RewTerm(
+            func=mdp.near_target_command_velocity_l2,
+            weight=-2.0e-3,
+            params={
+                "action_name": "arm_action",
+                "threshold": 0.05,
+                "max_velocity": self.actions.arm_action.max_measured_velocity,
+                "asset_cfg": flange,
+            },
+        )

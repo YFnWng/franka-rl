@@ -150,6 +150,31 @@ def reference_projection_overshoot_l2(
     return torch.mean(torch.square(projection), dim=1)
 
 
+def near_target_command_velocity_l2(
+    env: ManagerBasedRLEnv,
+    threshold: float,
+    max_velocity: tuple[float, ...],
+    action_name: str = "arm_action",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    command_name: str = "ee_pose",
+) -> torch.Tensor:
+    """Brake direct position commands once the flange is near its target.
+
+    The absolute-position contract has no persistent velocity-reference state.
+    Its physically comparable quantity is the velocity implied by consecutive
+    held joint-position commands.
+    """
+
+    from .observations import ee_position_error_b
+
+    error = torch.linalg.vector_norm(ee_position_error_b(env, command_name, asset_cfg), dim=1)
+    action = env.action_manager.get_term(action_name)
+    reference_velocity = action.command_difference / float(env.step_dt)
+    velocity = reference_velocity.new_tensor(max_velocity)
+    cost = torch.mean(torch.square(reference_velocity / velocity), dim=1)
+    return (error < threshold).to(cost.dtype) * cost
+
+
 def near_target_reference_velocity_l2(
     env: ManagerBasedRLEnv,
     threshold: float,

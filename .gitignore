@@ -86,6 +86,7 @@ _build
 !deployment/reference_governor/python/franka_governor/__init__.py
 !source/franka_rl/franka_rl/tasks/manager_based/franka_path_tracking/__init__.py
 !source/franka_rl/franka_rl/tasks/manager_based/franka_incremental_impedance/__init__.py
+!source/franka_rl/franka_rl/tasks/manager_based/franka_impedance/__init__.py
 
 # Isaac Lab CI environments in native mode
 **/_isaaclab_install_ci_*
