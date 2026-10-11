@@ -678,3 +678,31 @@ M4 must audit installed Franky's projector/rank threshold, orientation error,
 posture damping, gain updates and compensation/filter/stop semantics; review
 physical force application/tool mass and independently approve manual interaction.
 All profiles remain simulation candidates with `hardware_approved: false`.
+
+### Visible posture candidate (same day)
+
+The Demo B YAML now uses a **0.60 rad null-direction seed offset**, a **6 s
+quintic transition**, and **4 s settling**, replacing the conservative 0.15 rad
+baseline above. Corrected targets call for about ±24.45° at joint 1, ∓15.47° at
+joint 3, ±11.32° at joint 5 and ±13.51° at joint 7, while holding the same tip
+pose. Both target configurations retain at least 0.57 rad command-bound margin.
+The simulation acceptance now requires actual joint-vector change of at least
+half the requested offset, not merely 0.01 rad. This is a visible simulation
+candidate, **not permission to transfer the increased amplitude directly to
+hardware**: audit controller parity, installed tool/cable/environment clearance,
+approved gains and stop behavior first; commission amplitude incrementally on
+the real-time machine under local authorization.
+
+## Endpoint-free curve fixture extension
+
+Implemented separately from M3's finite feedforward line fixture. See
+`docs/industrial_motion_control.md` for equations, verification results and commands.
+Portable geometry/wrench: `source/franka_motion/franka_motion/virtual_fixture.py`
+(`CurveVirtualFixture`, `load_curve_fixture`). Isaac batched 1 kHz projection and
+impedance: `BatchedCurveImpedanceController` / `CurveImpedanceAction`; registration:
+`Franka-FR3v2-MotionControl-CurveFixture-v0`. Simulation verification:
+`IsaacCurveFixtureRunner` and `config/suites/curve_fixture.yaml` (in franka_motion).
+Infinite vertical line / closed YZ circle only; fixed full downward orientation;
+normal spring/damper, no tangent spring, positive tangent damping. Independent
+workspace guard remains mandatory despite endpoint-free geometry. Four CPU
+two-clone known-force cases and reset/parity checks passed. Hardware is not approved.

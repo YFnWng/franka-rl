@@ -27,6 +27,9 @@ class BatchedCartesianImpedanceController:
     def compute(self, pose, twist, reference, jacobian, coriolis, gravity):
         self.error.copy_(pose_error_base_torch(pose, reference))
         self.wrench.copy_(self.k*self.error+self.d*(reference[:, 7:]-twist))
+        return self.process_wrench(jacobian,coriolis,gravity)
+
+    def process_wrench(self,jacobian,coriolis,gravity):
         c = self.components
         c["pd"].copy_((jacobian.transpose(1,2)@self.wrench.unsqueeze(-1)).squeeze(-1))
         c["coriolis"].copy_(coriolis)
@@ -39,6 +42,56 @@ class BatchedCartesianImpedanceController:
         c["unclipped"].copy_(c["filtered"]+gravity)
         c["applied"].copy_(torch.maximum(torch.minimum(c["unclipped"],self.processor.effort),-self.processor.effort))
         return c["applied"]
+
+
+def curve_projection_torch(position,kind,origin,radius):
+    if kind == "z_line":
+        target = position.clone()
+        target[:,:2] = origin[:2]
+        tangent = torch.zeros_like(position)
+        tangent[:,2] = 1.
+        return target,tangent
+    if kind != "yz_circle":
+        raise ValueError(f"Unsupported curve: {kind}")
+    radial = position[:,1:]-origin[1:]
+    distance = torch.linalg.vector_norm(radial,dim=-1,keepdim=True)
+    u = radial/distance.clamp_min(1e-6)
+    target = origin.expand_as(position).clone()
+    target[:,1:] += radius*u
+    tangent = torch.cat((torch.zeros_like(distance),-u[:,1:],u[:,:1]),dim=-1)
+    target = torch.where(distance>1e-6,target,torch.full_like(target,float("nan")))
+    return target,tangent
+
+
+class BatchedCurveImpedanceController(BatchedCartesianImpedanceController):
+    """1 kHz normal spring/damper and positive tangent damping; fixed orientation."""
+    def __init__(self,count,device,stiffness,damping,**processing):
+        super().__init__(count,device,stiffness,damping,**processing)
+        self.kind = "z_line"
+        self.origin = torch.zeros(3,device=device)
+        self.radius = .05
+        self.normal_stiffness,self.normal_damping,self.tangent_damping = 100.,20.,20.
+        self.reference = torch.zeros((count,13),device=device)
+
+    def reset(self,ids):
+        super().reset(ids)
+        self.reference[ids] = 0.
+
+    def compute(self,pose,twist,reference,jacobian,coriolis,gravity):
+        target,tangent = curve_projection_torch(pose[:,:3],self.kind,self.origin,self.radius)
+        self.reference.copy_(reference)
+        self.reference[:,:3] = target
+        self.reference[:,3:7] = 0.
+        self.reference[:,3] = 1.
+        self.reference[:,7:] = 0.
+        self.error.copy_(pose_error_base_torch(pose,self.reference))
+        v = twist[:,:3]
+        axial_v = (v*tangent).sum(-1,keepdim=True)*tangent
+        e = self.error[:,:3]
+        normal_e = e-(e*tangent).sum(-1,keepdim=True)*tangent
+        self.wrench[:,:3] = self.normal_stiffness*normal_e-self.normal_damping*(v-axial_v)-self.tangent_damping*axial_v
+        self.wrench[:,3:] = self.k[3:]*self.error[:,3:]-self.d[3:]*twist[:,3:]
+        return self.process_wrench(jacobian,coriolis,gravity)
 
 
 def nullspace_projector_torch(jacobian, rcond=1e-6):

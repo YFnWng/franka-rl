@@ -437,9 +437,9 @@ $$
 This is an **orthogonal kinematic torque projector**, using an SVD pseudoinverse
 with relative cutoff $10^{-6}$; it is not dynamically consistent. Record task
 drift rather than claiming zero acceleration coupling. Two targets are generated
-from ±0.15 rad along a deterministically signed home Jacobian null direction,
-then full-pose DLS-corrected and checked against joint limits. A three-second
-quintic secondary-target transition precedes three seconds of settling. Normal
+from ±0.60 rad along a deterministically signed home Jacobian null direction,
+then full-pose DLS-corrected and checked against joint limits. A six-second
+quintic secondary-target transition precedes four seconds of settling. Normal
 gains are $K_n=2$ Nm/rad and $D_n=1$ Nm·s/rad; the weak comparison uses
 $K_n=0.5$ with the same damping and positive target. Intermediate secondary
 targets are objectives, not guaranteed exact fixed-pose IK solutions.
@@ -476,7 +476,8 @@ direnv exec . /home/chen-lab/isaac/.venv/bin/python \
   --suite-dir /path/to/m3-output --output-dir /path/to/new-compiled-directory
 ```
 
-Verified two-clone CPU results (2026-10-11):
+Initial two-clone CPU results (2026-10-11, conservative 0.15 rad offset;
+historical baseline, not the current visible-demo configuration):
 
 | Trial | Relevant response | Maximum task drift |
 |---|---|---|
@@ -489,7 +490,7 @@ Verified two-clone CPU results (2026-10-11):
 The force response is compatible with directional compliance; it is not a
 calibrated hardware stiffness measurement. Acceptance separately checks axial
 travel ≥2 mm, lateral error ≤10 mm, segment overshoot ≤10 mm and orientation
-error ≤0.02 rad; posture change ≥0.01 rad, position drift ≤5 mm and orientation
+error ≤0.02 rad; current posture change ≥half the configured offset (0.30 rad), position drift ≤5 mm and orientation
 error ≤0.02 rad. All retain M2 finite-state/hold/physical fault gates. No faults or
 contacts occurred. Hardware parity, mesh-clearance certification and physical
 manual-guidance approval remain M4 gates.
@@ -505,3 +506,77 @@ can coast after force release because axial damping is largely cancelled by
 permitted-axis feedforward; these trials do not claim terminal settling or
 hardware hand-guidance safety. Joint-limit telemetry is included; compilation
 also reports minimum measured-state abort-bound margin.
+
+### Current visible posture configuration
+
+The 0.60 rad candidate was revalidated with two CPU clones and unchanged fixture
+forces. All five trials, 48 offline tests and fault/selective-reset checks passed.
+Posture A/B measured 0.5934 rad joint-vector change with maximum position drift
+0.347/0.350 mm, orientation drift 0.052°, and joint speed 0.132 rad/s. Posture B
+changed joints 1/3/5/7 by +24.45°/−15.47°/−11.32°/+13.51°. The weak case reached
+0.5769 rad with 0.179 mm maximum position drift. No contacts or configured faults
+occurred. Corrected endpoint command-limit margins exceed 0.57 rad. Evidence:
+`/tmp/motion-m3-visible-offset-v1` and `/tmp/motion-m3-visible-offset-compiled`.
+The historical GPU check above used 0.15 rad, not the enlarged configuration.
+
+This is intended to make **simulation** elbow/posture motion visible. Transfer
+requires an installed-controller audit and physical tool/cable/environment
+clearance review; increase amplitude incrementally during separately authorized
+hardware commissioning. Do not interpret simulation acceptance as hardware approval.
+
+## Curve-constrained impedance (infinite Z line / closed YZ circle)
+
+This is a separate task, `Franka-FR3v2-MotionControl-CurveFixture-v0`, not a
+time-driven trajectory follower. The measured TCP is projected onto the curve
+at every 1 kHz physics tick. Geometry and verification phases are configured in
+`source/franka_motion/franka_motion/config/suites/curve_fixture.yaml`.
+The tip orientation is fixed to quaternion xyzw `[1,0,0,0]`: tip Z points along
+base −Z and roll is fixed too. Published pose/twist references do not override
+the internal curve projection, fixed orientation, or zero desired twist.
+
+For closest point $p_c$, unit tangent $t$, and $P_n=I-tt^T$, the translation law is
+
+$$
+F=-K_n P_n(p-p_c)-D_n P_n v-D_t tt^T v.
+$$
+
+There is no tangent spring or tangent velocity feedforward. Positive $D_t$ gives
+resistance to hand motion and dissipates velocity after release. Orientation
+uses the existing SO(3)-log spring/damper. Wrench maps through $J^T$, followed by
+the existing Coriolis compensation, torque slew, lowpass, gravity compensation,
+and effort clamp. No secondary posture objective is added.
+
+The infinite line has no artificial endpoint spring; an independent measured
+TCP workspace guard instead latches fault bit 32. Undefined circle projection
+at its center latches fault bit 4 and uses the existing simulation fault stop.
+Whole-circle and bounded-line sampled full-pose IK are checked before rollout;
+this is **not** a full-curve collision-clearance or hardware stability proof.
+
+The simulation applies 0.5 N for one second at the flange-body CoM, then releases
+for three seconds. Tangent trials apply a **constant world force aligned with
+the initial tangent**, not a force that rotates to follow the circle. Normal
+trials apply base/world +X force. Default $K_n=100$ N/m and $D_n=D_t=20$ N·s/m.
+
+```bash
+cd /home/chen-lab/isaac/franka-rl
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u scripts/motion_control/run_sim_demo.py \
+  --task Franka-FR3v2-MotionControl-CurveFixture-v0 \
+  --curve-fixture-suite source/franka_motion/franka_motion/config/suites/curve_fixture.yaml \
+  --trial circle_tangent --num_envs 1 --device cpu --viz kit
+```
+
+Use `--trial line_tangent` for vertical guidance, or `line_normal` / `circle_normal`
+for transverse resistance. For all four headless cases, omit `--trial`, use
+`--num_envs 2 --viz none --verify-reset-parity`. Compile artifacts with
+`scripts/motion_control/compile_cartesian_results.py --suite-dir <artifacts> --output-dir <new-directory>`.
+It emits distance-to-curve, force, tip-speed, orientation, and dynamics figures.
+
+CPU two-clone verification: all four cases passed with no faults/contacts and
+clone/reset parity passed. Tangent line/circle travel was 25.06/23.81 mm;
+maximum curve distance was 0.73/2.02 mm. Normal-load maximum distance was
+6.68/6.67 mm. Worst orientation drift was 0.192° and final tip speed below
+1.41 mm/s. Evidence: `/tmp/motion-curve-fixture-final` and its `-compiled` sibling;
+45 offline motion-control tests passed. These are known-force simulation tests,
+not human hand-guidance validation. Hardware transfer needs separately approved
+torque-controller parity, workspace/tool/cable clearance, force/gain limits,
+watchdog and stop commissioning.

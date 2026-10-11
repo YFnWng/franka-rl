@@ -113,3 +113,13 @@ class PostureActionsCfg:
 @configclass
 class Fr3FixturePostureMotionEnvCfg(Fr3CartesianMotionEnvCfg):
     actions: PostureActionsCfg = PostureActionsCfg()
+
+
+@configclass
+class CurveActionsCfg:
+    cartesian_reference = mdp.CurveImpedanceActionCfg()
+
+
+@configclass
+class Fr3CurveFixtureEnvCfg(Fr3CartesianMotionEnvCfg):
+    actions: CurveActionsCfg = CurveActionsCfg()

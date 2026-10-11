@@ -40,3 +40,8 @@ class CartesianPostureMotionActionCfg(CartesianMotionActionCfg):
     posture_stiffness: float = 2.
     posture_damping: float = 1.
     projector_rcond: float = 1e-6
+
+
+@configclass
+class CurveImpedanceActionCfg(CartesianMotionActionCfg):
+    class_type: str = "{DIR}.actions:CurveImpedanceAction"

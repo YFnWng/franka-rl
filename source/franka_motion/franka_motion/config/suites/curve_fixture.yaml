@@ -1,0 +1,16 @@
+schema_version: 1
+motion_suite: demo_a_tracking.yaml
+# Home-anchored geometry: starts on either curve; fixed tip z = base -z.
+line_origin_m: [0.306891, 0.0, 0.590282]
+circle_center_m: [0.306891, 0.0, 0.540282]
+circle_radius_m: 0.05
+workspace_lower_m: [0.24, -0.10, 0.45]
+workspace_upper_m: [0.38, 0.10, 0.67]
+normal_stiffness: 100.0
+normal_damping: 20.0
+tangent_damping: 20.0
+force_n: 0.5
+hold_s: 1.0
+push_s: 1.0
+release_s: 3.0
+experiments: [line_tangent, line_normal, circle_tangent, circle_normal]

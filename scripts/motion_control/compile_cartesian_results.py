@@ -122,6 +122,24 @@ def compile_results(suite_dirs,output):
             fig.subplots_adjust(left=.10,right=.97,top=.89,bottom=.08,hspace=.30,wspace=.30)
             fig.savefig(output/f"{suite_dir.name}__{name}.png",dpi=130)
             plt.close(fig)
+            if "curve_fixture_config" in summary:
+                fig,axes = plt.subplots(2,2,figsize=(11,7))
+                axes[0,0].plot(t,1000*trace["curve_distance_m"][:,0])
+                axes[0,0].set(ylabel="Distance to curve (mm)")
+                for i,label in enumerate("XYZ"):
+                    axes[0,1].plot(t,trace["external_force_world_n"][:,i],label=label)
+                axes[0,1].set(ylabel="Applied external force (N)")
+                axes[0,1].legend()
+                axes[1,0].plot(t,np.linalg.norm(trace["twist"][:,0,:3],axis=-1))
+                axes[1,0].set(ylabel="Tip speed (m/s)")
+                axes[1,1].plot(t,np.linalg.norm(trace["pose_error"][:,0,3:],axis=-1)*180/np.pi)
+                axes[1,1].set(ylabel="Fixed orientation error (deg)")
+                for ax in axes.flat:
+                    ax.set_xlabel("Time (s)")
+                fig.suptitle(f"{name}: curve-constrained impedance; accepted={summary['acceptance_passed']}")
+                fig.tight_layout()
+                fig.savefig(output/f"{suite_dir.name}__{name}__curve.png",dpi=130)
+                plt.close(fig)
             if "demo_b_config" in summary:
                 fig,axes = plt.subplots(2,2,figsize=(11,7))
                 if "fixture_axial_m" in trace:

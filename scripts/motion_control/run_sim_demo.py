@@ -23,6 +23,7 @@ parser.add_argument("--verify-reset-parity", action="store_true", help="After tr
 parser.add_argument("--output-dir", type=Path, help="New output directory; default is on FRANKA_RL_DATA_ROOT")
 parser.add_argument("--profile-steps", type=int, default=0, help="Profile 1..5 Cartesian reference steps after 20 warmup steps; writes a bounded trace")
 parser.add_argument("--demo-b-suite", type=Path, help="M3 fixture/posture YAML; requires FixturePosture task")
+parser.add_argument("--curve-fixture-suite",type=Path,help="Endpoint-free line/circle impedance YAML; requires CurveFixture task")
 add_launcher_args(parser)
 parser.set_defaults(visualizer=[])
 args, hydra_args = setup_preset_cli(parser)
@@ -32,11 +33,17 @@ from franka_rl.experiments.motion_runner import IsaacMotionRunner, verify_reset_
 
 
 def main():
+    if args.demo_b_suite and args.curve_fixture_suite:
+        raise ValueError("Select one fixture suite")
+    curve = None
+    if args.curve_fixture_suite:
+        from franka_motion.virtual_fixture import load_curve_fixture
+        curve = load_curve_fixture(args.curve_fixture_suite)
     demo_b = None
     if args.demo_b_suite:
         from franka_motion.virtual_fixture import load_demo_b
         demo_b = load_demo_b(args.demo_b_suite)
-    suite = load_motion_suite(demo_b["motion_suite"] if demo_b else args.suite)
+    suite = load_motion_suite(curve["motion_suite"] if curve else demo_b["motion_suite"] if demo_b else args.suite)
     if not 0 <= args.profile_steps <= 5:
         raise ValueError("--profile-steps must be 0..5")
     if args.verify_reset_parity and args.num_envs < 2:
@@ -44,6 +51,11 @@ def main():
     if suite.backend != "simulation" or not 1 <= args.num_envs <= 16:
         raise ValueError("Motion runner supports simulation suites and 1..16 environments")
     candidates = expand_trials(suite)
+    if curve:
+        from dataclasses import replace
+        import hashlib
+        candidates = [replace(candidates[0],trial_id=name,angular_speed_rad_s=None) for name in curve["experiments"]]
+        suite = replace(suite,name="motion_curve_fixture",file_hashes={**suite.file_hashes,"curve_fixture":hashlib.sha256(args.curve_fixture_suite.read_bytes()).hexdigest()})
     if demo_b:
         from dataclasses import replace
         import hashlib
@@ -71,6 +83,8 @@ def main():
         raise FileExistsError(f"Refusing overwrite: {output}")
     env_cfg, _ = resolve_task_config(args.task, "")
     cartesian = env_cfg.motion_action_name == "cartesian_reference"
+    if bool(curve) != (args.task == "Franka-FR3v2-MotionControl-CurveFixture-v0") or (curve and args.commissioning_only):
+        raise ValueError("CurveFixture task requires --curve-fixture-suite and no commissioning-only")
     if demo_b and (args.task != "Franka-FR3v2-MotionControl-FixturePosture-v0" or args.commissioning_only):
         raise ValueError("Demo B requires FixturePosture task and no --commissioning-only")
     if not demo_b and args.task == "Franka-FR3v2-MotionControl-FixturePosture-v0":
@@ -129,7 +143,10 @@ def main():
             output.mkdir(parents=True, exist_ok=False)
             if cartesian:
                 from franka_rl.experiments.cartesian_motion_runner import IsaacCartesianMotionRunner
-                if demo_b:
+                if curve:
+                    from franka_rl.experiments.curve_fixture_runner import IsaacCurveFixtureRunner
+                    runner = IsaacCurveFixtureRunner(env,suite,profile_steps=args.profile_steps)
+                elif demo_b:
                     from franka_rl.experiments.fixture_posture_runner import IsaacFixturePostureRunner
                     runner = IsaacFixturePostureRunner(env,suite,profile_steps=args.profile_steps)
                 else:
@@ -138,7 +155,7 @@ def main():
                 runner = IsaacMotionRunner(env, suite)
             results = []
             for trial in (trials[:1] if args.commissioning_only else trials):
-                result = (runner.run_demo_b(trial,output/trial.trial_id,demo_b) if demo_b else
+                result = (runner.run_curve(trial,output/trial.trial_id,curve) if curve else runner.run_demo_b(trial,output/trial.trial_id,demo_b) if demo_b else
                           runner.commissioning(trial,output/trial.trial_id) if args.commissioning_only
                           else runner.run_trial(trial, output/trial.trial_id))
                 results.append(result)

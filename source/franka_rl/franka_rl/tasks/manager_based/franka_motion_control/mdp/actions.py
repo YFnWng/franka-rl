@@ -2,7 +2,7 @@
 import torch
 import warp as wp
 from isaaclab.managers.action_manager import ActionTerm
-from .controllers import BatchedJointImpedanceController, BatchedCartesianImpedanceController, nullspace_projector_torch
+from .controllers import BatchedJointImpedanceController, BatchedCartesianImpedanceController, BatchedCurveImpedanceController, nullspace_projector_torch
 from .observations import tcp_pose_base, tcp_twist_base
 from isaaclab.utils.math import matrix_from_quat
 
@@ -195,7 +195,7 @@ class CartesianMotionAction(JointMotionAction):
         if self.trace is not None:
             if self.trace_index >= len(self.trace["q"]):
                 raise RuntimeError("Physics telemetry capacity exhausted")
-            values = {"q":q,"dq":dq,"pose":pose,"twist":twist,"reference":self._processed,
+            values = {"q":q,"dq":dq,"pose":pose,"twist":twist,"reference":getattr(self.controller,"reference",self._processed),
                 "pose_error":self.controller.error,"wrench":self.controller.wrench,
                 "kinematic_twist":(jacobian@dq.unsqueeze(-1)).squeeze(-1),
                 **self.controller.components,"fault_code":self.fault_code,"contact_force_n":self.contact_force}
@@ -230,3 +230,20 @@ class CartesianPostureMotionAction(CartesianMotionAction):
         super().reset(env_ids)
         ids = slice(None) if env_ids is None else env_ids
         self._processed[ids,13:] = self._asset.data.joint_pos.torch[ids][:,self.ids]
+
+
+class CurveImpedanceAction(CartesianMotionAction):
+    def __init__(self,cfg,env):
+        super().__init__(cfg,env)
+        self.controller = BatchedCurveImpedanceController(self.num_envs,self.device,cfg.stiffness,cfg.damping,
+            dt=env.physics_dt,slew_rate_nm_s=cfg.slew_rate_nm_s,cutoff_hz=cfg.cutoff_hz,effort_limits_nm=cfg.effort_limits_nm)
+
+    def check_state(self):
+        q,dq = super().check_state()
+        p = tcp_pose_base(self._env)[:,:3]
+        outside = ((p<self.cart_lower)|(p>self.cart_upper)).any(-1)|(~torch.isfinite(p).all(-1))
+        self._latch(32*outside.int(),q,dq)
+        if self.controller.kind == "yz_circle":
+            undefined = torch.linalg.vector_norm(p[:,1:]-self.controller.origin[1:],dim=-1)<=1e-6
+            self._latch(4*undefined.int(),q,dq)
+        return q,dq

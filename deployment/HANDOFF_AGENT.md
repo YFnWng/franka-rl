@@ -1410,3 +1410,25 @@ disturbances act at flange body CoM; a physical tool/force point must be audited
 separately. The ±30 mm fixture reference is compliant (7.25 mm observed plant
 overshoot), not a hard workspace fence. Keep hardware profiles unapproved until
 these details and the interaction/stop procedure are reviewed locally.
+
+The M3 posture YAML was subsequently increased to 0.60 rad seed offset with
+6 s transition / 4 s settling for visual simulation demos. This is roughly
+24° joint-1 motion after full-pose correction, not 0.60 rad at every joint.
+Do not execute the enlarged motion automatically on transfer. Review actual
+controller semantics, tool/cable and environment clearance, gains and stop
+procedure, then locally commission increasing amplitudes. Simulation collision
+checks are evidence for the bare-flange model, not physical clearance certification.
+
+## Curve-constrained impedance simulation candidate
+
+New `Franka-FR3v2-MotionControl-CurveFixture-v0` supports an infinite vertical
+line and closed YZ circle, fixed xyzw `[1,0,0,0]` orientation (tip Z = base −Z).
+At each 1 kHz tick, project measured TCP, apply normal spring/damper and positive
+tangent damping; no tangent spring or feedforward cancellation. See
+`docs/industrial_motion_control.md` and portable `CurveVirtualFixture` for the
+law, YAML, verified simulation results and source routing. Four two-clone CPU
+known-force tests passed, with reset and clone parity; no hardware execution.
+Implementing the equivalent hardware controller still requires audited torque
+processing, frame/TCP parity, measured workspace/velocity guards, circle-center
+projection rejection, watchdog/stop tests and tool/cable clearance. Simulation
+gain/force settings are candidates, not permission for direct hand-guidance.

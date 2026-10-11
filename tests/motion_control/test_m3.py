@@ -52,8 +52,8 @@ def test_demo_b_config_and_feasible_postures():
     b = suite.workspace.data["joint_bounds_rad"]["commanded"]
     solver = DampedLeastSquaresIK(provider,b["lower"],b["upper"])
     for sign in (-1,1):
-        target = solver.solve(p,r,q+sign*.15*vh[-1])
-        assert np.linalg.norm(target-q) > .1
+        target = solver.solve(p,r,q+sign*config["posture_offset_rad"]*vh[-1])
+        assert np.linalg.norm(target-q) > .5*config["posture_offset_rad"]
         a,c,_ = provider.evaluate(target)
         assert np.linalg.norm(pose_error_base(p,r,a,c)) < .001
 

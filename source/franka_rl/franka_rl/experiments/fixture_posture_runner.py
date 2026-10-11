@@ -35,7 +35,7 @@ class IsaacFixturePostureRunner(IsaacCartesianMotionRunner):
             "posture_damping":0. if fixture else config["posture_damping"],
             "force_application":"fr3_flange body CoM; world-frame force; no applied torque; fixture direction in robot base",
             "fixture_acceptance":{"minimum_axial_travel_m":.002,"max_transverse_error_m":.01,"max_orientation_error_rad":.02,"segment_overshoot_m":.01},
-            "posture_acceptance":{"minimum_joint_change_rad":.01,"max_position_error_m":.005,"max_orientation_error_rad":.02}}
+            "posture_acceptance":{"minimum_joint_change_rad":.5*config["posture_offset_rad"],"max_position_error_m":.005,"max_orientation_error_rad":.02}}
         action.cfg.posture_stiffness = metadata["posture_stiffness"]
         action.cfg.posture_damping = metadata["posture_damping"]
         action.cfg.projector_rcond = config["projector_rcond"]
@@ -126,7 +126,7 @@ class IsaacFixturePostureRunner(IsaacCartesianMotionRunner):
                 drift = np.linalg.norm(delta,axis=-1)
                 metrics = {"terminal_joint_change_min_rad":float(change.min()),"fixed_pose_position_max_m":float(drift.max()),
                     "orientation_error_max_rad":float(orient.max()),"posture_target_error_mean_rad":float(np.linalg.norm(trace["terminal_q"]-target,axis=-1).mean())}
-                passed = change.min()>=.01 and drift.max()<=.005 and orient.max()<=.02
+                passed = change.min()>=metadata["posture_acceptance"]["minimum_joint_change_rad"] and drift.max()<=.005 and orient.max()<=.02
             return metrics,bool(passed)
         return self._execute(trial,output,refs,phases,metadata,before_step=before_step,reference_update=reference_update,
             cleanup=composer.reset,analyze_trace=analyze)
