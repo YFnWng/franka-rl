@@ -8,12 +8,12 @@ def measured_joint_state(env):
 
 
 def applied_motion_reference(env):
-    return env.action_manager.get_term("joint_reference").processed_actions
+    return env.motion_action.processed_actions
 
 
 def tcp_pose_base(env):
     robot = env.scene["robot"]
-    i = env.action_manager.get_term("joint_reference").flange_id
+    i = env.motion_action.flange_id
     p, q = subtract_frame_transforms(robot.data.root_pos_w.torch, robot.data.root_quat_w.torch,
         robot.data.body_pos_w.torch[:, i], robot.data.body_quat_w.torch[:, i])
     return torch.cat((p, q), dim=1)
@@ -21,15 +21,18 @@ def tcp_pose_base(env):
 
 def tcp_twist_base(env):
     robot = env.scene["robot"]
-    i = env.action_manager.get_term("joint_reference").flange_id
+    i = env.motion_action.flange_id
     base_q = robot.data.root_quat_w.torch
     # Base is fixed; no moving-base twist subtraction is needed in this task.
-    return torch.cat((quat_apply_inverse(base_q, robot.data.body_lin_vel_w.torch[:, i]),
-        quat_apply_inverse(base_q, robot.data.body_ang_vel_w.torch[:, i])), dim=1)
+    # body_lin_vel_w is a COM shorthand in this pinned checkout, NOT the
+    # flange-origin velocity. Use the actor/link twist consistent with pose/J.
+    twist = robot.data.body_link_vel_w.torch[:, i]
+    return torch.cat((quat_apply_inverse(base_q, twist[:, :3]),
+        quat_apply_inverse(base_q, twist[:, 3:])), dim=1)
 
 
 def motion_trial_status(env):
-    return env.action_manager.get_term("joint_reference").fault_code[:, None].float()
+    return env.motion_action.fault_code[:, None].float()
 
 
 def contact_force(env):

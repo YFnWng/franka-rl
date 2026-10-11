@@ -70,6 +70,11 @@ class MotionActionsCfg:
 
 
 @configclass
+class CartesianActionsCfg:
+    cartesian_reference = mdp.CartesianMotionActionCfg()
+
+
+@configclass
 class Fr3MotionControlEnvCfg(ManagerBasedEnvCfg):
     scene: Fr3MotionSceneCfg = Fr3MotionSceneCfg(num_envs=1, env_spacing=2.5)
     observations: MotionStateObservationsCfg = MotionStateObservationsCfg()
@@ -77,13 +82,14 @@ class Fr3MotionControlEnvCfg(ManagerBasedEnvCfg):
     events: MotionEventsCfg = MotionEventsCfg()
     decimation: int = 20
     seed: int = 42
+    motion_action_name: str = "joint_reference"
 
     def __post_init__(self):
         self.sim.dt = .001
         self.sim.render_interval = self.decimation
         self.viewer.eye = (1.5, 1.5, 1.2)
         workspace = load_motion_suite().workspace.data
-        action = self.actions.joint_reference
+        action = getattr(self.actions, self.motion_action_name)
         action.lower, action.upper = (tuple(workspace["joint_bounds_rad"]["commanded"][x]) for x in ("lower", "upper"))
         action.abort_lower, action.abort_upper = (tuple(workspace["joint_bounds_rad"]["measured_abort"][x]) for x in ("lower", "upper"))
 
@@ -91,3 +97,9 @@ class Fr3MotionControlEnvCfg(ManagerBasedEnvCfg):
 @configclass
 class Fr3JointMotionEnvCfg(Fr3MotionControlEnvCfg):
     """M1 physical 14D joint reference task."""
+
+
+@configclass
+class Fr3CartesianMotionEnvCfg(Fr3MotionControlEnvCfg):
+    actions: CartesianActionsCfg = CartesianActionsCfg()
+    motion_action_name: str = "cartesian_reference"

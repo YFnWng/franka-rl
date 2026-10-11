@@ -141,7 +141,7 @@ def verify_reset_parity(env):
     retains the held reference. It never tests on hardware.
     """
     env = env.unwrapped
-    term = env.action_manager.get_term("joint_reference")
+    term = env.motion_action
     if env.num_envs < 2:
         raise ValueError("Selective-reset verification needs at least two clones")
     before = env.capture_state()
@@ -163,6 +163,10 @@ def verify_reset_parity(env):
         torch.testing.assert_close(term.controller.components[key][1:], previous, rtol=0, atol=0)
     assert not term.fault_code[0]
     assert term.first_fault_tick[0] == -1
-    torch.testing.assert_close(term.processed_actions[0, :7], env.scene["robot"].data.default_joint_pos.torch[0], rtol=0, atol=0)
+    if term.action_dim == 14:
+        torch.testing.assert_close(term.processed_actions[0, :7], env.scene["robot"].data.default_joint_pos.torch[0], rtol=0, atol=0)
+    else:
+        from ..tasks.manager_based.franka_motion_control.mdp.observations import tcp_pose_base
+        torch.testing.assert_close(term.processed_actions[0,:7],tcp_pose_base(env)[0],rtol=0,atol=0)
     return {"passed": True, "invalid_reference_rejected": True, "fault_state_retained_before_reset": True,
             "first_fault_feedback_exact": True, "selective_reset_neighbor_state_and_filter_unchanged": True}

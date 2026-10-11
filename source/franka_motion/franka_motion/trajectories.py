@@ -9,6 +9,7 @@ import numpy as np
 
 from .contracts import CartesianReference, TrajectorySample, finite_vector, positive, unit_quaternion_xyzw
 from .time_scaling import QuinticSegment, SmoothPhaseSchedule
+from .kinematics import quat_multiply, rotation_vector, quat_exp
 
 
 def rotation_matrix_rpy_deg(rpy_deg) -> np.ndarray:
@@ -76,14 +77,14 @@ class LissajousTrajectory(_PlanarTrajectory):
 class ApproachAndTrackTrajectory:
     """Approach/settle/ramped track/exit; initial position is explicit feedback or a preview input.
 
-    Orientation is constant throughout. An orientation mismatch at trial entry
-    must be handled by the later robot runner, never by an instantaneous jump here.
+    Optional measured entry orientation is joined by a quintic SO(3) geodesic.
+    Orientation is constant on the track, never jumped instantaneously at entry.
     Quintic position approach/exit has continuous position/velocity/acceleration;
     its jerk has finite boundary steps, which are explicitly included in limits.
     """
 
     def __init__(self, path, initial_position_m, *, approach_duration_s=4., settle_duration_s=1., exit_duration_s=4.,
-                 return_to_start=True):
+                 return_to_start=True, initial_quaternion_xyzw=None):
         self.path = path
         self.initial_position = finite_vector(initial_position_m, 3, "initial_position_m")
         self.approach_duration_s = positive(approach_duration_s, "approach_duration_s")
@@ -93,6 +94,12 @@ class ApproachAndTrackTrajectory:
         end = path.evaluate(path.duration_s).reference.position_m
         self.approach = QuinticSegment(self.initial_position, start, self.approach_duration_s)
         self.exit = QuinticSegment(end, self.initial_position if return_to_start else end, self.exit_duration_s)
+        self.initial_quaternion = np.array(unit_quaternion_xyzw(
+            path.quaternion_xyzw if initial_quaternion_xyzw is None else initial_quaternion_xyzw))
+        self.rotation_delta = rotation_vector(quat_multiply(path.quaternion_xyzw,
+            np.r_[-self.initial_quaternion[:3], self.initial_quaternion[3]]))
+        self.orientation_approach = QuinticSegment(0., 1., self.approach_duration_s)
+        self.orientation_exit = QuinticSegment(1., 0. if return_to_start else 1., self.exit_duration_s)
 
     @property
     def track_start_s(self):
@@ -108,6 +115,7 @@ class ApproachAndTrackTrajectory:
             raise ValueError("time exceeds trajectory duration")
         if t < self.approach_duration_s:
             law, phase = self.approach.evaluate(t), "approach"
+            orientation = self.orientation_approach.evaluate(t)
         elif t < self.track_start_s:
             reference = replace(self.path.evaluate(0).reference, time_s=t)
             return TrajectorySample(reference, (0.,) * 3, (0.,) * 3, "settle")
@@ -118,7 +126,10 @@ class ApproachAndTrackTrajectory:
             # Subtraction at the exact global endpoint can round beyond the local endpoint.
             local_time = min(self.exit_duration_s, max(0., t - self.track_start_s - self.path.duration_s))
             law, phase = self.exit.evaluate(local_time), "exit"
-        reference = CartesianReference(tuple(law.position), self.path.quaternion_xyzw, tuple(law.velocity),
+            orientation = self.orientation_exit.evaluate(local_time)
+        quaternion = quat_multiply(quat_exp(self.rotation_delta*float(orientation.position)), self.initial_quaternion)
+        reference = CartesianReference(tuple(law.position), tuple(quaternion), tuple(law.velocity),
+                                       tuple(self.rotation_delta*float(orientation.velocity)),
                                        time_s=t, base_frame=self.path.base_frame, tcp_frame=self.path.tcp_frame)
         return TrajectorySample(reference, tuple(law.acceleration), tuple(law.jerk), phase)
 

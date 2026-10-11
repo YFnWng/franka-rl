@@ -509,6 +509,70 @@ The independent joint task `Franka-FR3v2-MotionControl-Joint-v0` is implemented,
 
 Joint torque processing is explicitly documented and compared algebraically between NumPy/Torch; its final effort clamp and fault-stop candidate are simulator safeguards, not claims of complete Franky parity. The archived joint controller informed the slew/filter/compensation order. The current hardware Cartesian/posture audit remains pending; no physical motion or new hardware adapter has been implemented. Multi-profile process coordination and Cartesian tracking remain later milestones.
 
+### M2 implementation status — 2026-10-11
+
+`Franka-FR3v2-MotionControl-Cartesian-v0` now supplies the physical 13D
+base-frame flange pose/twist contract, explicit Cartesian log-error spring /
+twist damper / Jacobian-transpose torque, compensation and bounded telemetry.
+It shares the non-RL manager-based scene, explicit reset and terminal fault
+semantics with M1. NumPy/Torch Cartesian torque parity and quaternion handling
+are tested. The feedback twist uses the **flange actor origin**, not Isaac's
+COM-velocity shorthand. No operational-space inertia shaping, IK motion servo,
+or null-space/posture torque is silently added.
+
+Actual new M2 files:
+
+- `franka_motion/kinematics.py`: `UrdfKinematicsProvider`,
+  `DampedLeastSquaresIK`, `pose_error_base()`, `validate_path_ik()` and SO(3)
+  quaternion helpers; sampled full-pose feasibility with continuous seeds,
+  interior joint margins and mixed-unit singularity diagnostics.
+- `franka_motion/metrics.py`: exact `circle_contour_error()` and explicitly
+  approximate `sampled_curve_contour_error()` for optional Lissajous analysis.
+- `franka_rl/experiments/cartesian_motion_runner.py`:
+  `IsaacCartesianMotionRunner.reset()`, `commissioning()`, `run_trial()`;
+  runtime URDF/Isaac FK/Jacobian and official-DLS cross-check, measured entry
+  pose, whole-path guards, 1 kHz buffered artifacts and tracking summaries.
+- `scripts/motion_control/run_sim_suite.py`: serial isolated-profile
+  commissioning → tracking → compilation with fail-fast logs/manifest. It is
+  an immutable fresh-run coordinator, not yet a resumable hardware coordinator.
+- `scripts/motion_control/validate_motion_paths.py`: `main()`; simulator-free
+  reference derivative and complete full-pose DLS checks from named YAML suites,
+  using archived URDF home FK rather than a numerical preview start.
+- `scripts/motion_control/compile_cartesian_results.py`: `validate()`,
+  `differences()`, `compile_results()`; finalized hashes, physical repeat/clone
+  tolerances, metric table and path/error/dynamics/speed-feedforward figures.
+- `tests/motion_control/test_m2.py`: FK finite differences, full-pose DLS,
+  unreachable-target rejection, SO(3) approach derivatives, torque parity,
+  partial reset, profile rejection and actor-origin twist regression coverage.
+
+Existing controller/action/config files and `run_sim_demo.py` are extended;
+M1 and PPO task IDs remain intact. `demo_a_tracking.yaml` is the two-speed,
+pose-only/pose+twist, two-repeat matrix. `demo_a_gain_sweep.yaml` compares soft
+and moderate gains at 0.4 rad/s with feedforward and two repeats. Each profile
+must first pass a stationary hold, 2 mm smooth reference step and 10% gain step.
+The new `circle_yz_m2` holds the home orientation, and a bounded approach/exit
+connects measured home to the track; it never substitutes the numerical preview
+point for home feedback. Analytic reference limits and 20 Hz full-pose DLS checks
+cover the entire approach/settle/circle/exit.
+
+See [docs/industrial_motion_control.md](docs/industrial_motion_control.md) for
+commands, acceptance criteria and verified results. This remains a simulation
+candidate: the real-time Franky Cartesian audit is still pending, runtime
+contact sensing is not a mesh-clearance certificate, and all profiles retain
+`hardware_approved: false`. M3 fixtures/posture and M4 hardware transfer remain
+separate work; no physical motion is authorized.
+
+M2 workstation acceptance is verified: 42 unit/regression tests pass; all eight
+two-clone CPU circle trials and both two-repeat GPU gain cells pass without
+configured faults/contact, with finalized artifact/physical parity checks.
+At soft gains, tracking RMS changes from 1.94 to 0.158 mm with twist feedforward
+at 0.2 rad/s, and from 3.78 to 0.515 mm at 0.4 rad/s. The matched GPU moderate
+gain cell achieves 0.349 mm RMS. Full-path IK and runtime FK/Jacobian/official
+DLS checks pass; M1 hold/PTP/reset checks remain passing. Final buffered evidence
+and reviewed figures are in `/tmp/franka-motion-m2-final-compiled`; use the
+documented data-volume commands for durable results. These are simulation-only
+findings, not robot accuracy/safety guarantees.
+
 The workstation phase comes first. The old schedule's hardware-first example run is replaced by the following ordered milestones; only M4 crosses to the real-time machine.
 
 | Milestone | Work | Deliverable / stop condition |

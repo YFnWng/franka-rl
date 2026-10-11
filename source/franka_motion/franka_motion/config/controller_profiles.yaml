@@ -36,9 +36,40 @@ controllers:
       rotation_stiffness: Nm/rad
       rotation_damping: Nm*s/rad
     source: Provisional simulation values; not measured hardware gains or a stability claim.
+    cartesian_servo:
+      slew_rate_nm_s: 1000.0
+      cutoff_hz: 100.0
+      effort_limits_nm: [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+      max_measured_velocity_rad_s: [1.31, 1.31, 1.31, 1.31, 2.63, 2.09, 2.63]
+      max_reference_linear_velocity_m_s: 0.1
+      max_reference_angular_velocity_rad_s: 0.5
     audit_pending:
       - pinned_cartesian_orientation_error
       - nullspace_projector_and_damping
       - gain_and_reference_interpolation
       - torque_clip_slew_filter_compensation_order
       - torque_stop_and_watchdog
+  cartesian_medium:
+    mode: cartesian
+    status: simulation_candidate
+    hardware_approved: false
+    physics_hz: 1000
+    reference_hz: 50
+    delay_steps: 0
+    reference_hold: zero_order_hold
+    stiffness: [150.0, 150.0, 150.0, 15.0, 15.0, 15.0]
+    damping: [24.5, 24.5, 24.5, 8.0, 8.0, 8.0]
+    units:
+      translation_stiffness: N/m
+      translation_damping: N*s/m
+      rotation_stiffness: Nm/rad
+      rotation_damping: Nm*s/rad
+    source: M2 moderate gain comparison candidate; commissioning required before tracking.
+    audit_pending: [pinned_cartesian_orientation_error, nullspace_projector_and_damping, gain_and_reference_interpolation, torque_clip_slew_filter_compensation_order, torque_stop_and_watchdog]
+    cartesian_servo:
+      slew_rate_nm_s: 1000.0
+      cutoff_hz: 100.0
+      effort_limits_nm: [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+      max_measured_velocity_rad_s: [1.31, 1.31, 1.31, 1.31, 2.63, 2.09, 2.63]
+      max_reference_linear_velocity_m_s: 0.1
+      max_reference_angular_velocity_rad_s: 0.5

@@ -1,0 +1,22 @@
+schema_version: 1
+name: demo_a_moderate_gain_comparison
+backend: simulation
+workspace_file: ../fr3_workspace.yaml
+trajectories_file: ../trajectories.yaml
+controllers_file: ../controller_profiles.yaml
+preview_initial_position_m: [0.45, 0.0, 0.5]
+experiments:
+  - name: soft_circle
+    trajectory: circle_yz_m2
+    controller: cartesian_soft
+    angular_speeds_rad_s: [0.4]
+    twist_feedforward: [true]
+    repeats: 2
+    initial_posture: deployment_home
+  - name: medium_circle
+    trajectory: circle_yz_m2
+    controller: cartesian_medium
+    angular_speeds_rad_s: [0.4]
+    twist_feedforward: [true]
+    repeats: 2
+    initial_posture: deployment_home

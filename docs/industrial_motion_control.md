@@ -1,9 +1,10 @@
-# Industrial motion demos: M0–M1
+# Industrial motion demos: M0–M2
 
 M0 provides a portable NumPy/YAML package, `franka_motion`, with no Isaac Lab,
 Torch, Franky or robot initialization on import. Existing PPO tasks are unchanged.
 M0 is reference-only. M1 adds the separate non-RL joint simulator task and runner
-described below. No hardware runner or Cartesian controller is implemented yet.
+described below. M2 adds Cartesian impedance tracking and full-pose path checks.
+No hardware runner is implemented yet.
 
 ## Implemented contract
 
@@ -30,7 +31,8 @@ unchanged; only the commanded twist becomes zero.
 checks sampled analytic Cartesian derivative norms and a numerical box, explicitly
 not a continuous-time certificate, reachability result or collision approval.
 The initial preview pose is numerical input, not home FK. All paths hold a fixed
-orientation; later robot runners must reconcile initial orientation before motion.
+orientation on the track; M2 joins measured entry orientation through a quintic
+SO(3) geodesic with analytic base-frame angular velocity.
 
 ## Commands
 
@@ -61,7 +63,7 @@ artifacts; real experiment datasets will use the supported data volume.
 
 ## Validation and remaining gate
 
-22 tests pass. An independently built/extracted wheel loads its five packaged
+22 M0 tests pass. An independently built/extracted M0 wheel loads its five packaged
 YAML catalogs/suites without simulator imports. Both USD/URDF hashes and URDF
 joint limits pass the local audit; the archived runtime model validation is
 successful. This is not a new dynamics test.
@@ -188,4 +190,168 @@ Numerical commissioning limits are 0.002 rad hold drift, 0.01 rad terminal error
 and $10^{-6}$ componentwise parity tolerance; these are not hardware guarantees.
 Tests do not prove all joint trajectories are collision-free: the contact proxy
 is a guard, not full path-clearance validation. Cartesian/source-parity audit and
-full-pose path checks remain M2/transfer gates. Existing PPO tasks are untouched.
+mesh-clearance review remain transfer gates. M2 full-pose checks are below.
+Existing PPO tasks are untouched.
+
+## M2: full-pose Cartesian tracking
+
+Task: `Franka-FR3v2-MotionControl-Cartesian-v0`, physical 13D pose/twist action,
+1 kHz torque servo and 50 Hz zero-order-held reference publication. There is no
+policy, implicit motor PD, operational-space inertia shaping, hidden IK servo,
+or secondary posture torque. Targets, speeds, feedforward choices and repeats
+come from YAML. Clones reset explicitly; faults never trigger automatic recovery.
+
+For base-frame geometric Jacobian $J$, flange pose error
+$e=[p_d-p;\operatorname{Log}(R_dR^T)^\vee]$ and flange twist $V$:
+
+$$
+F=K_x e+D_x(V_d-V),\qquad \tau_{\rm task}=J^T F.
+$$
+
+The candidate pipeline is task torque + PhysX Coriolis → 1000 Nm/s non-gravity
+slew → 100 Hz first-order low-pass → PhysX gravity → model effort clamp. The
+Cartesian orientation law/filter ordering is **not yet matched to installed
+Franky**. `cartesian_soft` uses translation K/D=100/20 and rotation K/D=10/6.5;
+`cartesian_medium` uses 150/24.5 and 15/8, with the units in the profile catalog.
+On a fault the simulator applies a gravity-compensated velocity damper candidate,
+not a hardware-qualified stop. The 1 N moving-link contact proxy is a guard, not
+a collision-distance certificate.
+
+Important frame correction: this Isaac checkout's `body_lin_vel_w` is a COM
+velocity shorthand. M2 uses `body_link_vel_w` at the flange origin, matching
+the controlled pose and link Jacobian. Every trial checks the archived URDF FK
+and Jacobian against runtime Isaac feedback and cross-checks a small full-pose
+DLS update against Isaac's official `DifferentialIKController`.
+
+`circle_yz_m2` holds the home tool orientation (`xyzw=[1,0,0,0]`), uses a 5 cm
+radius about `[0.475,0,0.35]`, and smoothly approaches/exits over 6 s each. This is
+separate from the original M0 circle with its different orientation. Home FK is
+approximately `[0.306891,0,0.590282]` m, outside the track preview box. The runner
+explicitly checks/logs the home-to-box entry corridor; it never teleports to the
+preview start. A 2 s measured-pose hold precedes the approach.
+Return-to-start returns the **TCP pose**, not necessarily the redundant joint
+posture. Simulation resets each new trial to the named joint posture; a future
+hardware adapter must use a separately commissioned physical return, not an
+instantaneous reset. M3 will address secondary posture objectives.
+
+Before any circle torque is applied, sampled full-pose DLS checks the **whole**
+approach/settle/circle/exit at 20 Hz, seeds each solve with the previous solution,
+requires 0.1 mm/1 mrad residual tolerances, retains 0.02 rad inside the commanded
+joint interval, and rejects a minimum mixed-unit Jacobian singular value below
+0.02. This is a sampled kinematic guard, not a continuous feasibility or mesh
+clearance certificate. Analytic position derivatives are checked at 200 Hz;
+angular reference speed is checked too. Analytic smoothness does not mean the
+held 50 Hz command itself has continuous derivatives.
+
+### Run M2
+
+The coordinator first runs a 10 s commissioning trial (stationary hold, smooth
+2 mm reference step and +10% stiffness step) for each profile in a **separate
+process**. It stops if commissioning fails, then runs tracking and compiles
+finalized artifact hashes, errors, clone/repeat differences and figures.
+Both suites below use new output directories; reruns never overwrite artifacts.
+
+```bash
+cd /home/chen-lab/isaac/franka-rl
+
+# Optional fast preflight, without Kit:
+direnv exec . /home/chen-lab/isaac/.venv/bin/python \
+  scripts/motion_control/validate_motion_paths.py \
+  --suite source/franka_motion/franka_motion/config/suites/demo_a_tracking.yaml
+
+# Two speeds × pose-only/pose+twist × two repeats, soft gains.
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/motion_control/run_sim_suite.py \
+  --suite source/franka_motion/franka_motion/config/suites/demo_a_tracking.yaml \
+  --num_envs 2 --device cuda:0
+
+# Moderate gain comparison, 0.4 rad/s, twist feedforward, two repeats per profile.
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/motion_control/run_sim_suite.py \
+  --suite source/franka_motion/franka_motion/config/suites/demo_a_gain_sweep.yaml \
+  --num_envs 2 --device cuda:0
+
+# One visualized finite circle, no hardware connection.
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/motion_control/run_sim_demo.py \
+  --task Franka-FR3v2-MotionControl-Cartesian-v0 \
+  --suite source/franka_motion/franka_motion/config/suites/demo_a_tracking.yaml \
+  --trial circle__cell_003__repeat_000 --num_envs 1 --device cuda:0 --viz kit
+```
+
+Default outputs: `${FRANKA_RL_DATA_ROOT}/motion_control/<timestamp>_<suite>/`.
+Small explicit `/tmp` verification outputs are also supported. `--device cpu`
+is useful for small-batch numerical checks; CPU/GPU dynamics are not asserted
+bitwise identical. The standalone `run_sim_demo.py --commissioning-only` and
+`--controller <name>` options support isolated checks.
+
+Each trial writes bounded 1 kHz GPU/CPU telemetry to `trace.npz` after stopping,
+including q/dq, pose/twist, reference, pose error, wrench, torque components,
+first fault, terminal feedback and runtime mass/COM/inertia. Full-pose IK samples
+are stored separately. `summary.json` records model/config/source hashes and
+software versions; `FINALIZED.json` is written last. No per-step disk I/O.
+Compilation produces `metrics.csv`, `compiled.json`, per-trial XYZ/error/joint
+dynamics plots and `tracking_summary.png`. Tracking error compares feedback to
+the **applied held target**; contouring is exact distance to the analytic 3D
+circle. Optional Lissajous uses a labeled nearest-sampled-curve approximation.
+
+Commissioning acceptance: hold error ≤2 mm and ≤0.01 rad; motion max position
+error ≤3 cm; finite state and no configured faults. Repeat/clone tolerances are
+physical numerical tolerances, not bitwise equality: q/dq ≤0.001 rad/rad·s⁻¹,
+position ≤0.1 mm, orientation ≤0.001 rad, linear/angular twist ≤0.001 m·s⁻¹/rad·s⁻¹.
+Repeats test reproducibility, not independent statistical confidence intervals.
+
+The current Franky source/API audit, mesh-clearance approval and physical
+commissioning remain transfer gates. M3 fixture/posture control is not included.
+
+### M2 verification — 2026-10-11
+
+42 tests pass (35 motion-control tests plus 7 existing deployment-controller
+regressions). A new standalone wheel builds and loads all four packaged suites
+without importing Isaac. Live PhysX commissioning, first-fault/selective-reset
+checks and the existing M1 joint hold/PTP/reset regression pass.
+
+The complete soft-gain speed/feedforward matrix passes on two CPU clones,
+with two repeats per cell. Both gain profiles additionally pass GPU commissioning
+and two GPU circles at 0.4 rad/s, providing a same-backend gain comparison.
+Each row below is rounded from its two repeat results; all recorded contact
+proxies/fault counts are zero.
+
+| Physics | Profile | Phase speed (rad/s) | Twist FF | Tracking RMS (mm) | Contouring RMS (mm) |
+|---|---|---:|---|---:|---:|
+| CPU | Soft | 0.2 | No | 1.941 | 0.097 |
+| CPU | Soft | 0.2 | Yes | 0.158 | 0.120 |
+| CPU | Soft | 0.4 | No | 3.778 | 0.320 |
+| CPU | Soft | 0.4 | Yes | 0.515 | 0.440 |
+| GPU | Soft | 0.4 | Yes | 0.515 | 0.440 |
+| GPU | Medium | 0.4 | Yes | 0.349 | 0.291 |
+
+Twist feedforward substantially reduces time-domain lag, but does not necessarily
+reduce contouring error. Increasing **both K and D** in the moderate-gain profile
+reduces these two errors for the verified GPU cell; this is not a stiffness-only
+ablation or a claim that higher gains are always better. Largest measured joint
+speed is about 0.216 rad/s and peak applied torque about 23.9 Nm, including the
+approach/exit. Stationary-hold position error remains below 0.3 µm. Full-path IK
+retains at least 0.446 rad beyond its already-inset joint bounds, with minimum
+mixed-unit Jacobian singular value about 0.224. Runtime FK/Jacobian/official-DLS
+cross-checks and actor-twist/$J\dot q$ parity pass.
+
+CPU repeat traces match exactly within each cell; clone differences are not
+bitwise zero (maximum position difference about 0.076 mm). GPU repeat/clone
+differences also satisfy the stated physical tolerances. These are deterministic
+numerical checks, not measurement noise estimates or hardware validation.
+
+Disposable verification artifacts:
+
+- `/tmp/franka-motion-m2-corrected-circles` — eight CPU trials.
+- `/tmp/franka-motion-m2-soft-gpu-suite` and
+  `/tmp/franka-motion-m2-medium-suite` — gated GPU gain cells.
+- `/tmp/franka-motion-m2-final-compiled` — combined finalized metric tables and
+  equal-scale XYZ, tracking/contouring, joint dynamics and summary figures.
+- `/tmp/franka-motion-m2-joint-regression` — retained M1 regression evidence.
+
+The earlier `/tmp/*m2*commission-v1` / `circles-v1` frame-debug runs are not final
+M2 evidence. Reproduce durable artifacts on the data volume using the commands
+above. The original Franky library-motion baseline and optional Lissajous live
+comparison remain unmeasured; M2 establishes the conservative Cartesian
+impedance circle candidate, not complete hardware controller parity.

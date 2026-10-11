@@ -118,7 +118,7 @@ class ControllerProfile:
 
     def __post_init__(self):
         _keys(self.data, {"mode", "status", "hardware_approved", "physics_hz", "reference_hz", "delay_steps",
-                         "reference_hold", "stiffness", "damping", "units", "source", "audit_pending", "joint_servo"},
+                         "reference_hold", "stiffness", "damping", "units", "source", "audit_pending", "joint_servo", "cartesian_servo"},
               {"mode", "status", "hardware_approved", "physics_hz", "reference_hz", "delay_steps",
                "reference_hold", "stiffness", "damping", "units", "source", "audit_pending"}, self.name)
         if self.data["mode"] not in ("joint", "cartesian"):
@@ -155,6 +155,18 @@ class ControllerProfile:
             if self.data["mode"] != "joint":
                 raise ValueError("joint_servo requires joint mode")
             for key in ("position_error_clip_rad", "slew_rate_nm_s", "cutoff_hz"):
+                positive(servo[key], key)
+            for key in ("effort_limits_nm", "max_measured_velocity_rad_s"):
+                if np.any(np.array(finite_vector(servo[key], 7, key)) <= 0):
+                    raise ValueError(f"{key} must be positive")
+        if "cartesian_servo" in self.data:
+            servo = self.data["cartesian_servo"]
+            fields = {"slew_rate_nm_s", "cutoff_hz", "effort_limits_nm", "max_measured_velocity_rad_s",
+                      "max_reference_linear_velocity_m_s", "max_reference_angular_velocity_rad_s"}
+            _keys(servo, fields, fields, "cartesian_servo")
+            if self.data["mode"] != "cartesian":
+                raise ValueError("cartesian_servo requires Cartesian mode")
+            for key in fields-{"effort_limits_nm", "max_measured_velocity_rad_s"}:
                 positive(servo[key], key)
             for key in ("effort_limits_nm", "max_measured_velocity_rad_s"):
                 if np.any(np.array(finite_vector(servo[key], 7, key)) <= 0):
@@ -204,7 +216,7 @@ class TrajectorySpec:
                 if name == "harmonics" and np.any(values % 1):
                     raise ValueError("harmonics must be integers")
 
-    def build(self, angular_speed_rad_s: float, initial_position_m):
+    def build(self, angular_speed_rad_s: float, initial_position_m, initial_quaternion_xyzw=None):
         d = self.data
         schedule = SmoothPhaseSchedule(angular_speed_rad_s, d["ramp_duration_s"], d["turns"], d["phase_rad"])
         common = dict(center_m=d["center_m"], plane_rpy_deg=d["plane_rpy_deg"],
@@ -215,6 +227,7 @@ class TrajectorySpec:
             path = LissajousTrajectory(amplitudes_m=d["amplitudes_m"], harmonics=d["harmonics"],
                                        phase_offsets_rad=d["phase_offsets_rad"], **common)
         return ApproachAndTrackTrajectory(path, initial_position_m,
+            initial_quaternion_xyzw=initial_quaternion_xyzw,
             **{key: d[key] for key in ("approach_duration_s", "settle_duration_s", "exit_duration_s", "return_to_start")})
 
 

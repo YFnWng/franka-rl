@@ -36,6 +36,15 @@ the Franky-facing argument order from the installed implementation. Do not apply
 an old Isaac `wxyz` assumption. Attach the evidence to this repository so the
 workstation can implement controller parity before hardware transfer.
 
+M2 now adds a separate non-RL Cartesian simulation task, full-pose DLS guards,
+and repeated circle speed/feedforward/gain trials; see
+`docs/industrial_motion_control.md`. Its explicit candidate is base-frame
+SO(3)-log error, flange-origin twist and $J^T$ wrench mapping, without posture or
+operational-space inertia shaping. Please compare these choices against the
+installed Cartesian tracker rather than assuming parity with the earlier joint
+PPO route. Hardware audit/commissioning is still pending; this update does not
+authorize a robot connection or motion.
+
 Read `REAL_ROBOT_DEPLOYMENT_PLAN.md` and `README.md` before implementation.
 Start with the inventory in section 11. Inspect installed ROS/libfranka sources
 and compatibility before selecting APIs. Keep the ROS workspace separate from

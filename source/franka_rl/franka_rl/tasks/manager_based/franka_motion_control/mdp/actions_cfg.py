@@ -21,3 +21,14 @@ class JointMotionActionCfg(ActionTermCfg):
     slew_rate_nm_s: float = 1000.
     cutoff_hz: float = 100.
     contact_threshold_n: float = 1.
+
+
+@configclass
+class CartesianMotionActionCfg(JointMotionActionCfg):
+    class_type: str = "{DIR}.actions:CartesianMotionAction"
+    stiffness: tuple = (100.,)*3+(10.,)*3
+    damping: tuple = (20.,)*3+(6.5,)*3
+    cartesian_lower: tuple = (.35,-.2,.2)
+    cartesian_upper: tuple = (.6,.2,.55)
+    max_reference_linear_velocity: float = .1
+    max_reference_angular_velocity: float = .5
