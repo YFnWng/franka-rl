@@ -1,0 +1,18 @@
+schema_version: 1
+motion_suite: demo_a_tracking.yaml
+direction_base: [0.0, 0.0, 1.0]
+segment_m: [-0.03, 0.03]
+force_n: 0.5
+hold_s: 1.0
+force_duration_s: 1.0
+release_s: 2.0
+cutoff_hz: 5.0
+max_reference_speed_m_s: 0.03
+posture_offset_rad: 0.15
+transition_s: 3.0
+posture_settle_s: 3.0
+posture_stiffness: 2.0
+posture_damping: 1.0
+weak_stiffness: 0.5
+projector_rcond: 0.000001
+experiments: [fixture_axial, fixture_transverse, posture_a, posture_b, posture_weak]

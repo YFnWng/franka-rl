@@ -1394,3 +1394,19 @@ The extracted directory is
 Read `README.md` and `MANIFEST.json`, then verify with
 `sha256sum -c SHA256SUMS`. The archive SHA-256 is
 `b3a17100946433632b7aba7deae5b74c608062a01c53fbb43d5f8e0771d9e47b`.
+
+### Industrial motion M3 simulation candidate — 2026-10-11
+
+See `FR3_Industrial_Motion_Control_Demos_HANDOFF.md` and
+`docs/industrial_motion_control.md`: the separate 20D fixture/posture task now
+passes bounded known-force tests and two fixed-pose secondary posture settings
+in Isaac Lab. This does not authorize hardware motion or manual guidance.
+Before M4, provide the installed Franky Cartesian/PostureTask implementation,
+wheel/source hashes, pseudoinverse threshold/weighting, secondary damping and
+orientation error, reference/gain interpolation, torque compensation/filter/
+limit/stop order. Our candidate is the unweighted kinematic torque projector
+`I - J.T @ pinv(J.T)`, not a dynamically consistent controller. Simulation
+disturbances act at flange body CoM; a physical tool/force point must be audited
+separately. The ±30 mm fixture reference is compliant (7.25 mm observed plant
+overshoot), not a hard workspace fence. Keep hardware profiles unapproved until
+these details and the interaction/stop procedure are reviewed locally.

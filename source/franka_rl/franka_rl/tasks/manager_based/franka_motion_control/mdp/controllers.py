@@ -32,11 +32,26 @@ class BatchedCartesianImpedanceController:
         c["coriolis"].copy_(coriolis)
         c["gravity"].copy_(gravity)
         c["requested"].copy_(c["pd"]+coriolis)
+        if "posture" in c:
+            c["requested"].add_(c["posture"])
         c["limited"].add_((c["requested"]-c["limited"]).clamp(-self.processor.step,self.processor.step))
         c["filtered"].add_(self.processor.alpha*(c["limited"]-c["filtered"]))
         c["unclipped"].copy_(c["filtered"]+gravity)
         c["applied"].copy_(torch.maximum(torch.minimum(c["unclipped"],self.processor.effort),-self.processor.effort))
         return c["applied"]
+
+
+def nullspace_projector_torch(jacobian, rcond=1e-6):
+    jt = jacobian.transpose(-1,-2)
+    return torch.eye(7,device=jacobian.device,dtype=jacobian.dtype)-jt@torch.linalg.pinv(jt,rtol=rcond)
+
+
+def line_fixture_reference_torch(position,velocity,origin,axis,filtered,alpha,lower,upper,max_speed):
+    s = ((position-origin)*axis).sum(-1)
+    filtered = filtered+alpha*((velocity*axis).sum(-1)-filtered)
+    speed = filtered.clamp(-max_speed,max_speed)
+    outward = ((s<=lower)&(speed<0))|((s>=upper)&(speed>0))
+    return origin+s.clamp(lower,upper)[...,None]*axis,torch.where(outward,0.,speed)[...,None]*axis,filtered
 
 
 class BatchedJointImpedanceController:

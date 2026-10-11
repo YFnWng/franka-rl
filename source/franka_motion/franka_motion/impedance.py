@@ -3,7 +3,15 @@ import math
 import numpy as np
 
 from .contracts import finite_vector, positive
-from .kinematics import pose_error_base
+from .kinematics import pose_error_base, nullspace_projector
+
+
+def compute_posture_torque(jacobian,q,dq,target,stiffness,damping,rcond=1e-6):
+    """Projected secondary PD torque before the common servo processing."""
+    q,dq,target = (np.array(finite_vector(x,7,"posture")) for x in (q,dq,target))
+    positive(stiffness,"stiffness",allow_zero=True)
+    positive(damping,"damping",allow_zero=True)
+    return nullspace_projector(jacobian,rcond)@(stiffness*(target-q)-damping*dq)
 
 
 class CartesianImpedanceController:

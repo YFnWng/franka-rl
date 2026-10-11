@@ -103,3 +103,13 @@ class Fr3JointMotionEnvCfg(Fr3MotionControlEnvCfg):
 class Fr3CartesianMotionEnvCfg(Fr3MotionControlEnvCfg):
     actions: CartesianActionsCfg = CartesianActionsCfg()
     motion_action_name: str = "cartesian_reference"
+
+
+@configclass
+class PostureActionsCfg:
+    cartesian_reference = mdp.CartesianPostureMotionActionCfg()
+
+
+@configclass
+class Fr3FixturePostureMotionEnvCfg(Fr3CartesianMotionEnvCfg):
+    actions: PostureActionsCfg = PostureActionsCfg()

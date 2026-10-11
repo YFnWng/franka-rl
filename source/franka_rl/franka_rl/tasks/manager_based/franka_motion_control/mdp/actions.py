@@ -2,7 +2,7 @@
 import torch
 import warp as wp
 from isaaclab.managers.action_manager import ActionTerm
-from .controllers import BatchedJointImpedanceController, BatchedCartesianImpedanceController
+from .controllers import BatchedJointImpedanceController, BatchedCartesianImpedanceController, nullspace_projector_torch
 from .observations import tcp_pose_base, tcp_twist_base
 from isaaclab.utils.math import matrix_from_quat
 
@@ -48,13 +48,17 @@ class JointMotionAction(ActionTerm):
 
     def _latch(self, code, q, dq):
         fresh = (self.fault_code == 0) & (code != 0)
-        self.first_fault_tick[fresh] = self._env._sim_step_counter
-        self.first_fault_code[fresh] = code[fresh]
-        self.first_fault_contact_force[fresh] = self.contact_force[fresh]
-        self.first_fault_q[fresh] = q[fresh]
-        self.first_fault_dq[fresh] = dq[fresh]
-        self.first_fault_reference[fresh] = self._raw[fresh]
-        self.fault_hold_q[fresh] = torch.nan_to_num(q[fresh])
+        # Boolean indexing materializes variable-sized nonzero indices and
+        # synchronizes CUDA even for an empty mask. Fixed-shape selection keeps
+        # first-fault capture GPU-resident and preserves already-latched rows.
+        self.first_fault_tick.copy_(torch.where(fresh, self._env._sim_step_counter, self.first_fault_tick))
+        self.first_fault_code.copy_(torch.where(fresh, code, self.first_fault_code))
+        self.first_fault_contact_force.copy_(torch.where(fresh, self.contact_force, self.first_fault_contact_force))
+        rows = fresh[:, None]
+        self.first_fault_q.copy_(torch.where(rows, q, self.first_fault_q))
+        self.first_fault_dq.copy_(torch.where(rows, dq, self.first_fault_dq))
+        self.first_fault_reference.copy_(torch.where(rows, self._raw, self.first_fault_reference))
+        self.fault_hold_q.copy_(torch.where(rows, torch.nan_to_num(q), self.fault_hold_q))
         self.fault_code.bitwise_or_(code)
 
     def check_state(self):
@@ -157,6 +161,8 @@ class CartesianMotionAction(JointMotionAction):
             | ((torch.linalg.vector_norm(actions[:,3:7], dim=1)-1).abs() > 1e-4)
             | (torch.linalg.vector_norm(actions[:,7:10], dim=1) > self.cfg.max_reference_linear_velocity+1e-7)
             | (torch.linalg.vector_norm(actions[:,10:13], dim=1) > self.cfg.max_reference_angular_velocity+1e-7))
+        if self.action_dim == 20:
+            invalid |= (actions[:,13:] < self.bounds["lower"]).any(1) | (actions[:,13:] > self.bounds["upper"]).any(1)
         q, dq = self.check_state()
         self._latch(16*invalid.int(), q, dq)
         self._processed.copy_(torch.where(invalid[:,None], self._processed, actions))
@@ -165,7 +171,7 @@ class CartesianMotionAction(JointMotionAction):
         super().allocate_trace(ticks)
         self.trace.pop("q_ref")
         self.trace.pop("dq_ref")
-        for key, size in (("pose",7),("twist",6),("reference",13),("pose_error",6),("wrench",6),("kinematic_twist",6)):
+        for key, size in (("pose",7),("twist",6),("reference",self.action_dim),("pose_error",6),("wrench",6),("kinematic_twist",6)):
             self.trace[key] = torch.empty((ticks,self.num_envs,size), device=self.device)
 
     def apply_actions(self):
@@ -175,7 +181,11 @@ class CartesianMotionAction(JointMotionAction):
         coriolis = (wp.to_torch(raw_c) if isinstance(raw_c,wp.array) else raw_c)[:,self.dynamics_ids]
         gravity = self._asset.data.gravity_compensation_forces.torch[:,self.dynamics_ids]
         jacobian = self.jacobian_base()
-        torque = self.controller.compute(pose,twist,self._processed,jacobian,coriolis,gravity)
+        if self.action_dim == 20:
+            projector = nullspace_projector_torch(jacobian,self.cfg.projector_rcond)
+            raw = self.cfg.posture_stiffness*(self._processed[:,13:]-q)-self.cfg.posture_damping*dq
+            self.controller.components["posture"].copy_((projector@raw.unsqueeze(-1)).squeeze(-1))
+        torque = self.controller.compute(pose,twist,self._processed[:,:13],jacobian,coriolis,gravity)
         # Faulted clones switch to a gravity-compensated velocity damper, with
         # independent resettable processing state. This is not a hardware stop.
         stop = self.stop_controller.compute(torch.nan_to_num(q),torch.nan_to_num(dq),self.fault_hold_q,
@@ -204,3 +214,19 @@ class CartesianMotionAction(JointMotionAction):
         self._processed[ids,7:] = 0.
         self.fault_hold_q[ids] = self._asset.data.joint_pos.torch[ids][:,self.ids]
         self.stop_controller.reset(ids)
+
+
+class CartesianPostureMotionAction(CartesianMotionAction):
+    """M3 physical Cartesian reference plus seven bounded secondary joint targets."""
+    def __init__(self,cfg,env):
+        super().__init__(cfg,env)
+        self.controller.components["posture"] = torch.zeros((self.num_envs,7),device=self.device)
+
+    @property
+    def action_dim(self):
+        return 20
+
+    def reset(self,env_ids=None):
+        super().reset(env_ids)
+        ids = slice(None) if env_ids is None else env_ids
+        self._processed[ids,13:] = self._asset.data.joint_pos.torch[ids][:,self.ids]

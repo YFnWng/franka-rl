@@ -1,4 +1,4 @@
-# Industrial motion demos: M0–M2
+# Industrial motion demos: M0–M3
 
 M0 provides a portable NumPy/YAML package, `franka_motion`, with no Isaac Lab,
 Torch, Franky or robot initialization on import. Existing PPO tasks are unchanged.
@@ -301,6 +301,47 @@ physical numerical tolerances, not bitwise equality: q/dq ≤0.001 rad/rad·s⁻
 position ≤0.1 mm, orientation ≤0.001 rad, linear/angular twist ≤0.001 m·s⁻¹/rad·s⁻¹.
 Repeats test reproducibility, not independent statistical confidence intervals.
 
+### M2 performance diagnostics
+
+The 1 kHz explicit torque loop runs 20 physics steps before each 50 Hz reference/
+viewport update. For one or two robots, eager Torch GPU launch overhead can
+dominate useful computation. Rendering adds another cost; lowering the physics
+rate is **not** an equivalent optimization because it changes the servo.
+
+`run_sim_demo.py --profile-steps 2` records 40 physics steps after a 20-reference-
+step warmup, writing `step_profile.json` (Chrome trace) and `step_profile.txt`
+inside the trial output. Supported profiling windows are 1..5 reference steps;
+profiling is off by default. Cartesian summaries always include `performance`
+with median/p90 wall time per reference step and simulation/wall-time ratio.
+Median/p90 exclude warmup and the profiling window; rollout wall time includes
+the profiler's overhead but excludes startup, path feasibility, and artifact
+serialization. Run headless and visible tests serially, on the same device,
+with identical configuration. Kit may already own CUPTI: in that case the
+visible profile contains CPU-side operators but no GPU activity timing.
+
+First-fault bookkeeping now uses fixed-shape `torch.where` updates instead of
+boolean-indexed gathers/scatters, avoiding CUDA `nonzero` synchronization in
+every physics step. Raw first-fault state/reference capture, latched fault bits,
+sanitized stop posture, and selective reset semantics remain unchanged.
+
+On 2026-10-11, matched serial RTX 4090 tests used two robots and the 10-second
+Cartesian commissioning trajectory (hold, 2 mm step, +10% K step):
+
+| Mode | Median reference-step wall time before | After | Rollout wall time before → after |
+|---|---:|---:|---:|
+| Headless | 94.16 ms | 83.26 ms | 49.04 → 43.34 s |
+| Kit visible | 129.38 ms | 118.18 ms | 68.04 → 62.04 s |
+
+The 40-physics-step headless profile reduced `aten::nonzero` calls from 1,032 to
+zero and CUDA stream synchronizations from 1,654 to 622. Remaining synchronization
+and many small kernel launches still limit throughput; this is a modest
+optimization, **not real-time performance**. Both matched before/after traces
+were exactly equal for q, dq, applied torque, pose and reference. All trials,
+live invalid-reference/first-fault/selective-reset checks, and 43 offline tests
+passed. This benchmark exercises the circle task's servo but is not a full-circle
+performance measurement. Raw results live in `/tmp/motion-m2-perf-{before,after}-`
+`{headless,visual}` (temporary diagnostic artifacts, not committed).
+
 The current Franky source/API audit, mesh-clearance approval and physical
 commissioning remain transfer gates. M3 fixture/posture control is not included.
 
@@ -355,3 +396,112 @@ M2 evidence. Reproduce durable artifacts on the data volume using the commands
 above. The original Franky library-motion baseline and optional Lissajous live
 comparison remain unmeasured; M2 establishes the conservative Cartesian
 impedance circle candidate, not complete hardware controller parity.
+
+## M3 — finite line fixture and redundant posture control
+
+`Franka-FR3v2-MotionControl-FixturePosture-v0` is a separate non-RL task with
+physical 20D actions `[p(3), quaternion_xyzw(4), linear/angular twist(6),
+q_posture(7)]`. M1/M2 registrations and their 14D/13D contracts remain intact.
+All references use the fixed robot base and bare flange. Physics/torque remain
+1 kHz, references 50 Hz, with the same compensation, slew, filter, effort and
+latched fault processing as M2. No hidden IK or motion planner runs in the servo.
+
+For the fixture, `LineVirtualFixture` projects measured position onto a finite
+segment along the unit axis $d$ through measured home FK $p_0$:
+
+$$
+s=d^T(p-p_0),\qquad p_d=p_0+\operatorname{clip}(s,s_{\min},s_{\max})d.
+$$
+
+Axial feedforward velocity is first-order filtered at 50 Hz (5 Hz cutoff),
+limited to 0.03 m/s, and suppressed when outward at an endpoint. Orientation
+is held and posture gains are zero. The bounded home entry corridor and fixture
+endpoints are validated and recorded. The fixture is a **compliant constraint**:
+the reference lies inside ±30 mm, but physical motion may overshoot the segment.
+It is not a hard workspace fence or authorization for human contact.
+
+Two separate trials inject 0.5 N for one second, followed by two seconds of
+release: along base Z and transverse to base Z. Forces act at the **flange body's
+center of mass**, not at a presumed tool tip; the live runner explicitly requires
+identity base/world rotation. Permanent wrenches are cleared after every trial,
+including faults. Forces are simulated physical disturbances, not perturbed pose
+commands. Buffered traces include the applied force schedule and geometric errors.
+
+Posture trials hold the same full Cartesian pose and add
+
+$$
+N_\tau=I_7-J^T(J^T)^\dagger,\qquad
+\tau_n=N_\tau\left[K_n(q_n-q)-D_n\dot q\right].
+$$
+
+This is an **orthogonal kinematic torque projector**, using an SVD pseudoinverse
+with relative cutoff $10^{-6}$; it is not dynamically consistent. Record task
+drift rather than claiming zero acceleration coupling. Two targets are generated
+from ±0.15 rad along a deterministically signed home Jacobian null direction,
+then full-pose DLS-corrected and checked against joint limits. A three-second
+quintic secondary-target transition precedes three seconds of settling. Normal
+gains are $K_n=2$ Nm/rad and $D_n=1$ Nm·s/rad; the weak comparison uses
+$K_n=0.5$ with the same damping and positive target. Intermediate secondary
+targets are objectives, not guaranteed exact fixed-pose IK solutions.
+
+Implementation:
+
+- `franka_motion/virtual_fixture.py`: `LineVirtualFixture`, strict Demo B YAML loading.
+- `franka_motion/kinematics.py`: `nullspace_projector`.
+- `franka_motion/impedance.py`: `compute_posture_torque`.
+- Motion `mdp/controllers.py`: batched projector and fixture reference, NumPy/Torch parity.
+- Motion `mdp/actions.py`: independent 20D `CartesianPostureMotionAction`, projected torque before common processing.
+- `experiments/fixture_posture_runner.py`: known-force lifecycle, feasible secondary targets, analysis and acceptance.
+- `scripts/motion_control/run_sim_demo.py`: `--demo-b-suite` entry point.
+- `scripts/motion_control/compile_cartesian_results.py`: finalized artifact verification, CSV/JSON and dedicated fixture/posture figures.
+
+Run all five cases headlessly (CPU is useful for this small batch):
+
+```bash
+cd /home/chen-lab/isaac/franka-rl
+direnv exec . /home/chen-lab/isaac/.venv/bin/python -u \
+  scripts/motion_control/run_sim_demo.py \
+  --task Franka-FR3v2-MotionControl-FixturePosture-v0 \
+  --demo-b-suite source/franka_motion/franka_motion/config/suites/demo_b_fixture_posture.yaml \
+  --num_envs 2 --device cpu --viz none --verify-reset-parity
+```
+
+For a visible single-robot trial, use `--num_envs 1 --viz kit`, omit
+`--verify-reset-parity`, and add `--trial posture_b` or `--trial fixture_axial`.
+Compile the printed output directory with the existing Cartesian compiler:
+
+```bash
+direnv exec . /home/chen-lab/isaac/.venv/bin/python \
+  scripts/motion_control/compile_cartesian_results.py \
+  --suite-dir /path/to/m3-output --output-dir /path/to/new-compiled-directory
+```
+
+Verified two-clone CPU results (2026-10-11):
+
+| Trial | Relevant response | Maximum task drift |
+|---|---|---|
+| Axial force | 37.25 mm axial travel; 7.25 mm segment overshoot | 2.31 mm transverse; 0.138° orientation |
+| Transverse force | 5.74 mm transverse displacement; 0.096 mm axial travel | 0.120° orientation |
+| Posture A | 0.1499 rad joint-vector change | 0.170 mm position; 0.035° orientation |
+| Posture B | 0.1499 rad joint-vector change | 0.155 mm position; 0.035° orientation |
+| Weak posture B | 0.1352 rad joint-vector change; 0.0147 rad target residual | 0.109 mm position; 0.033° orientation |
+
+The force response is compatible with directional compliance; it is not a
+calibrated hardware stiffness measurement. Acceptance separately checks axial
+travel ≥2 mm, lateral error ≤10 mm, segment overshoot ≤10 mm and orientation
+error ≤0.02 rad; posture change ≥0.01 rad, position drift ≤5 mm and orientation
+error ≤0.02 rad. All retain M2 finite-state/hold/physical fault gates. No faults or
+contacts occurred. Hardware parity, mesh-clearance certification and physical
+manual-guidance approval remain M4 gates.
+
+48 offline tests pass (including finite-segment/filtered-twist parity, full-rank
+and rank-deficient NumPy/Torch projectors, secondary-torque processing/reset, and
+feasible corrected targets). All five CPU trials and GPU posture B pass with two
+clones, plus invalid-reference/first-fault/selective-reset checks. Diagnostic
+artifacts are `/tmp/motion-m3-final-cpu`, `/tmp/motion-m3-final-gpu-posture` and
+`/tmp/motion-m3-final-combined`. These temporary outputs are not committed; use
+the commands above to reproduce durable data-volume artifacts. The axial fixture
+can coast after force release because axial damping is largely cancelled by
+permitted-axis feedforward; these trials do not claim terminal settling or
+hardware hand-guidance safety. Joint-limit telemetry is included; compilation
+also reports minimum measured-state abort-bound margin.

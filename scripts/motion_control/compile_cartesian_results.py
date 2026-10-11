@@ -40,7 +40,8 @@ def validate(directory):
         raise ValueError("Empty/unsupported telemetry")
     if trace["pose"].shape != (n,summary["num_envs"],7):
         raise ValueError("Trace shape mismatch")
-    for key,size in (("q",7),("dq",7),("reference",13),("twist",6),("pose_error",6),("wrench",6),("applied",7)):
+    reference_size = 20 if "demo_b_config" in summary else 13
+    for key,size in (("q",7),("dq",7),("reference",reference_size),("twist",6),("pose_error",6),("wrench",6),("applied",7)):
         if trace[key].shape != (n,summary["num_envs"],size):
             raise ValueError(f"Trace shape mismatch: {key}")
     np.testing.assert_allclose(trace["time_s"],np.arange(n)*.001,atol=1e-12,rtol=0)
@@ -66,6 +67,10 @@ def compile_results(suite_dirs,output):
             row = {"suite":suite_dir.name,"trial_id":name,"controller":summary["controller"]["stiffness"],
                 "angular_speed_rad_s":summary["angular_speed_rad_s"],"twist_feedforward":summary["twist_feedforward"],
                 "acceptance_passed":summary["acceptance_passed"],**summary["metrics"]}
+            if "demo_b_config" in summary:
+                bounds = summary["measured_abort_limits"]
+                row["minimum_measured_abort_margin_rad"] = float(np.minimum(
+                    trace["q"]-np.array(bounds["abort_lower"]),np.array(bounds["abort_upper"])-trace["q"]).min())
             rows.append(row)
             cell = (summary["controller"]["stiffness"].__repr__(),name.rsplit("__repeat_",1)[0])
             finite = all(np.isfinite(trace[k]).all() for k in ("q","dq","pose","twist"))
@@ -117,6 +122,35 @@ def compile_results(suite_dirs,output):
             fig.subplots_adjust(left=.10,right=.97,top=.89,bottom=.08,hspace=.30,wspace=.30)
             fig.savefig(output/f"{suite_dir.name}__{name}.png",dpi=130)
             plt.close(fig)
+            if "demo_b_config" in summary:
+                fig,axes = plt.subplots(2,2,figsize=(11,7))
+                if "fixture_axial_m" in trace:
+                    axes[0,0].plot(t,1000*trace["fixture_axial_m"][:,0],label="axial travel")
+                    axes[0,0].plot(t,1000*trace["fixture_transverse_error_m"][:,0],label="transverse error")
+                    for limit in summary["fixture_segment_m"]:
+                        axes[0,0].axhline(1000*limit,color="gray",linestyle="--")
+                    for i,label in enumerate("XYZ"):
+                        axes[0,1].plot(t,trace["external_force_base_n"][:,i],label=label)
+                    axes[0,1].set_ylabel("Applied world-frame force at flange CoM (N)")
+                else:
+                    axes[0,0].plot(t,1000*np.linalg.norm(trace["pose_error"][:,0,:3],axis=1),label="fixed-pose position error")
+                    for i in range(7):
+                        axes[0,1].plot(t,trace["q"][:,0,i]-trace["initial_q"][0,i],label=f"j{i+1}",color=f"C{i}")
+                        axes[0,1].plot(t,trace["reference"][:,0,13+i]-trace["initial_q"][0,i],linestyle="--",alpha=.4,color=f"C{i}")
+                    axes[0,1].set_ylabel("Joint change; dashed = posture target (rad)")
+                axes[0,0].set_ylabel("Position (mm)")
+                axes[1,0].plot(t,np.rad2deg(np.linalg.norm(trace["pose_error"][:,0,3:],axis=1)),label="orientation error")
+                axes[1,0].set_ylabel("Orientation error (deg)")
+                axes[1,1].plot(t,np.linalg.norm(trace["posture"][:,0],axis=1),label="projected posture torque")
+                axes[1,1].set_ylabel("Torque norm (Nm)")
+                for ax in axes.flat:
+                    ax.set_xlabel("Time (s)")
+                    ax.legend(fontsize=7)
+                    ax.grid(alpha=.2)
+                fig.suptitle(f"M3 {name}; accepted={summary['acceptance_passed']}")
+                fig.tight_layout()
+                fig.savefig(output/f"{suite_dir.name}__{name}__demo_b.png",dpi=130)
+                plt.close(fig)
     if not rows:
         raise ValueError("No finalized trials to compile")
     fields = sorted(set().union(*(row.keys() for row in rows)))
@@ -130,8 +164,8 @@ def compile_results(suite_dirs,output):
     (output/"compiled.json").write_text(json.dumps(report,indent=2,allow_nan=False)+"\n")
     fig,ax = plt.subplots(figsize=(max(8,len(rows)*.9),4))
     ax.bar(np.arange(len(rows)),[1000*r["tracking_rms_error_m"] if r["tracking_rms_error_m"] is not None else np.nan for r in rows])
-    ax.set_xticks(np.arange(len(rows)),[f"Kx={r['controller'][0]}, {r['angular_speed_rad_s']} rad/s\nFF={r['twist_feedforward']}\n{r['trial_id'].split('__')[-1]}" for r in rows],rotation=30,ha="right")
-    ax.set(ylabel="Tracking RMS (mm)",title="M2 speed × feedforward cells (individual repeats)")
+    ax.set_xticks(np.arange(len(rows)),[r['trial_id'] if r['angular_speed_rad_s'] is None else f"Kx={r['controller'][0]}, {r['angular_speed_rad_s']} rad/s\nFF={r['twist_feedforward']}\n{r['trial_id'].split('__')[-1]}" for r in rows],rotation=30,ha="right")
+    ax.set(ylabel="Tracking RMS (mm)",title="Cartesian motion trials (individual runs)")
     fig.tight_layout()
     fig.savefig(output/"tracking_summary.png",dpi=130)
     plt.close(fig)

@@ -8,6 +8,14 @@ import numpy as np
 from .contracts import finite_vector, unit_quaternion_xyzw, positive
 
 
+def nullspace_projector(jacobian, rcond=1e-6):
+    """Orthogonal kinematic torque projector; not dynamically consistent."""
+    j = np.asarray(jacobian,dtype=float)
+    if j.shape != (6,7) or not np.isfinite(j).all() or not 0 < rcond < 1:
+        raise ValueError("Expected finite 6x7 Jacobian and 0<rcond<1")
+    return np.eye(7)-j.T@np.linalg.pinv(j.T,rcond=rcond)
+
+
 def quat_multiply(a, b):
     a, b = np.asarray(a), np.asarray(b)
     return np.r_[a[3]*b[:3]+b[3]*a[:3]+np.cross(a[:3], b[:3]), a[3]*b[3]-a[:3]@b[:3]]

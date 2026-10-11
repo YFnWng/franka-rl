@@ -3,6 +3,7 @@ import hashlib
 import importlib.metadata
 import json
 import math
+import time
 from pathlib import Path
 import numpy as np
 import torch
@@ -14,8 +15,9 @@ from ..tasks.manager_based.franka_motion_control.mdp.observations import tcp_pos
 
 
 class IsaacCartesianMotionRunner:
-    def __init__(self, env, suite):
+    def __init__(self, env, suite, *, profile_steps=0):
         self.env, self.suite = env.unwrapped, suite
+        self.profile_steps = profile_steps
         repo = Path(__file__).resolve().parents[4]
         path = repo/suite.workspace.data["model"]["archived_urdf"]
         if hashlib.sha256(path.read_bytes()).hexdigest() != suite.workspace.data["model"]["urdf_sha256"]:
@@ -113,7 +115,8 @@ class IsaacCartesianMotionRunner:
             "ik_validation":feasibility,"entry_corridor_m":{"lower":lower.tolist(),"upper":upper.tolist()},
             "max_analytic_angular_reference_speed_rad_s":angular_peak},ik_trace=ik_trace)
 
-    def _execute(self,trial,output,refs,phases,metadata,*,ik_trace=None,gain_step_index=None):
+    def _execute(self,trial,output,refs,phases,metadata,*,ik_trace=None,gain_step_index=None,
+                 reference_update=None,before_step=None,cleanup=None,analyze_trace=None):
         env,action = self.env,self.env.motion_action
         # Include every channel, with margin; reject oversized allocations before motion.
         ticks = len(refs)*env.cfg.decimation
@@ -128,19 +131,57 @@ class IsaacCartesianMotionRunner:
         k0 = action.controller.k.clone()
         env.begin_trial(trial.trial_id)
         runtime_error = None
+        step_wall_times = []
+        profiler = None
+        profiling_active = False
+        rollout_started = time.perf_counter()
         try:
             for i,row in enumerate(commands):
+                if self.profile_steps and i == 20:
+                    activities = [torch.profiler.ProfilerActivity.CPU]
+                    if str(env.device).startswith("cuda"):
+                        activities.append(torch.profiler.ProfilerActivity.CUDA)
+                    profiler = torch.profiler.profile(activities=activities)
+                    profiler.start()
+                    profiling_active = True
                 if gain_step_index is not None and i == gain_step_index:
                     action.controller.k.mul_(1.1)
-                env.step(row.expand(env.num_envs,-1))
-                if bool((action.fault_code!=0).any()):
+                started = time.perf_counter()
+                command = row.expand(env.num_envs,-1)
+                if before_step is not None:
+                    before_step(i)
+                if reference_update is not None:
+                    command = reference_update(i,command)
+                env.step(command)
+                faulted = bool((action.fault_code!=0).any())
+                elapsed = time.perf_counter()-started
+                if i >= 20 and not profiling_active:
+                    step_wall_times.append(elapsed)
+                if profiling_active and i == 20+self.profile_steps-1:
+                    profiler.stop()
+                    profiling_active = False
+                if faulted:
                     break
         except Exception as error:
             runtime_error = f"{type(error).__name__}: {error}"
         finally:
+            if profiling_active:
+                profiler.stop()
+            if cleanup is not None:
+                cleanup()
             terminal = env.end_trial()
             terminal_pose = tcp_pose_base(env).clone()
             action.controller.k.copy_(k0)
+        rollout_wall_s = time.perf_counter()-rollout_started
+        performance = {"rollout_wall_s":rollout_wall_s,
+            "simulation_to_wall_ratio":action.trace_index*env.physics_dt/rollout_wall_s,
+            "reference_step_wall_median_ms":float(np.median(step_wall_times)*1000) if step_wall_times else None,
+            "reference_step_wall_p90_ms":float(np.percentile(step_wall_times,90)*1000) if step_wall_times else None,
+            "timing_scope":"step plus existing fault synchronization; excludes first 20 steps and profiler window; includes rendering when enabled",
+            "profile_reference_steps_requested":self.profile_steps}
+        if profiler is not None:
+            profiler.export_chrome_trace(str(output/"step_profile.json"))
+            (output/"step_profile.txt").write_text(profiler.key_averages().table(sort_by="self_cpu_time_total",row_limit=40))
         trace = {key:value[:action.trace_index].detach().cpu().numpy() for key,value in action.trace.items()}
         trace["time_s"] = np.arange(action.trace_index)*env.physics_dt
         trace["phase"] = np.array(phases)[np.arange(action.trace_index)//env.cfg.decimation]
@@ -192,6 +233,10 @@ class IsaacCartesianMotionRunner:
             trace["contour_error_m"] = contour
             metrics["contouring_rms_error_m"] = float(np.sqrt(np.mean(contour**2)))
         accepted = finite and not fault.any() and runtime_error is None and metrics["hold_max_position_error_m"] <= .002 and metrics["hold_max_rotation_error_rad"] <= .01 and metrics["tracking_max_error_m"] <= .03
+        if analyze_trace is not None:
+            additional, passed = analyze_trace(trace)
+            metrics.update(additional)
+            accepted = accepted and passed
         metrics = {key:value if np.isfinite(value) else None for key,value in metrics.items()}
         summary = {"schema_version":1,"trial_id":trial.trial_id,"status":"fault" if fault.any() or runtime_error else "complete",
             "acceptance_passed":bool(accepted),"runtime_error":runtime_error,"metrics":metrics,"fault_codes":fault.tolist(),
@@ -207,6 +252,7 @@ class IsaacCartesianMotionRunner:
             "measured_abort_limits":{key:getattr(action.cfg,key) for key in ("abort_lower","abort_upper","max_measured_velocity")},
             "contact_proxy_threshold_n":action.cfg.contact_threshold_n,
             "source_sha256":self.source_hashes,
+            "performance":performance,
             "hardware_execution_authorized":False,"versions":{k:importlib.metadata.version(k) for k in ("numpy","torch","isaaclab","isaacsim")},**metadata}
         np.savez_compressed(output/"trace.npz",**trace)
         summary["trace_sha256"] = hashlib.sha256((output/"trace.npz").read_bytes()).hexdigest()

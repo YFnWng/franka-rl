@@ -650,3 +650,31 @@ YAML owns geometry, targets, gains, timing, repeats and backend mode. CLI option
 - Which initial posture, gain profiles, measured-state limits and stop settings are approved for the transferred suite? Keep the runtime on the real-time machine and preserve existing verified policy routes.
 
 These questions are validation gates, not reasons to expand scope. Start Demo A once they are resolved.
+
+## M3 implementation update — 2026-10-11
+
+Demo B is implemented in the separate manager-based
+`Franka-FR3v2-MotionControl-FixturePosture-v0` task. Its physical 20D reference
+adds seven bounded posture targets to M2's Cartesian pose/twist. No M1/M2 action
+contract was replaced. `config/suites/demo_b_fixture_posture.yaml` selects known
+axial/transverse force tests, two feasible secondary posture targets and a weak
+secondary-gain comparison. `run_sim_demo.py --demo-b-suite ...` runs finite trials;
+the Cartesian compiler now validates 20D traces and produces fixture/posture plots.
+
+The portable implementations are `LineVirtualFixture` in `virtual_fixture.py`,
+`nullspace_projector` in `kinematics.py`, and `compute_posture_torque` in
+`impedance.py`. Isaac adapters are `CartesianPostureMotionAction`, batched projector/
+fixture functions in `mdp/controllers.py`, and `IsaacFixturePostureRunner`.
+The projector is the documented unweighted kinematic SVD torque projector, not
+a claim of dynamic decoupling or Franky parity. Known 0.5 N forces act at flange
+body CoM in world axes (identity base rotation checked), not the nominal TCP.
+The finite ±30 mm reference segment is compliant; measured axial overshoot was
+7.25 mm. Both corrected ±0.15 rad posture targets produced approximately 0.15 rad
+joint-vector change while tip-position drift stayed below 0.18 mm. The weak
+comparison produced 0.135 rad within the same duration. Full protocol, limits,
+commands and results are in `docs/industrial_motion_control.md`.
+
+M4 must audit installed Franky's projector/rank threshold, orientation error,
+posture damping, gain updates and compensation/filter/stop semantics; review
+physical force application/tool mass and independently approve manual interaction.
+All profiles remain simulation candidates with `hardware_approved: false`.

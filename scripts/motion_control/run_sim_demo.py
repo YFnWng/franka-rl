@@ -21,6 +21,8 @@ parser.add_argument("--commissioning-only", action="store_true", help="Cartesian
 parser.add_argument("--num_envs", type=int, default=1)
 parser.add_argument("--verify-reset-parity", action="store_true", help="After trials, test rejection/fault capture/selective reset on cloned simulation only")
 parser.add_argument("--output-dir", type=Path, help="New output directory; default is on FRANKA_RL_DATA_ROOT")
+parser.add_argument("--profile-steps", type=int, default=0, help="Profile 1..5 Cartesian reference steps after 20 warmup steps; writes a bounded trace")
+parser.add_argument("--demo-b-suite", type=Path, help="M3 fixture/posture YAML; requires FixturePosture task")
 add_launcher_args(parser)
 parser.set_defaults(visualizer=[])
 args, hydra_args = setup_preset_cli(parser)
@@ -30,12 +32,24 @@ from franka_rl.experiments.motion_runner import IsaacMotionRunner, verify_reset_
 
 
 def main():
-    suite = load_motion_suite(args.suite)
+    demo_b = None
+    if args.demo_b_suite:
+        from franka_motion.virtual_fixture import load_demo_b
+        demo_b = load_demo_b(args.demo_b_suite)
+    suite = load_motion_suite(demo_b["motion_suite"] if demo_b else args.suite)
+    if not 0 <= args.profile_steps <= 5:
+        raise ValueError("--profile-steps must be 0..5")
     if args.verify_reset_parity and args.num_envs < 2:
         raise ValueError("--verify-reset-parity requires at least two environments")
     if suite.backend != "simulation" or not 1 <= args.num_envs <= 16:
         raise ValueError("Motion runner supports simulation suites and 1..16 environments")
-    trials = [t for t in expand_trials(suite) if (args.trial is None or t.trial_id == args.trial)
+    candidates = expand_trials(suite)
+    if demo_b:
+        from dataclasses import replace
+        import hashlib
+        candidates = [replace(candidates[0],trial_id=name,angular_speed_rad_s=None) for name in demo_b["experiments"]]
+        suite = replace(suite,name="motion_m3_fixture_posture",file_hashes={**suite.file_hashes,"demo_b":hashlib.sha256(args.demo_b_suite.read_bytes()).hexdigest()})
+    trials = [t for t in candidates if (args.trial is None or t.trial_id == args.trial)
               and (args.controller is None or t.controller.name == args.controller)]
     if not trials:
         raise ValueError("Select a valid motion trial/suite")
@@ -57,6 +71,12 @@ def main():
         raise FileExistsError(f"Refusing overwrite: {output}")
     env_cfg, _ = resolve_task_config(args.task, "")
     cartesian = env_cfg.motion_action_name == "cartesian_reference"
+    if demo_b and (args.task != "Franka-FR3v2-MotionControl-FixturePosture-v0" or args.commissioning_only):
+        raise ValueError("Demo B requires FixturePosture task and no --commissioning-only")
+    if not demo_b and args.task == "Franka-FR3v2-MotionControl-FixturePosture-v0":
+        raise ValueError("FixturePosture requires --demo-b-suite")
+    if args.profile_steps and not cartesian:
+        raise ValueError("--profile-steps currently requires the Cartesian task")
     if any((t.controller.data["mode"]=="cartesian") != cartesian for t in trials):
         raise ValueError("Task and suite controller modes must agree")
     if args.commissioning_only and not cartesian:
@@ -109,12 +129,17 @@ def main():
             output.mkdir(parents=True, exist_ok=False)
             if cartesian:
                 from franka_rl.experiments.cartesian_motion_runner import IsaacCartesianMotionRunner
-                runner = IsaacCartesianMotionRunner(env,suite)
+                if demo_b:
+                    from franka_rl.experiments.fixture_posture_runner import IsaacFixturePostureRunner
+                    runner = IsaacFixturePostureRunner(env,suite,profile_steps=args.profile_steps)
+                else:
+                    runner = IsaacCartesianMotionRunner(env,suite,profile_steps=args.profile_steps)
             else:
                 runner = IsaacMotionRunner(env, suite)
             results = []
             for trial in (trials[:1] if args.commissioning_only else trials):
-                result = (runner.commissioning(trial,output/trial.trial_id) if args.commissioning_only
+                result = (runner.run_demo_b(trial,output/trial.trial_id,demo_b) if demo_b else
+                          runner.commissioning(trial,output/trial.trial_id) if args.commissioning_only
                           else runner.run_trial(trial, output/trial.trial_id))
                 results.append(result)
                 print(f"{trial.trial_id}: {result['status']}; acceptance={result['acceptance_passed']}; metrics={result.get('metrics',result.get('hold_max_error_rad'))}", flush=True)
