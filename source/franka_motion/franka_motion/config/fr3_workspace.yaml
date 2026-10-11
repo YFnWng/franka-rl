@@ -1,0 +1,38 @@
+schema_version: 1
+workspace:
+  model:
+    name: fr3v2.1_bare_flange_live
+    asset_relative_to_data_root: generated_assets/fr3v21_bare_flange_live_v1/fr3v2.usda
+    usd_sha256: 0af7770d975869569757ea6a22349794738653a01b7588f5180d78e72a05a2aa
+    urdf_sha256: a4e4443caa57eb96dd06fd64f8dab36969a65a333799a37f6982bd41966160c3
+    archived_urdf: deployment/hardware_control_audit/2026-09-25/robot_returned_model.urdf
+    isaaclab_revision: ffff603eafc6b74264a5261cc0183d6a65390d78
+    armature_kg_m2: 0.003  # Existing simulation stabilizer, not identified motor inertia.
+  frames:
+    base: fr3_link0
+    tcp: fr3_flange
+    quaternion_order: xyzw
+    flange_to_tcp_position_m: [0.0, 0.0, 0.0]
+    flange_to_tcp_quaternion_xyzw: [0.0, 0.0, 0.0, 1.0]
+  joint_names: [panda_joint1, panda_joint2, panda_joint3, panda_joint4, panda_joint5, panda_joint6, panda_joint7]
+  joint_bounds_rad:
+    model:  # From the archived robot-returned URDF, not old Panda constants.
+      lower: [-2.9007400166666666, -1.8360900166666667, -2.9007400166666666, -3.077020016666667, -2.87630335, 0.43982265, -3.05083335]
+      upper: [2.9007400166666666, 1.8360900166666667, 2.9007400166666666, -0.11693708333333333, 2.87630335, 4.62163335, 3.05083335]
+    commanded:  # Existing conservative operating interval; reference limits only.
+      lower: [-2.610666015, -1.652481015, -2.610666015, -2.929015870, -2.588673015, 0.648913185, -2.745750015]
+      upper: [2.610666015, 1.652481015, 2.610666015, -0.264941230, 2.588673015, 4.412542815, 2.745750015]
+    measured_abort:  # Simulation candidates, not hardware-authorized abort limits.
+      lower: [-2.85, -1.78, -2.85, -3.02, -2.82, 0.49, -2.99]
+      upper: [2.85, 1.78, 2.85, -0.17, 2.82, 4.57, 2.99]
+  initial_postures_rad:
+    deployment_home: [0.0, -0.7853981633974483, 0.0, -2.356194490192345, 0.0, 1.5707963267948966, 0.0]
+  cartesian_bounds_m:  # Numerical preview box; full-pose IK/collision approval is M2.
+    lower: [0.35, -0.2, 0.2]
+    upper: [0.6, 0.2, 0.55]
+  reference_limits:  # Provisional Cartesian reference bounds for simulation only.
+    speed_m_s: 0.1
+    acceleration_m_s2: 0.2
+    jerk_m_s3: 1.0
+  nominal_payload_kg: 0.0
+  hardware_reviewed: false

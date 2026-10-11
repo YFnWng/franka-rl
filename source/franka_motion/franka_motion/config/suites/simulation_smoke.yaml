@@ -1,0 +1,23 @@
+schema_version: 1
+name: motion_m0_reference_smoke
+backend: simulation
+workspace_file: ../fr3_workspace.yaml
+trajectories_file: ../trajectories.yaml
+controllers_file: ../controller_profiles.yaml
+# Preview-only Cartesian start. M1/M2 use measured pose from the configured joint reset.
+preview_initial_position_m: [0.45, 0.0, 0.5]
+experiments:
+  - name: circle
+    trajectory: circle_yz_small
+    controller: cartesian_soft
+    angular_speeds_rad_s: [0.2]
+    twist_feedforward: [false, true]
+    repeats: 1
+    initial_posture: deployment_home
+  - name: lissajous
+    trajectory: lissajous_yz_small
+    controller: cartesian_soft
+    angular_speeds_rad_s: [0.2]
+    twist_feedforward: [true]
+    repeats: 1
+    initial_posture: deployment_home

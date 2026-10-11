@@ -86,7 +86,7 @@ The shared package is **`franka_motion`**, placed alongside `franka_rl`. This sm
 - Reuse the existing FR3 asset-building/validation scripts, ground/light conventions, PhysX articulation APIs, and contact-sensor patterns. Extract/copy only reusable scene and controller pieces into the new configuration; do not inherit a reward-bearing reaching environment to obtain the robot. All seven joints, including joint 7, remain available for full-pose tracking and redundancy control.
 - For the explicit torque path, leave gravity enabled and set implicit actuator stiffness/damping to zero. Apply explicit model compensation exactly once. Preserve and record the existing armature stabilizer initially; it is a simulator assumption, not an identified hardware motor parameter. Self-contact and unexpected scene contact are monitored.
 - Start with **1 kHz physics/torque updates** (`sim.dt=0.001`) and **50 Hz reference publication** (`decimation=20`). These are distinct clocks, not a policy contract. Repeat selected cases at a higher reference rate only after the hardware API/timing audit; a faster simulated publisher cannot demonstrate real Python timing. Record torque/gain/reference interpolation and effective publication delay explicitly; do not inherit the PPO's one-step delay automatically.
-- The runner publishes physical values: joint actions are `[q_ref(7), dq_ref(7)]` (14D); Cartesian actions are `[p_ref(3), quaternion_wxyz(4), linear_twist(3), angular_twist(3)]` (13D); posture actions add `q_posture(7)` (20D). Units are m, rad, s, N, and Nm. These actions have no normalized `[-1,1]` map or PPO action clipping. Validate configured physical limits before execution and log any rejected reference.
+- The runner publishes physical values: joint actions are `[q_ref(7), dq_ref(7)]` (14D); Cartesian actions are `[p_ref(3), quaternion_xyzw(4), linear_twist(3), angular_twist(3)]` (13D); posture actions add `q_posture(7)` (20D). Units are m, rad, s, N, and Nm. These actions have no normalized `[-1,1]` map or PPO action clipping. Validate configured physical limits before execution and log any rejected reference.
 - `process_actions()` accepts a reference once per publication tick; `apply_actions()` evaluates feedback/torque at every physics tick. Match the pinned Franky's actual reference hold/interpolation behavior. Analytic reference evaluation at 1 kHz is a separate diagnostic profile unless the hardware uses that same update contract.
 - Observation group `state` exposes measured `q,dq`, base-frame flange pose/twist, last applied reference, contact signal, and trial/fault status as named tensors. No policy observation normalization. Cache joint/body IDs, Jacobian indexing, and frame transforms during initialization; fixed-base Jacobian rows and columns must be verified against the existing DLS tutorial.
 - Fault state is latched without resetting the plant. Substep checks run inside the action/controller path; failed environments enter a defined stop state. The environment captures post-physics diagnostics, and the runner closes the trial before an explicit reset. The measured-state bound and commanded-reference bound must be separately specified: a projected reference can still have physical tracking overshoot. Preserve the terminal sample and exact first fault reason/joint/value/threshold.
@@ -137,6 +137,7 @@ franka-rl/
 │       └── motion_suite.py
 ├── scripts/motion_control/
 │   ├── preview_trajectory.py
+│   ├── audit_motion_inputs.py
 │   ├── run_sim_demo.py
 │   ├── run_sim_suite.py
 │   ├── analyze_motion.py
@@ -148,6 +149,8 @@ franka-rl/
 │       ├── backend.py
 │       └── runner.py
 ├── tests/motion_control/
+│   ├── conftest.py
+│   ├── test_m0.py
 │   ├── test_trajectories.py
 │   ├── test_joint_planning.py
 │   ├── test_impedance.py
@@ -205,6 +208,7 @@ All paths here are relative to the repository root. Entry points call package im
 | New file | Planned classes/functions and behavior |
 |---|---|
 | `scripts/motion_control/preview_trajectory.py` | `main()`. Load named YAML trial, evaluate analytic/planned references, show Cartesian volume/path and derivative plots, write validation metadata. Pure-math preview needs no Kit; optional robot/IK preview dispatches to the simulation runner. |
+| `scripts/motion_control/audit_motion_inputs.py` | `main()`. Read-only USD/URDF hash and joint-limit checks, Isaac Lab revision check, installed distribution versions and archived runtime-validation evidence. Reports the unresolved hardware controller audit; does not import Franky or launch Kit. Implemented in M0. |
 | `scripts/motion_control/run_sim_demo.py` | `main()`. Resolve one YAML trial and task, use the current `add_launcher_args` / `setup_preset_cli` / `launch_simulation` flow, create Gym environment, run/finalize a trial and close cleanly. Headless/visual modes share algorithm/timing settings. |
 | `scripts/motion_control/run_sim_suite.py` | `main()`. Expand a named YAML suite and invoke `MotionSuiteCoordinator`, support resume/fail-fast and emit compiled index. All target choices come from YAML. |
 | `scripts/motion_control/analyze_motion.py` | `main()`, `plot_tracking()`, `plot_joint_dynamics()`, `plot_fixture_posture()`, `plot_suite_comparison()`. Offline analysis of simulation or hardware artifacts; matched units/phase masks, figures and concise Markdown summary. No simulator launch. |
@@ -270,7 +274,7 @@ Simulation references use simulated elapsed time. Hardware references use the re
 
 **Markdown math convention:** Use `$...$` for inline equations and `$$` on separate lines for display equations, with blank lines around display blocks. This is supported by VS Code's Markdown math preview; leave `markdown.math.enabled` enabled. Equations below use KaTeX-compatible commands, not `\(...\)` or `\[...\]` delimiters.
 
-All Cartesian vectors, orientation errors, twists and Jacobians are expressed in `fr3_link0`. The controlled origin is the configured TCP, initially the flange. Quaternion storage is `wxyz` within Isaac Lab; the adapter converts explicitly to Franky's `xyzw` convention. Use the same TCP offset for feedback, target and Jacobian. If the base-frame vector from flange to TCP is $\mathbf r$, the shifted translational Jacobian is
+All Cartesian vectors, orientation errors, twists and Jacobians are expressed in `fr3_link0`. The controlled origin is the configured TCP, initially the flange. **This pinned Isaac Lab checkout uses `xyzw`, as does the shared contract.** Franky-facing quaternion arguments must also be explicitly verified/labeled `xyzw`; do not apply a legacy Isaac `wxyz` conversion. Use the same TCP offset for feedback, target and Jacobian. If the base-frame vector from flange to TCP is $\mathbf r$, the shifted translational Jacobian is
 
 $$
 J_{v,\mathrm{TCP}}=J_{v,\mathrm{flange}}-[\mathbf r]_\times J_\omega.
@@ -485,6 +489,14 @@ In simulation, implement the explicit projected posture torque from §3.10 and v
 `JointImpedanceTracker` can combine low joint stiffness with selected Cartesian stiffness; demonstrate directional compliance or one joint posture bias without introducing unsafe contact scenarios. **Not required** for the two-day plan.
 
 ## 6. Schedule, milestones, and fallback
+
+### M0 implementation status — 2026-10-11
+
+The standalone package, strict YAML catalogs/suite expansion, physical joint/Cartesian contracts, quintic boundary-value segments, smooth phase-speed ramps, circle/Lissajous paths and approach/settle/track/exit references are implemented. `test_m0.py` verifies analytic derivatives, joins, sweep expansion, reference bounds, schema rejection, hardware-approval gating and simulator-free imports. The offline preview and model audit commands are documented in [docs/industrial_motion_control.md](docs/industrial_motion_control.md).
+
+Local evidence checks pass: the FR3v2.1 bare-flange live USD and robot-returned URDF match their recorded SHA-256 hashes; YAML model joint limits match the URDF; Isaac Lab revision is `ffff603eafc6b74264a5261cc0183d6a65390d78`. Installed distribution metadata reports Isaac Sim `6.0.1.0` and Isaac Lab `6.1.14`; the Git revision is the authoritative source pin. Archived runtime validation reports success, but M0 does **not** perform a new PhysX launch.
+
+The current pinned Franky Cartesian/posture controller implementation is not available on this workstation. Its audit remains an explicit M0 evidence gap, requested in `deployment/HANDOFF_AGENT.md`; no controller equivalence or hardware readiness is claimed. All profiles remain `hardware_approved: false`. The preview start is an explicit numerical point, **not** the FK of the home joint posture. Full-pose IK, collision, dynamics and controller parity are subsequent milestones. The directory tree above is the complete planned architecture, not a claim that later-milestone files already exist; `demo_b_fixture_posture.yaml` is deferred to M3, and the current smoke catalog covers M0 Cartesian reference math only.
 
 The workstation phase comes first. The old schedule's hardware-first example run is replaced by the following ordered milestones; only M4 crosses to the real-time machine.
 

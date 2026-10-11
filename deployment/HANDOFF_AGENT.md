@@ -2,6 +2,40 @@
 
 # Instructions for the receiving Franka deployment agent
 
+## 2026-10-11 — non-RL motion-demo M0 evidence request
+
+The simulation workstation now has the portable `source/franka_motion` package,
+strict YAML catalogs and offline circle/Lissajous reference generation. See
+`FR3_Industrial_Motion_Control_Demos_HANDOFF.md` and
+`docs/industrial_motion_control.md`. This supplements the earlier PPO handoff;
+it does not replace that runtime or authorize motion. No workstation-to-robot
+communication is required.
+
+Before matching Cartesian and secondary-posture controllers in simulation,
+please gather the following **read-only** evidence from the real-time machine:
+
+- Exact currently installed Franky wheel/version, source Git revision/patches,
+  libfranka version, robot/firmware model and Python/package dependency lock.
+  The archived joint-controller pins are not proof of the current Cartesian API.
+- Source/API for joint/Cartesian impedance and secondary-posture tracking:
+  quaternion ordering, orientation-error definition and frame, TCP/Jacobian
+  convention, twist feedforward, projector formula and damping/mass weighting.
+  Record unsupported APIs rather than inventing equivalents.
+- Reference/gain interpolation or filtering and update rates; torque compensation,
+  error/torque clipping, torque slew and filter ordering; reset, watchdog, timeout
+  and smooth-stop behavior. Include candidate gain units and actual defaults.
+- Where possible, source-backed **offline** numerical input/output fixtures for
+  controller components, including posture/task torque and torque processing,
+  without starting physical motion or upgrading libraries.
+- Current tool/payload/TCP and reviewed workspace, command/abort bounds and stop
+  profile. All new M0 profiles are simulation candidates, `hardware_approved: false`.
+
+The FR3v2.1 bare-flange USD/URDF hashes and limits match locally. Shared pose
+storage is explicitly `xyzw`, matching this pinned Isaac Lab checkout; verify
+the Franky-facing argument order from the installed implementation. Do not apply
+an old Isaac `wxyz` assumption. Attach the evidence to this repository so the
+workstation can implement controller parity before hardware transfer.
+
 Read `REAL_ROBOT_DEPLOYMENT_PLAN.md` and `README.md` before implementation.
 Start with the inventory in section 11. Inspect installed ROS/libfranka sources
 and compatibility before selecting APIs. Keep the ROS workspace separate from

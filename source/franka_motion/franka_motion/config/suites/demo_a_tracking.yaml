@@ -1,0 +1,15 @@
+schema_version: 1
+name: demo_a_continuous_circle
+backend: simulation
+workspace_file: ../fr3_workspace.yaml
+trajectories_file: ../trajectories.yaml
+controllers_file: ../controller_profiles.yaml
+preview_initial_position_m: [0.45, 0.0, 0.5]
+experiments:
+  - name: circle
+    trajectory: circle_yz_small
+    controller: cartesian_soft
+    angular_speeds_rad_s: [0.2, 0.4]
+    twist_feedforward: [false, true]
+    repeats: 2
+    initial_posture: deployment_home

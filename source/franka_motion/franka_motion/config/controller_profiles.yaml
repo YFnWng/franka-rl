@@ -1,0 +1,37 @@
+schema_version: 1
+controllers:
+  joint_k100_d20:
+    mode: joint
+    status: simulation_candidate
+    hardware_approved: false
+    physics_hz: 1000
+    reference_hz: 50
+    delay_steps: 0
+    reference_hold: zero_order_hold
+    stiffness: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    damping: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    units: {stiffness: Nm/rad, damping: Nm*s/rad}
+    source: Existing joint simulation profile; does not commission these new demos.
+    audit_pending: [current_hardware_wheel, stop_profile, reference_hold_and_filter]
+  cartesian_soft:
+    mode: cartesian
+    status: simulation_candidate
+    hardware_approved: false
+    physics_hz: 1000
+    reference_hz: 50
+    delay_steps: 0
+    reference_hold: zero_order_hold
+    stiffness: [100.0, 100.0, 100.0, 10.0, 10.0, 10.0]
+    damping: [20.0, 20.0, 20.0, 6.5, 6.5, 6.5]
+    units:
+      translation_stiffness: N/m
+      translation_damping: N*s/m
+      rotation_stiffness: Nm/rad
+      rotation_damping: Nm*s/rad
+    source: Provisional simulation values; not measured hardware gains or a stability claim.
+    audit_pending:
+      - pinned_cartesian_orientation_error
+      - nullspace_projector_and_damping
+      - gain_and_reference_interpolation
+      - torque_clip_slew_filter_compensation_order
+      - torque_stop_and_watchdog
