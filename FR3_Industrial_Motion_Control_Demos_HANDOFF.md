@@ -138,6 +138,7 @@ franka-rl/
 ├── scripts/motion_control/
 │   ├── preview_trajectory.py
 │   ├── audit_motion_inputs.py
+│   ├── check_joint_artifacts.py
 │   ├── run_sim_demo.py
 │   ├── run_sim_suite.py
 │   ├── analyze_motion.py
@@ -151,6 +152,7 @@ franka-rl/
 ├── tests/motion_control/
 │   ├── conftest.py
 │   ├── test_m0.py
+│   ├── test_m1.py
 │   ├── test_trajectories.py
 │   ├── test_joint_planning.py
 │   ├── test_impedance.py
@@ -209,6 +211,7 @@ All paths here are relative to the repository root. Entry points call package im
 |---|---|
 | `scripts/motion_control/preview_trajectory.py` | `main()`. Load named YAML trial, evaluate analytic/planned references, show Cartesian volume/path and derivative plots, write validation metadata. Pure-math preview needs no Kit; optional robot/IK preview dispatches to the simulation runner. |
 | `scripts/motion_control/audit_motion_inputs.py` | `main()`. Read-only USD/URDF hash and joint-limit checks, Isaac Lab revision check, installed distribution versions and archived runtime-validation evidence. Reports the unresolved hardware controller audit; does not import Franky or launch Kit. Implemented in M0. |
+| `scripts/motion_control/check_joint_artifacts.py` | `validate_trial()`, `main()`. Offline finalization/hash checks, accepted-trace checks, clone/repeat and matched single/batched q/dq parity. Implemented in M1. |
 | `scripts/motion_control/run_sim_demo.py` | `main()`. Resolve one YAML trial and task, use the current `add_launcher_args` / `setup_preset_cli` / `launch_simulation` flow, create Gym environment, run/finalize a trial and close cleanly. Headless/visual modes share algorithm/timing settings. |
 | `scripts/motion_control/run_sim_suite.py` | `main()`. Expand a named YAML suite and invoke `MotionSuiteCoordinator`, support resume/fail-fast and emit compiled index. All target choices come from YAML. |
 | `scripts/motion_control/analyze_motion.py` | `main()`, `plot_tracking()`, `plot_joint_dynamics()`, `plot_fixture_posture()`, `plot_suite_comparison()`. Offline analysis of simulation or hardware artifacts; matched units/phase masks, figures and concise Markdown summary. No simulator launch. |
@@ -497,6 +500,14 @@ The standalone package, strict YAML catalogs/suite expansion, physical joint/Car
 Local evidence checks pass: the FR3v2.1 bare-flange live USD and robot-returned URDF match their recorded SHA-256 hashes; YAML model joint limits match the URDF; Isaac Lab revision is `ffff603eafc6b74264a5261cc0183d6a65390d78`. Installed distribution metadata reports Isaac Sim `6.0.1.0` and Isaac Lab `6.1.14`; the Git revision is the authoritative source pin. Archived runtime validation reports success, but M0 does **not** perform a new PhysX launch.
 
 The current pinned Franky Cartesian/posture controller implementation is not available on this workstation. Its audit remains an explicit M0 evidence gap, requested in `deployment/HANDOFF_AGENT.md`; no controller equivalence or hardware readiness is claimed. All profiles remain `hardware_approved: false`. The preview start is an explicit numerical point, **not** the FK of the home joint posture. Full-pose IK, collision, dynamics and controller parity are subsequent milestones. The directory tree above is the complete planned architecture, not a claim that later-milestone files already exist; `demo_b_fixture_posture.yaml` is deferred to M3, and the current smoke catalog covers M0 Cartesian reference math only.
+
+### M1 implementation status — 2026-10-11
+
+The independent joint task `Franka-FR3v2-MotionControl-Joint-v0` is implemented, with exact configured resets, physical 14D references, a 1 kHz explicit joint torque loop, 50 Hz zero-order-held publication, gravity enabled, zero implicit K/D, runtime contact/fault monitoring, no automatic resets, bounded GPU telemetry and terminal/first-fault preservation. Local Ruckig 0.17.3 planning and `suites/joint_smoke.yaml` provide stationary hold and repeated short PTP trials. Only the joint task is registered so far; Cartesian/fixture/nullspace registrations are deferred to M2/M3.
+
+27 offline tests pass. Live single/four-clone PhysX hold and PTP tests pass: maximum hold drift $4.37\times10^{-8}$ rad, PTP terminal error $4.70\times10^{-5}$ rad, peak measured joint speed 0.0886 rad/s, no nominal faults. Repeats match exactly; clone/single-batched q/dq differences remain below $10^{-6}$ componentwise. Invalid-reference rejection, first-fault retention and selective-reset plant/filter isolation pass. Small disposable verification artifacts are under `/tmp/franka-motion-m1-*`; reproduce durable evidence using the data-volume command in [docs/industrial_motion_control.md](docs/industrial_motion_control.md).
+
+Joint torque processing is explicitly documented and compared algebraically between NumPy/Torch; its final effort clamp and fault-stop candidate are simulator safeguards, not claims of complete Franky parity. The archived joint controller informed the slew/filter/compensation order. The current hardware Cartesian/posture audit remains pending; no physical motion or new hardware adapter has been implemented. Multi-profile process coordination and Cartesian tracking remain later milestones.
 
 The workstation phase comes first. The old schedule's hardware-first example run is replaced by the following ordered milestones; only M4 crosses to the real-time machine.
 

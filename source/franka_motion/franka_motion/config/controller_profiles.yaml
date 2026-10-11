@@ -13,6 +13,13 @@ controllers:
     units: {stiffness: Nm/rad, damping: Nm*s/rad}
     source: Existing joint simulation profile; does not commission these new demos.
     audit_pending: [current_hardware_wheel, stop_profile, reference_hold_and_filter]
+    joint_servo:
+      position_error_clip_rad: 0.5
+      slew_rate_nm_s: 1000.0
+      cutoff_hz: 100.0
+      effort_limits_nm: [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
+      # Provisional simulation abort thresholds: half the live URDF velocity limits.
+      max_measured_velocity_rad_s: [1.31, 1.31, 1.31, 1.31, 2.63, 2.09, 2.63]
   cartesian_soft:
     mode: cartesian
     status: simulation_candidate

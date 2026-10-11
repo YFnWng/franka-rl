@@ -1,0 +1,22 @@
+schema_version: 1
+name: motion_m1_joint_smoke
+backend: simulation
+workspace_file: ../fr3_workspace.yaml
+trajectories_file: ../trajectories.yaml
+controllers_file: ../controller_profiles.yaml
+preview_initial_position_m: [0.45, 0.0, 0.5]  # Not used by joint runner.
+experiments:
+  - name: hold
+    trajectory: joint_home_hold
+    controller: joint_k100_d20
+    speed_scales: [1.0]
+    twist_feedforward: [true]
+    repeats: 1
+    initial_posture: deployment_home
+  - name: ptp
+    trajectory: joint_small_ptp
+    controller: joint_k100_d20
+    speed_scales: [1.0]
+    twist_feedforward: [true]
+    repeats: 2
+    initial_posture: deployment_home

@@ -118,7 +118,7 @@ class ControllerProfile:
 
     def __post_init__(self):
         _keys(self.data, {"mode", "status", "hardware_approved", "physics_hz", "reference_hz", "delay_steps",
-                         "reference_hold", "stiffness", "damping", "units", "source", "audit_pending"},
+                         "reference_hold", "stiffness", "damping", "units", "source", "audit_pending", "joint_servo"},
               {"mode", "status", "hardware_approved", "physics_hz", "reference_hz", "delay_steps",
                "reference_hold", "stiffness", "damping", "units", "source", "audit_pending"}, self.name)
         if self.data["mode"] not in ("joint", "cartesian"):
@@ -148,6 +148,17 @@ class ControllerProfile:
             raise ValueError("audit_pending must be a list of nonempty evidence requests")
         if approved and (self.data["audit_pending"] or self.data["status"] != "hardware_reviewed"):
             raise ValueError("Hardware approval requires completed audit and hardware_reviewed status")
+        if "joint_servo" in self.data:
+            servo = self.data["joint_servo"]
+            fields = {"position_error_clip_rad", "slew_rate_nm_s", "cutoff_hz", "effort_limits_nm", "max_measured_velocity_rad_s"}
+            _keys(servo, fields, fields, "joint_servo")
+            if self.data["mode"] != "joint":
+                raise ValueError("joint_servo requires joint mode")
+            for key in ("position_error_clip_rad", "slew_rate_nm_s", "cutoff_hz"):
+                positive(servo[key], key)
+            for key in ("effort_limits_nm", "max_measured_velocity_rad_s"):
+                if np.any(np.array(finite_vector(servo[key], 7, key)) <= 0):
+                    raise ValueError(f"{key} must be positive")
 
 
 @dataclass(frozen=True)
@@ -159,6 +170,17 @@ class TrajectorySpec:
         required = {"type", "center_m", "plane_rpy_deg", "quaternion_xyzw", "phase_rad", "turns",
                     "ramp_duration_s", "approach_duration_s", "settle_duration_s", "exit_duration_s", "return_to_start"}
         kind = self.data.get("type")
+        if kind in ("joint_hold", "joint_ptp"):
+            required = {"type", "target_position_rad", "hold_duration_s", "settle_duration_s",
+                        "max_velocity_rad_s", "max_acceleration_rad_s2", "max_jerk_rad_s3"}
+            _keys(self.data, required, required, self.name)
+            finite_vector(self.data["target_position_rad"], 7, "target_position_rad")
+            positive(self.data["hold_duration_s"], "hold_duration_s")
+            positive(self.data["settle_duration_s"], "settle_duration_s")
+            for key in ("max_velocity_rad_s", "max_acceleration_rad_s2", "max_jerk_rad_s3"):
+                if np.any(np.array(finite_vector(self.data[key], 7, key)) <= 0):
+                    raise ValueError(f"{key} must be positive")
+            return
         extra = {"radius_m"} if kind == "circle" else {"amplitudes_m", "harmonics", "phase_offsets_rad"}
         _keys(self.data, required | extra, required | extra, self.name)
         if kind not in ("circle", "lissajous"):
@@ -201,10 +223,11 @@ class MotionTrialSpec:
     trial_id: str
     trajectory: TrajectorySpec
     controller: ControllerProfile
-    angular_speed_rad_s: float
+    angular_speed_rad_s: float | None
     twist_feedforward: bool
     repeat_index: int
     initial_posture: str
+    speed_scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -251,7 +274,9 @@ def validate_suite(suite: MotionSuiteConfig) -> None:
         raise ValueError("Suite must contain experiments")
     names = set()
     for experiment in suite.experiments:
-        required = {"name", "trajectory", "controller", "angular_speeds_rad_s", "twist_feedforward",
+        joint = experiment.get("trajectory") in suite.trajectories and suite.trajectories[experiment["trajectory"]].data["type"].startswith("joint_")
+        axis = "speed_scales" if joint else "angular_speeds_rad_s"
+        required = {"name", "trajectory", "controller", axis, "twist_feedforward",
                     "repeats", "initial_posture"}
         _keys(experiment, required, required, "experiment")
         name = experiment["name"]
@@ -262,19 +287,30 @@ def validate_suite(suite: MotionSuiteConfig) -> None:
         names.add(name)
         if experiment["trajectory"] not in suite.trajectories or experiment["controller"] not in suite.controllers:
             raise ValueError("Unknown trajectory/controller name")
-        if suite.controllers[experiment["controller"]].data["mode"] != "cartesian":
-            raise ValueError("M0 Cartesian path suites require a Cartesian controller profile")
+        if suite.controllers[experiment["controller"]].data["mode"] != ("joint" if joint else "cartesian"):
+            raise ValueError("Joint/Cartesian trajectory and controller modes must match (Cartesian paths need Cartesian mode)")
         if experiment["initial_posture"] not in suite.workspace.data["initial_postures_rad"]:
             raise ValueError("Unknown initial posture")
         if type(experiment["repeats"]) is not int or experiment["repeats"] < 1:
             raise ValueError("repeats must be a positive integer")
         if any(not isinstance(experiment[key], list) or not experiment[key]
-               for key in ("angular_speeds_rad_s", "twist_feedforward")):
+               for key in (axis, "twist_feedforward")):
             raise ValueError("Sweep axes must be nonempty")
-        for speed in experiment["angular_speeds_rad_s"]:
+        for speed in experiment[axis]:
             positive(speed, "angular_speed_rad_s")
             spec = suite.trajectories[experiment["trajectory"]]
-            SmoothPhaseSchedule(speed, spec.data["ramp_duration_s"], spec.data["turns"], spec.data["phase_rad"])
+            if joint:
+                if speed > 1:
+                    raise ValueError("Joint speed_scales must be in (0, 1]")
+                bounds = suite.workspace.data["joint_bounds_rad"]["commanded"]
+                target = np.array(spec.data["target_position_rad"])
+                if spec.data["type"] == "joint_hold" and not np.allclose(target,
+                    suite.workspace.data["initial_postures_rad"][experiment["initial_posture"]], rtol=0, atol=1e-12):
+                    raise ValueError("Stationary hold target must match its configured initial posture")
+                if np.any(target < bounds["lower"]) or np.any(target > bounds["upper"]):
+                    raise ValueError("PTP target outside command limits")
+            else:
+                SmoothPhaseSchedule(speed, spec.data["ramp_duration_s"], spec.data["turns"], spec.data["phase_rad"])
         for option in experiment["twist_feedforward"]:
             _boolean(option, "twist_feedforward")
         if suite.backend == "hardware":
@@ -286,10 +322,12 @@ def expand_trials(suite: MotionSuiteConfig) -> tuple[MotionTrialSpec, ...]:
     validate_suite(suite)
     trials = []
     for experiment in suite.experiments:
-        cells = itertools.product(experiment["angular_speeds_rad_s"], experiment["twist_feedforward"])
+        joint = suite.trajectories[experiment["trajectory"]].data["type"].startswith("joint_")
+        cells = itertools.product(experiment["speed_scales" if joint else "angular_speeds_rad_s"], experiment["twist_feedforward"])
         for cell_index, (speed, feedforward) in enumerate(cells):
             for repeat in range(experiment["repeats"]):
                 trials.append(MotionTrialSpec(f"{experiment['name']}__cell_{cell_index:03d}__repeat_{repeat:03d}",
                     suite.trajectories[experiment["trajectory"]], suite.controllers[experiment["controller"]],
-                    float(speed), feedforward, repeat, experiment["initial_posture"]))
+                    None if joint else float(speed), feedforward, repeat, experiment["initial_posture"],
+                    float(speed) if joint else 1.0))
     return tuple(trials)

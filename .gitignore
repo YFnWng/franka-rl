@@ -85,6 +85,8 @@ _build
 # Dev-time files, generated stuff
 **/__*
 !source/franka_motion/franka_motion/__init__.py
+!source/franka_rl/franka_rl/tasks/manager_based/franka_motion_control/__init__.py
+!source/franka_rl/franka_rl/tasks/manager_based/franka_motion_control/mdp/__init__.py
 !deployment/reference_governor/python/franka_governor/__init__.py
 !source/franka_rl/franka_rl/tasks/manager_based/franka_path_tracking/__init__.py
 !source/franka_rl/franka_rl/tasks/manager_based/franka_incremental_impedance/__init__.py

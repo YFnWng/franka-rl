@@ -27,6 +27,8 @@ def main() -> int:
     if not matches:
         parser.error(f"Unknown trial. Available: {[t.trial_id for t in trials]}")
     trial = matches[0]
+    if trial.trajectory.data["type"].startswith("joint_"):
+        parser.error("This preview renders Cartesian references; use run_sim_demo.py for the M1 joint suite")
     trajectory = trial.trajectory.build(trial.angular_speed_rad_s, suite.preview_initial_position_m)
     workspace = suite.workspace.data
     limits = workspace["reference_limits"]
