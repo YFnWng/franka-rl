@@ -357,3 +357,26 @@ preserving FIFO99 for the native thread. New sessions record scheduling evidence
 guard changed; no motion performed. Retry K800 to test whether this resolves
 command delivery. CPU governor/IRQ/NIC settings remain unchanged; root cause
 is not proven until a new trial confirms the effect.
+
+
+## Scheduler-fixed retry and float32 guard boundary
+
+`tracking.20261012T141804Z` records Python OTHER/0 and actual new native
+thread FIFO99: priority separation works. It completed circle tracking and
+faulted during return at 62.544 s on command success 0.949999988. Smooth stop
+succeeded, zero dropped samples. Full observed track RMS/max: position
+6.883/8.867 mm, contour 3.451/6.436 mm, orientation 0.06670/0.07743 rad.
+Host callback-entry max 4.692 ms (earlier during track); in the 100 ms before
+fault max 1.939 ms. Entry timestamps do not reveal send deadlines or callback
+completion time. The scheduling fix did not eliminate the fault; do not claim
+confirmed communication root cause or completed full-session acceptance.
+
+Confirmed robot wire `rbk_types.h` uses float for control_command_success_rate,
+while libfranka widens it to double. Native threshold was a double 0.95, causing
+nominal 95% to fault on strict comparison. Adapter now rounds only this threshold
+to wire float32 representation (0.949999988079071), so reported 95% meets the
+configured minimum and 94% still faults. New sessions save effective-limits.json;
+the summary includes this evidence. No minimum-success intent relaxation,
+watchdog change, gain change or native-wheel rebuild. Threshold boundary regression
+covers 94/95/96%. This change has not been tested in another hardware motion.
+Real delivery misses still exist; allowing equality will not cure their cause.

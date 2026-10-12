@@ -95,6 +95,8 @@ def main():
     except Exception as error:
         report.update(terminal_state='fault',terminal_reason=str(error))
     finally:
+        if backend is not None and hasattr(backend, 'effective_limit_evidence'):
+            (output/'effective-limits.json').write_text(json.dumps(backend.effective_limit_evidence, indent=2)+'\n')
         if backend is not None and hasattr(backend, 'scheduling_evidence'):
             (output/'scheduling-evidence.json').write_text(json.dumps(backend.scheduling_evidence, indent=2)+'\n')
         if backend is not None and hasattr(backend, 'connection_evidence'):

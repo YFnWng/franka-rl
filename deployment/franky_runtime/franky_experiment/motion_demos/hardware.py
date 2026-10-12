@@ -37,6 +37,12 @@ def scheduling_snapshot():
             'policy': os.sched_getscheduler(0), 'priority': os.sched_getparam(0).sched_priority}
 
 
+def command_success_threshold(value):
+    # rbk_types.h sends this field as float, widened to double by libfranka.
+    # Match its representation so a nominal 95% meets a configured 95% minimum.
+    return float(np.float32(value))
+
+
 @contextmanager
 def preserve_caller_scheduler(*, realtime=False):
     """Keep libfranka's FIFO promotion out of the Python publisher/logger.
@@ -236,6 +242,11 @@ class FrankyMotionBackend:
         safety.max_delta_tau = 1.; params.safety = safety
         limits = f.M4RuntimeLimits()
         for name in (*LIMIT_VECTORS, *LIMIT_SCALARS, 'abort_on_contact'): setattr(limits, name, c['limits'][name])
+        limits.minimum_command_success_rate = command_success_threshold(c['limits']['minimum_command_success_rate'])
+        self.effective_limit_evidence = {
+            'configured_minimum_command_success_rate': c['limits']['minimum_command_success_rate'],
+            'native_minimum_command_success_rate': limits.minimum_command_success_rate,
+            'reason': 'Match robot wire float32 representation; equality passes, lower values fault.'}
         stop = f.TorqueStopParams()
         for name, value in c['stop'].items(): setattr(stop, name, value)
         fixture = None

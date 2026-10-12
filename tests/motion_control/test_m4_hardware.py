@@ -14,6 +14,14 @@ from franky_experiment.core import ConfigError
 CONFIG=ROOT/'deployment/franky_runtime/config/m4.hold.pending.yaml'
 
 
+def test_command_success_matches_wire_precision_without_accepting_lower_rate():
+    from franky_experiment.motion_demos.hardware import command_success_threshold
+    minimum=command_success_threshold(.95)
+    assert float(np.float32(.95)) >= minimum
+    assert float(np.float32(.94)) < minimum
+    assert float(np.float32(.96)) >= minimum
+
+
 @pytest.mark.parametrize('fail',[False,True])
 def test_native_spawn_priority_scope_restores_python_scheduler(monkeypatch,fail):
     from franky_experiment.motion_demos import hardware

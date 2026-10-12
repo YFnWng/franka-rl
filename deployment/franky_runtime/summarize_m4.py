@@ -125,6 +125,8 @@ def summarize(directory):
     host_dt = np.diff([s['monotonic_ns'] for s in rows])/1e9
     track = (phase=='track') & valid & ~boundary
     summary = dict(schema_version=1, source_directory=str(directory.resolve()), terminal_report=report,
+        effective_limits=json.loads((directory/'effective-limits.json').read_text())
+            if (directory/'effective-limits.json').exists() else None,
         completed=report['terminal_state']=='complete', first_fault=fault,
         sample_count=len(rows), excluded_fault_stop_invalid_samples=int((~valid).sum()),
         boundary_excluded_samples=int((boundary & valid).sum()), phases=summaries,
