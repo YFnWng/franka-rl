@@ -494,3 +494,108 @@ JSON/CSV saved in the session directory. Prior note that Lissajous contour was
 unimplemented is superseded. One completed Lissajous run establishes initial
 feasibility; repeat unchanged before treating performance as repeatable.
 No hardware setting/gain/native binary was changed during this audit.
+
+
+## Lissajous repeat completed; stationary EE posture prepared
+
+`tracking.20261012T144855Z` completed: no native fault, smooth stop, zero drops.
+Track RMS position 6.686 mm,
+sampled contour 3.909 mm,
+orientation 1.714 degrees.
+Two full Lissajous sessions now completed at translation K800 / rotation K40.
+
+User requested stationary EE posture. Approved config `config/m4.posture.approved.yaml`:
+same Cartesian K800/D56.5685 and K40/D13, existing workspace and guards,
+original M3 kinematic torque projector, posture K2/D1 Nm/rad and Nm*s/rad.
+Sequence: initial measured-pose hold 2 s, A transition 6 s/settle 4 s,
+B transition 6 s/settle 4 s, return posture-reference transition 6 s/settle 4 s.
+Total 32 s. Targets are generated from the actual start Jacobian null vector
+with +/-0.60 rad seeds and DLS-corrected to the same full measured flange pose.
+Do not replay the bundle's home-dependent target values. Native C++ handles
+quintic posture transitions at servo rate; Python only selects endpoint goals.
+The original absolute posture target route remains supported. Runtime saves
+posture-plan.json after the live start recheck.
+
+Offline endpoint IK, bounds, endpoint conditioning and desired quintic posture
+reference velocity checks passed using last measured stop state, recorded in
+config/m4.posture.design-audit.json. These checks do not certify swept-arm
+collision clearance or predict actual nullspace dynamics. No approach/homing,
+Cartesian trajectory, external force injection or return-to-home motion;
+fixed EE target is the current measured pose. Posture return is a target, not
+a guarantee of exact measured joint return with compliant K2. Preflight and
+servo guards remain active. No posture motion was executed by the agent.
+Summarizer now splits A/B/return transition and settle phases and reports
+joint travel, bounds margin and measured joint-to-posture-reference error.
+
+
+## First posture run completed, insufficient measured posture motion
+
+`posture.20261012T145424Z` completed its 32-second lifecycle with native fault 0,
+smooth stop and no telemetry drops. This does not establish successful posture
+reconfiguration: J1 peak measured displacement 0.642 degrees versus requested
+24.45 degrees; J3 0.216 versus 15.48 degrees; J7 0.384 versus 13.51 degrees.
+The live posture goals and native quintic reference changed correctly through
+A/B/return. Logged projected nullspace torque was nonzero but small: peak
+J1 0.865 Nm, J3 0.561 Nm, J5 0.394 Nm, J7 0.468 Nm. At A/B settle the
+reference error stayed around 0.59-0.60 rad norm while measured motion stalled.
+Posture K2/D1 is too weak for a visible reconfiguration in this trial; residual
+friction/model effects are plausible, not uniquely identified. This is not a
+missing target-publication problem. No joint velocity/torque/pose guard tripped.
+Maximum fixed-EE position error 1.974 mm;
+maximum orientation error 0.188 degrees.
+
+Suggested next comparison: posture K10/Dsqrt(5)=2.236 Nm/rad and Nm*s/rad,
+keeping current Cartesian gains, kinematic projector, targets, six-second
+transitions, timing and guards unchanged. This scales only the nullspace gains,
+not task-space tracking gains. Not applied or executed by this audit. Metrics
+JSON/CSV saved; measure actual posture excursion and fixed-EE drift, not just
+session completion.
+
+
+## Active posture comparison: stronger gains and dynamic projector
+
+User authorized `next increase KD and use the dynamic projector`.
+`config/m4.posture.approved.yaml` now uses posture K10 Nm/rad and Dsqrt(5)
+=2.23606798 Nm*s/rad, with full-six-row dynamically consistent torque projector
+N_tau = I - J.T pinv(J M^-1 J.T) J M^-1 (relative cutoff 1e-6, native default).
+Cartesian K800/K40, D56.5685/D13, live-start IK target generation, +/-0.60 rad
+null seeds, 6-second transitions/4-second settles, 32-second A/B/return sequence,
+workspace, all guards and torque/stop pipeline are unchanged. This intentionally
+changes both posture gain and projector, not a single-variable ablation of the
+original simulation M3 kinematic profile. Bundle remains immutable.
+
+Adapter config validation now allows explicit kinematic/dynamic choices for
+posture only; other tasks continue to require dynamic. Existing installed C++
+controller already supports this branch: no Franky wheel or dependency rebuild.
+Original weak K2 kinematic executed config remains at
+posture.20261012T145424Z/config.yaml. Offline config/bundle validation passed;
+no FCI connection or motion performed by this update. Dynamically consistent
+projection removes ideal task-acceleration contribution of secondary torque
+with an exact full-rank model, not a guarantee of zero measured EE drift.
+
+
+## Dynamic K10 posture result; 0.90 rad excursion prepared
+
+`posture.20261012T150157Z` completed with native fault 0, smooth stop and
+zero dropped samples. Peak measured excursions from the start: J1 18.01 deg,
+J3 11.98 deg, J5 7.16 deg, J7 8.27 deg. Fixed-EE maximum position/orientation
+error 5.163 mm / 1.947 deg. Peak projected nullspace torque J1 1.828 Nm,
+J3 1.809 Nm. Unlike K2/kinematic trial this produced visible reconfiguration;
+both projector and gains changed, so it is not a single-variable attribution.
+Metrics JSON/CSV saved in the session directory.
+
+User requested larger excursions. Active `config/m4.posture.approved.yaml`
+nullspace seed increases 0.60 to 0.90 rad; IK-corrected targets regenerated
+from each live start. Offline check from previous stop pose passed endpoint
+IK, interior joint bounds, endpoint conditioning and desired native quintic
+posture reference velocity. Requested J1 excursion ~36.15 deg, J3 ~22.82 deg,
+J7 ~20.33 deg from that recorded stop, not a promise of measured tracking.
+Posture K10/D2.236, full-6D dynamic torque projector, Cartesian gains,
+six-second transitions/four-second settling, 32-second sequence, workspace,
+all servo/stop guards and native dependencies unchanged. Larger seed is a local
+hardware comparison, not a modification to the immutable simulation bundle.
+Removed adapter's fixed 0.6 rad catalog ceiling; positive finite seeds must
+still pass measured-start IK/bounds/conditioning/reference-velocity checks.
+Swept-arm collision clearance is not established by those endpoint checks.
+No new FCI connection/motion executed by the agent. Design receipt updated at
+config/m4.posture.design-audit.json; previous actual config preserved in session.

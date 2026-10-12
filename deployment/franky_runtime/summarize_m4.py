@@ -78,6 +78,17 @@ def summarize(directory):
         phase[elapsed < a] = 'approach'
         for time in (a, b, end):
             boundary |= np.abs(elapsed-time) <= .025
+    elif c['task']['kind']=='posture' and 'posture_offset_rad' in c['task']:
+        task=c['task']; end=task['posture_hold_s']
+        phase[:]='initial_hold'
+        for label in ('a','b',*(['return'] if task['posture_return_to_start'] else [])):
+            boundary |= np.abs(elapsed-end)<=.025
+            transition_end=end+task['posture_transition_s']
+            settle_end=transition_end+task['posture_settle_s']
+            phase[(elapsed>=end)&(elapsed<transition_end)]=label+'_transition'
+            phase[(elapsed>=transition_end)&(elapsed<=settle_end)]=label+'_settle'
+            boundary |= np.abs(elapsed-transition_end)<=.025
+            end=settle_end
     fault_indices = [i for i, s in enumerate(rows) if s['fault']]
     fault = None
     if fault_indices:
@@ -107,6 +118,8 @@ def summarize(directory):
         q = np.array([s['q'] for s in samples])
         margin = np.minimum(q-c['limits']['joint_lower'], c['limits']['joint_upper']-q).min(axis=1)
         displacement = np.linalg.norm(q-np.array(rows[0]['q']), axis=1)
+        posture_error = np.linalg.norm(q-np.asarray([s['posture'] for s in samples]),axis=1) \
+            if c['task']['kind']=='posture' else None
         contour = None
         lissajous_contour = None
         if spec and spec['type'] == 'circle':
@@ -131,6 +144,7 @@ def summarize(directory):
                 'reference_linear_speed_m_s':stats(speed_ref[mask]),
                 'speed_excess_over_reference_m_s':stats(np.maximum(0, speed[mask]-speed_ref[mask])),
                 'joint_displacement_norm_rad':stats(displacement[mask]),
+                'posture_reference_error_norm_rad':stats(posture_error[mask]) if posture_error is not None else None,
                 'joint_limit_margin_rad':stats(margin[mask]),
                 # Geometric circle distance is meaningful only on the circle phase.
                 'circle_contour_error_m':stats(contour[mask]) if contour is not None and label == 'track' else None,

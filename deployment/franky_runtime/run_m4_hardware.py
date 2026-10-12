@@ -54,6 +54,8 @@ def main():
         path = backend.plan(snapshot)
         duration = path.duration_s if path else c['task']['duration_s']
         (output/'start.json').write_text(json.dumps(asdict(snapshot),indent=2)+'\n')
+        if hasattr(backend, 'posture_plan'):
+            (output/'posture-plan.json').write_text(json.dumps(backend.posture_plan,indent=2)+'\n')
         with (output/'servo.jsonl').open('w') as log:
             try:
                 backend.start(snapshot)
@@ -75,7 +77,7 @@ def main():
                         backend.publish(sample.position_m,sample.quaternion_xyzw,
                                         [*sample.linear_velocity_m_s,*sample.angular_velocity_rad_s])
                     else:
-                        posture=c['task'].get('posture_target_rad')
+                        posture=backend.posture_target(t,snapshot)
                         backend.publish(snapshot.flange_position_m,snapshot.flange_orientation_xyzw,[0.]*6,posture)
                     backend.drain(log)
                     next_tick+=1/c['reference_hz']

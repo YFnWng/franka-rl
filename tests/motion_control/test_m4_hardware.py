@@ -14,12 +14,49 @@ from franky_experiment.core import ConfigError
 CONFIG=ROOT/'deployment/franky_runtime/config/m4.hold.pending.yaml'
 
 
+@pytest.mark.parametrize('projector',['kinematic','dynamic'])
+def test_posture_accepts_explicit_projector_comparisons(tmp_path,projector):
+    c=yaml.safe_load(CONFIG.read_text())
+    c['task']={'kind':'posture','duration_s':10.,'posture_target_rad':[0.,-.8,0.,-2.3,0.,1.5,0.],
+               'posture_transition_s':6.}
+    c['controller'].update(projector=projector,posture_stiffness=10.,posture_damping=5**.5)
+    p=tmp_path/'posture.yaml';p.write_text(yaml.safe_dump(c))
+    assert load_hardware_config(p)['controller']['projector']==projector
+
+
+@pytest.mark.parametrize('offset,accepted',[(.9,True),(0.,False),(-.1,False),(float('nan'),False)])
+def test_local_posture_excursion_validation(tmp_path,offset,accepted):
+    c=yaml.safe_load(CONFIG.read_text())
+    c['task']={'kind':'posture','duration_s':32.,'posture_offset_rad':offset,
+               'posture_hold_s':2.,'posture_transition_s':6.,'posture_settle_s':4.,
+               'posture_return_to_start':True}
+    p=tmp_path/'excursion.yaml';p.write_text(yaml.safe_dump(c))
+    if accepted:
+        assert load_hardware_config(p)['task']['posture_offset_rad']==offset
+    else:
+        with pytest.raises(ConfigError,match='null seed'):load_hardware_config(p)
+
+
 def test_command_success_matches_wire_precision_without_accepting_lower_rate():
     from franky_experiment.motion_demos.hardware import command_success_threshold
     minimum=command_success_threshold(.95)
     assert float(np.float32(.95)) >= minimum
     assert float(np.float32(.94)) < minimum
     assert float(np.float32(.96)) >= minimum
+
+
+def test_posture_sequence_publishes_goals_without_python_interpolation():
+    backend=object.__new__(FrankyMotionBackend)
+    backend.config={'task':{'kind':'posture','posture_offset_rad':.6,'posture_hold_s':2.,
+                            'posture_transition_s':6.,'posture_settle_s':4.,
+                            'posture_return_to_start':True}}
+    backend.posture_plan={'anchor_q_rad':[0.]*7,'targets_rad':[[.1]*7,[-.1]*7]}
+    assert backend.posture_target(0,None)==[0.]*7
+    assert backend.posture_target(2,None)==[.1]*7
+    assert backend.posture_target(11.99,None)==[.1]*7
+    assert backend.posture_target(12,None)==[-.1]*7
+    assert backend.posture_target(22,None)==[0.]*7
+    assert backend.posture_target(32,None)==[0.]*7
 
 
 @pytest.mark.parametrize('fail',[False,True])

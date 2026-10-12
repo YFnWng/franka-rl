@@ -110,7 +110,10 @@ def load_hardware_config(path, *, execute=False):
     require(math.isfinite(c['task']['duration_s']) and 0 < c['task']['duration_s'] <= 600, 'invalid duration')
     require(math.isfinite(c['robot']['max_start_velocity_rad_s']) and c['robot']['max_start_velocity_rad_s'] > 0, 'invalid start velocity')
     require(c['controller']['projector'] in ('kinematic', 'dynamic'), 'invalid projector')
-    require(c['controller']['projector'] == ('kinematic' if c['task']['kind']=='posture' else 'dynamic'), 'wrong task projector')
+    # Posture comparisons may explicitly choose the original kinematic or M4
+    # dynamically consistent torque projector. Other tasks retain their contract.
+    if c['task']['kind'] != 'posture':
+        require(c['controller']['projector'] == 'dynamic', 'wrong task projector')
     require(c['controller']['cutoff_hz'] == 100 and c['controller']['max_delta_tau'] == 1, 'preserve tested torque pipeline')
     require(c['reference_hz'] == 50, 'M4 reference rate must be 50 Hz')
     require(c['limits']['reference_timeout_s'] >= 2 / c['reference_hz'], 'watchdog below two publication periods')
@@ -131,8 +134,27 @@ def load_hardware_config(path, *, execute=False):
                         and (value >= 0 if name == 'settle_duration_s' else value > 0),
                         f'invalid {name}')
     if c['task']['kind']=='posture':
-        vector(c['task']['posture_target_rad'], 7, 'posture target')
-        require(c['task']['posture_transition_s'] > 0, 'invalid posture transition')
+        task = c['task']
+        require(('posture_target_rad' in task) != ('posture_offset_rad' in task),
+                'choose absolute posture target or measured-start posture sequence')
+        if 'posture_target_rad' in task:
+            target = vector(task['posture_target_rad'], 7, 'posture target')
+            require(np.all(np.array(target)>=c['limits']['joint_lower']) and
+                    np.all(np.array(target)<=c['limits']['joint_upper']), 'posture target outside bounds')
+        else:
+            # Local hardware excursion is reviewed independently of the bundle's
+            # 0.6 rad simulation seed; live IK/bounds/speed checks remain mandatory.
+            require(math.isfinite(task['posture_offset_rad']) and task['posture_offset_rad'] > 0,
+                    'invalid posture null seed')
+            for name in ('posture_hold_s', 'posture_settle_s'):
+                require(math.isfinite(task[name]) and task[name]>=0, f'invalid {name}')
+            require(type(task['posture_return_to_start']) is bool, 'invalid posture return')
+        require(math.isfinite(task['posture_transition_s']) and task['posture_transition_s'] > 0,
+                'invalid posture transition')
+        if 'posture_offset_rad' in task:
+            expected = task['posture_hold_s'] + (3 if task['posture_return_to_start'] else 2)*(
+                task['posture_transition_s']+task['posture_settle_s'])
+            require(math.isclose(task['duration_s'],expected), 'posture sequence duration mismatch')
     return c
 
 
@@ -210,6 +232,26 @@ class FrankyMotionBackend:
     def plan(self, snapshot):
         """Construct tracking entry from the measured start; fixtures never auto-enter."""
         c = self.config
+        if c['task']['kind'] == 'posture' and 'posture_offset_rad' in c['task']:
+            model = UrdfKinematicsProvider(Path(c['bundle'])/'model/robot_returned_model.urdf')
+            solver = DampedLeastSquaresIK(model, c['limits']['joint_lower'], c['limits']['joint_upper'])
+            q = np.asarray(snapshot.q)
+            j = model.evaluate(q)[2]
+            _, _, vh = np.linalg.svd(j, full_matrices=True)
+            targets = [solver.solve(snapshot.flange_position_m, snapshot.flange_orientation_xyzw,
+                                    q+sign*c['task']['posture_offset_rad']*vh[-1]) for sign in (-1,1)]
+            goals = [q, *targets, *([q] if c['task']['posture_return_to_start'] else [])]
+            for previous, target in zip(goals, goals[1:]):
+                require(np.all(1.875*np.abs(target-previous)/c['task']['posture_transition_s']
+                               <= c['limits']['joint_velocity']), 'posture reference velocity exceeds limits')
+                require(np.linalg.svd(model.evaluate(target)[2],compute_uv=False).min()
+                        >= c['limits']['minimum_jacobian_singular_value'], 'posture target Jacobian singular')
+            self.posture_plan = {'anchor_q_rad':q.tolist(), 'targets_rad':[t.tolist() for t in targets],
+                                 'fixed_position_m':list(snapshot.flange_position_m),
+                                 'fixed_orientation_xyzw':list(snapshot.flange_orientation_xyzw),
+                                 'sequence':'hold -> A -> settle -> B -> settle -> return -> settle'
+                                     if c['task']['posture_return_to_start'] else 'hold -> A -> settle -> B -> settle'}
+            return None
         if c['task']['kind'] != 'tracking': return None
         bundle = Path(c['bundle'])
         catalog = _load(bundle/'config/trajectories.yaml')['trajectories']
@@ -227,6 +269,21 @@ class FrankyMotionBackend:
         report, _ = validate_path_ik(path, solver, np.array(snapshot.q), sample_hz=5)
         require(report['minimum_jacobian_singular_value_mixed_units'] >= c['limits']['minimum_jacobian_singular_value'], 'planned Jacobian singular')
         return path
+
+    def posture_target(self, elapsed, snapshot):
+        task = self.config['task']
+        if task['kind'] != 'posture':
+            return None
+        if 'posture_target_rad' in task:
+            return task['posture_target_rad']
+        if elapsed < task['posture_hold_s']:
+            return self.posture_plan['anchor_q_rad']
+        index = int((elapsed-task['posture_hold_s'])/(
+            task['posture_transition_s']+task['posture_settle_s']))
+        goals = self.posture_plan['targets_rad']
+        if task['posture_return_to_start']:
+            goals = goals+[self.posture_plan['anchor_q_rad']]
+        return goals[min(index,len(goals)-1)]
 
     def start(self, snapshot):
         _approval(self.config, True)

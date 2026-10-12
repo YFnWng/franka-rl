@@ -1,0 +1,50 @@
+{
+  "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.posture.approved.yaml",
+  "recorded_start_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/posture.20261012T150157Z/servo.jsonl final measured sample",
+  "posture_offset_rad": 0.9,
+  "plan": {
+    "anchor_q_rad": [
+      0.10099665820598602,
+      -0.7828513979911804,
+      -0.05964834243059158,
+      -2.35627818107605,
+      -0.05915256589651108,
+      1.5709115266799927,
+      0.07776298373937607
+    ],
+    "targets_rad": [
+      [
+        -0.5299371635932578,
+        -0.8479562000467856,
+        0.33871951467997047,
+        -2.348175533852708,
+        0.2348100202053844,
+        1.5333009863682214,
+        -0.2724067944090418
+      ],
+      [
+        0.7244195257843431,
+        -0.900287898594734,
+        -0.4348888089980655,
+        -2.3371271635712523,
+        -0.35245878263854474,
+        1.4805559425539065,
+        0.4325892018305776
+      ]
+    ],
+    "fixed_position_m": [
+      0.30825684660972735,
+      0.0009827263425100758,
+      0.5888908949997681
+    ],
+    "fixed_orientation_xyzw": [
+      0.9999173889851681,
+      -0.009448120775641602,
+      -0.0011137286269266606,
+      0.008643368986603167
+    ],
+    "sequence": "hold -> A -> settle -> B -> settle -> return -> settle"
+  },
+  "checks": "IK, soft bounds, endpoint singular values and desired posture reference velocity passed; execution regenerates from current measured start",
+  "hardware_executed": false
+}
