@@ -102,11 +102,12 @@ class IsaacCartesianMotionRunner:
         feasibility,ik_trace = validate_path_ik(path,DampedLeastSquaresIK(self.kinematics,b["lower"],b["upper"]),q0)
         if feasibility["minimum_jacobian_singular_value_mixed_units"] < .02:
             raise ValueError("Path enters configured mixed-unit Jacobian singularity guard")
-        if self.env.sim.has_gui():
-            from .motion_path_visualization import MotionPathVisualization
+        from .motion_path_visualization import MotionPathVisualization, path_visualization_enabled
+        if path_visualization_enabled(self.env.sim):
             if self.path_visualization is None:
                 self.path_visualization = MotionPathVisualization()
             self.path_visualization.show(path,self.env.scene["robot"])
+            print(f"[MotionPath] Showing {self.path_visualization.markers.count} cyan target-path markers",flush=True)
         times = np.arange(math.ceil((2+path.duration_s)/self.env.step_dt))*self.env.step_dt
         refs,phases = [],[]
         for t in times:
@@ -124,6 +125,9 @@ class IsaacCartesianMotionRunner:
     def _execute(self,trial,output,refs,phases,metadata,*,ik_trace=None,gain_step_index=None,
                  reference_update=None,before_step=None,cleanup=None,analyze_trace=None):
         env,action = self.env,self.env.motion_action
+        from .motion_path_visualization import MotionPathVisualization,path_visualization_enabled
+        if path_visualization_enabled(env.sim) and self.path_visualization is None:
+            self.path_visualization = MotionPathVisualization()
         # Include every channel, with margin; reject oversized allocations before motion.
         ticks = len(refs)*env.cfg.decimation
         if ticks*env.num_envs*600 > 256*1024**2:
@@ -158,6 +162,8 @@ class IsaacCartesianMotionRunner:
                     before_step(i)
                 if reference_update is not None:
                     command = reference_update(i,command)
+                if self.path_visualization is not None:
+                    self.path_visualization.update_frame(env.scene["robot"],action.flange_id)
                 env.step(command)
                 faulted = bool((action.fault_code!=0).any())
                 elapsed = time.perf_counter()-started

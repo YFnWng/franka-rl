@@ -208,6 +208,12 @@ robot base to world for each clone, and is updated only between trials (not in
 the servo loop). Headless trials do not create these markers. The existing
 visualized commands need no additional flags.
 
+All visualized Cartesian motion trials also display the measured controlled
+flange/TCP frame: red X, green Y, blue Z, each 6 cm long. Current tasks use an
+identity flange-to-TCP offset. The overlay uses measured world-frame link pose,
+not the desired orientation, and refreshes at the 50 Hz outer loop before each
+step (not at 1 kHz). It is non-colliding and does not affect applied torque.
+
 For base-frame geometric Jacobian $J$, flange pose error
 $e=[p_d-p;\operatorname{Log}(R_dR^T)^\vee]$ and flange twist $V$:
 
