@@ -1,0 +1,20 @@
+{
+  "profiles": [
+    {
+      "profile_id": "cartesian.lissajous.selected",
+      "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/comparisons/cartesian.lissajous.selected.approved.yaml",
+      "controller_source": "cartesian.circle.k1.5.d1",
+      "task_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T144855Z/config.yaml",
+      "duration_s": 73.41592653589794,
+      "offline_validation": "Config execution validation and reference speed/acceleration/jerk/workspace validation from historical start; live preflight still checks current start and IK."
+    },
+    {
+      "profile_id": "joint.lissajous.selected",
+      "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/comparisons/joint.lissajous.selected.approved.yaml",
+      "controller_source": "joint.circle.k200.d1",
+      "task_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T144855Z/config.yaml",
+      "duration_s": 73.41592653589794,
+      "offline_validation": "Config execution validation and reference speed/acceleration/jerk/workspace validation from historical start; live preflight still checks current start and IK."
+    }
+  ]
+}

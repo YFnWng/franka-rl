@@ -1266,3 +1266,7 @@ All ten circle gain profiles have completed trials. Latest-representative positi
 ### Completed reduced posture comparison
 
 [Posture audit](franky_runtime/M4_POSTURE_AUDIT.md): Cartesian kinematic: 3.00 mm / 0.60 deg RMS; Cartesian dynamic: 2.52 mm / 1.65 deg; DLS joint K100/D20: 1.47 mm / 0.25 deg across all active phases. All three completed with smooth stops; K200 failed the J7 torque guard and is excluded from full-task means. DLS K100 achieved A and return settling but not B; neither Cartesian case achieved the strict joint-norm settling criterion. Exact shared targets and nearly identical starts support a preliminary comparison, not statistical conclusions. Full report/log indices reside in hardware inventory `2026-10-12/m4/posture-comparison-report/`.
+
+## Consolidated task report
+
+The full 2026-10-12 path-tracking, posture and curve-fixture report, with equations, numerical tables and a 49-run inventory, is available at [M4_HARDWARE_RESULTS_REPORT.md](M4_HARDWARE_RESULTS_REPORT.md). It distinguishes completed experiments from faults and no-motion checks, and preserves the single-trial limitations.

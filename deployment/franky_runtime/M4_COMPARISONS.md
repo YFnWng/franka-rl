@@ -133,3 +133,28 @@ The operator chose to omit the full posture gain sweep and use circle-selected g
 ## Completed posture results
 
 See [M4_POSTURE_AUDIT.md](M4_POSTURE_AUDIT.md). Cartesian kinematic/dynamic completed; selected joint K200 faulted at the J7 torque guard, while fallback K100/D20 completed. Use K100 for the completed posture comparison. Session completion did not imply all posture settling criteria passed. Historical selected configs and failed trial remain preserved.
+
+## Consolidated task report
+
+The full 2026-10-12 path-tracking, posture and curve-fixture report, with equations, numerical tables and a 49-run inventory, is available at [M4_HARDWARE_RESULTS_REPORT.md](../M4_HARDWARE_RESULTS_REPORT.md). It distinguishes completed experiments from faults and no-motion checks, and preserves the single-trial limitations.
+
+## Selected Lissajous follow-up sessions
+
+Two executable local profiles use the best completed circle settings: `cartesian.lissajous.selected` (translation K1200/D69.282, rotation K40/D13) and `joint.lissajous.selected` (DLS joint K200/D28.284 on all seven joints, kinematic velocity projector). Secondary posture gains are zero. Each defaults to one trial.
+
+Both use the previously executed `lissajous_yz_small`: center [0.475, 0, 0.35] m, plane rotation [0, 90, 0] degrees, amplitudes [0.08, 0.08] m, harmonics [1, 2], phase rate 0.2 rad/s, one cycle, 2 s phase ramp, 18 s approach, 4 s settle, 18 s return. Total duration is approximately 73.416 s. Existing guards, dependency hashes and separate stop gains are retained. Config and reference dynamics/workspace checks passed offline from the historical Lissajous start; execution still performs current-start and IK preflight. No robot connection or motion was made during preparation. Provenance is in `config/comparisons/lissajous-selected-profiles.json`.
+
+```bash
+PY=/home/chen-lab/yifan/venvs/franky-m4-comparison-server10/bin/python
+RT=/home/chen-lab/yifan/franka-rl/deployment/franky_runtime
+
+"$PY" "$RT/run_m4_hardware.py" \
+  --config "$RT/config/comparisons/cartesian.lissajous.selected.approved.yaml" \
+  --execute --repeats 1
+
+"$PY" "$RT/run_m4_hardware.py" \
+  --config "$RT/config/comparisons/joint.lissajous.selected.approved.yaml" \
+  --execute --repeats 1
+```
+
+Run each separately and type `start` at its READY prompt. For a matched comparison, use the same normal home/start posture before each session; the Cartesian return does not guarantee the same joint posture. Data are saved in timestamped `tracking.*` directories under `/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/`.

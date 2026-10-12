@@ -1,0 +1,37 @@
+{
+  "circle-paths": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T195922.890637Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T195600.810579Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200103.196154Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200601.782023Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T192842.666764Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200735.351908Z/trial-01"
+  ],
+  "circle-position-error": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T195922.890637Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T195600.810579Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200103.196154Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200601.782023Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T192842.666764Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T200735.351908Z/trial-01"
+  ],
+  "lissajous-paths": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T225714.056239Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T225905.208292Z/trial-01"
+  ],
+  "lissajous-position-error": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T225714.056239Z/trial-01",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T225905.208292Z/trial-01"
+  ],
+  "posture-paths-and-error": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/posture-comparison-report/paths-and-error.png"
+  ],
+  "fixture-paths": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/z_line.20261012T161636Z",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/yz_circle.20261012T164958Z"
+  ],
+  "fixture-deviation-and-torque": [
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/z_line.20261012T161636Z",
+    "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/yz_circle.20261012T164958Z"
+  ]
+}
