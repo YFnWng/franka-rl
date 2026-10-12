@@ -125,6 +125,20 @@ Franky supplies the clip, libfranka supplies the 100 Hz filter with
 `limit_rate=false`, and FCI supplies gravity. Full workstation instructions and
 required reruns are in `FR3_Industrial_Motion_Control_Demos_HANDOFF.md`.
 
+The workstation now implements `shared_previous_output_v2` in NumPy and Torch.
+New manifests identify this version and include a seeded torque-only golden
+fixture (`fixtures/torque_processing_v2.npz` and `.json`). `limited` is retained
+as a compatibility telemetry alias of `limited_candidate`, not persistent
+limiter history. Normal simulation resets seed zero; replay may seed the prior
+non-gravity `tau_J_d`. Compare hardware with `filtered`, not `applied` (the
+latter includes simulated gravity and an effort guard).
+
+The portable wheel remains version 0.1.0; verify bundle hashes and reinstall
+that wheel explicitly with `--force-reinstall --no-deps` in the receiving
+environment. Do not replace the audited Franky/libfranka dependencies. Prior
+bundle acceptance summaries remain historical; a new builder refuses to attach
+old-processor summaries as corrected-controller evidence.
+
 
 ## Hardware runtime and dependency preservation — 2026-10-12
 

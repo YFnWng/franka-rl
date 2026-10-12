@@ -110,7 +110,8 @@ class IsaacMotionRunner:
             "controller": trial.controller.data, "controller_processing": {
                 "non_gravity_slew_nm_s": action.cfg.slew_rate_nm_s, "lowpass_cutoff_hz": action.cfg.cutoff_hz,
                 "position_error_clip_rad": action.cfg.position_error_clip, "effort_limits_nm": action.cfg.effort_limits_nm,
-                "order": "PD + PhysX coriolis -> slew -> first-order lowpass -> PhysX gravity -> effort clamp",
+                "version": "shared_previous_output_v2", "non_gravity_reset_seed": "zero",
+                "order": "PD + PhysX coriolis -> slew candidate relative to previous filtered output -> lowpass against same previous output -> PhysX gravity -> simulator-only effort clamp",
                 "reference_hold": "zero_order_hold", "delay_steps": 0,
                 "fault_transition": "latched measured-position hold, zero desired velocity, damped gravity-compensated stop candidate; not hardware-qualified"},
             "measured_abort_limits": {key: getattr(action.cfg, key) for key in ("abort_lower", "abort_upper", "max_measured_velocity")},

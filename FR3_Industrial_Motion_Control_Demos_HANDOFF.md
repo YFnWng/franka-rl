@@ -879,3 +879,48 @@ posture torque replay and physical timing/stop commissioning remain unvalidated;
 the simulation torque-processing correction requested above also remains open.
 Detailed commands, telemetry semantics and guard provenance are in
 `deployment/franky_runtime/M4_HARDWARE_PREP.md`.
+
+### Workstation torque recurrence corrected — 2026-10-12
+
+Both portable NumPy and batched Torch motion controllers now use
+`shared_previous_output_v2`: the slew candidate and 100 Hz filter share the
+previous outgoing non-gravity command. At 1 kHz the outgoing change is bounded
+by `alpha * 1 Nm`, approximately 0.386 Nm per callback during saturation, not
+the old independent-ramp response. Joint, Cartesian, fault-stop and curve
+routes use this processor; projector and fixture equations are unchanged.
+
+Simulation resets deliberately seed zero. `TorqueCommandProcessor.reset(seed)`
+and batched `reset(ids, initial_command)` support recorded initial `tau_J_d`
+for non-gravity replay. Traces expose `requested`, `limited_candidate`,
+`filtered`, `gravity`, `unclipped`, and `applied`; legacy `limited` is an alias
+for the candidate, never a separately advancing ramp. Compare `filtered`
+with hardware outgoing torque, not gravity-inclusive simulator `applied`.
+
+Offline verification: **60 tests passed, 1 skipped**, covering M1–M4,
+NumPy/Torch parity, analytical reversals/saturation, seed/reset and effort
+guards. Two-clone CPU M1 joint, all five M3 posture/fixture and all four curve
+trials passed acceptance and selective-reset checks. M3/curve compilation
+also passed clone parity. Evidence directories:
+`/tmp/motion-torque-v2-joint`, `/tmp/motion-torque-v2-posture`,
+`/tmp/motion-torque-v2-curve`, `/tmp/motion-torque-v2-fixtures-compiled`.
+
+The exact M4 selected tracking paths also passed with two CPU clones:
+`circle_yz_m2` RMS/max position errors **0.454/1.340 mm** and
+`lissajous_yz_small` **0.578/2.005 mm**, at 0.2 rad/s with twist feedforward.
+Peak measured joint speeds were 0.176 and 0.123 rad/s respectively; neither
+trial faulted. Evidence: `/tmp/motion-torque-v2-selected-tracking`.
+The older `simulation_smoke.yaml` circle entry remains unchanged: its approach
+failed speed preflight (0.119 > 0.1 m/s), before controller rollout. It is not
+evidence against the corrected torque recurrence.
+
+New immutable bundle (all five portable task fixtures replayed offline):
+
+```text
+/media/chen-lab/84BABCB7BABCA6D81/Yifan/franka-rl-data/motion_control/handoff_bundles/2026-10-12_m4_torque_v2_verified
+```
+
+It contains a seeded `torque_processing_v2.npz`/JSON golden fixture and new
+selected tracking/M3/curve acceptance summaries; the builder rejects old-processor evidence.
+The `2026-10-11_21-02-42_m4` bundle is unchanged and historical. This is
+algebraic processor parity and simulation evidence, not full native hardware
+torque replay, timing/stop qualification or physical-motion approval.

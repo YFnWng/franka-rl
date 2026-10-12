@@ -6,6 +6,7 @@ import torch
 
 from franka_motion.config import load_motion_suite, expand_trials
 from franka_motion.impedance import JointImpedanceController
+from franka_motion.impedance import TorqueCommandProcessor
 from franka_motion.joint_planning import plan_joint_ptp, validate_joint_trajectory
 
 
@@ -38,6 +39,34 @@ def test_hold_has_immediate_gravity_without_filter_transient():
     result = controller.compute(q, [0.]*7, q, [0.]*7, [0.]*7, [1.]*7)
     np.testing.assert_array_equal(result["applied"], 1.)
     np.testing.assert_array_equal(result["requested"], 0.)
+
+
+def test_shared_previous_output_recurrence_reversal_seed_and_clamp():
+    processor = TorqueCommandProcessor(effort_limits_nm=[2.]*7)
+    batch = torch_controller()(2, "cpu", [0.]*7, [0.]*7, effort_limits_nm=[2.]*7)
+    seed = np.linspace(-.7, .7, 7)
+    processor.reset(seed)
+    batch.reset(torch.tensor([0]), seed[None, :])
+    expected = seed.copy()
+    zeros = torch.zeros(2, 7)
+    # Sustained saturation, reversal, unsaturated convergence, and gravity clamp.
+    for raw in [20.]*10 + [-20.]*10 + [.2]*10:
+        requested = np.full(7, raw)
+        candidate = expected + np.clip(requested-expected, -1., 1.)
+        expected += processor.alpha*(candidate-expected)
+        result = processor.compute(requested, np.full(7, 10.))
+        batch.compute(zeros, zeros, zeros, zeros,
+                      torch.full((2, 7), raw), torch.full((2, 7), 10.))
+        np.testing.assert_allclose(result["limited_candidate"], candidate)
+        np.testing.assert_allclose(result["filtered"], expected)
+        np.testing.assert_allclose(result["applied"], np.clip(expected+10., -2., 2.))
+        np.testing.assert_allclose(batch.components["filtered"][0], expected, atol=2e-6)
+    processor.reset()
+    np.testing.assert_array_equal(processor.filtered, 0.)
+    with pytest.raises(ValueError):
+        processor.reset([float("nan")]*7)
+    with pytest.raises(ValueError):
+        batch.reset(torch.tensor([0]), torch.full((1,7), float("nan")))
 
 
 def test_selective_controller_reset_does_not_affect_other_clone():

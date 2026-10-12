@@ -41,6 +41,23 @@ def build_motion_handoff(output,evidence=()):
         subprocess.run([sys.executable,'-m','pip','wheel','--no-deps','--no-build-isolation',str(stage),'-w',str(output/'wheels')],check=True)
     suite=load_transfer_suite(output/'config/suites/hardware_transfer.yaml')
     (output/'fixtures').mkdir()
+    # Recurrence-only golden trace: replay tau_J_d seed, saturation, reversal,
+    # and simulator gravity/effort guard without importing Isaac Lab.
+    from franka_motion.impedance import TorqueCommandProcessor
+    processor=TorqueCommandProcessor()
+    seed=np.linspace(-.7,.7,7)
+    processor.reset(seed)
+    raw=np.repeat(np.array([20.]*10+[-20.]*10+[.2]*10)[:,None],7,axis=1)
+    gravity=np.repeat(np.arange(7,dtype=float)[None,:],len(raw),axis=0)
+    torque_records=[processor.compute(r,g) for r,g in zip(raw,gravity)]
+    np.savez_compressed(output/'fixtures/torque_processing_v2.npz',initial_command=seed,
+        **{key:np.stack([row[key] for row in torque_records]) for key in torque_records[0]})
+    (output/'fixtures/torque_processing_v2.json').write_text(json.dumps({
+        'version':'shared_previous_output_v2','dt_s':processor.dt,'max_delta_nm':processor.step,
+        'alpha':processor.alpha,'cutoff_hz':100.,'hardware_limit_rate':False,
+        'seed_source':'synthetic tau_J_d for replay test; simulation resets to zero',
+        'comparison_channel':'filtered non-gravity outgoing command',
+        'effort_clamp':'simulator guard only, not a Franky client clamp'},indent=2)+'\n')
     for task in suite['tasks']:
         metadata,arrays=prepare_task(task,output/'config',output/'model/robot_returned_model.urdf')
         np.savez_compressed(output/'fixtures'/(task['name']+'.npz'),**arrays)
@@ -56,6 +73,8 @@ def build_motion_handoff(output,evidence=()):
             module=module_from_spec(spec);spec.loader.exec_module(module)
             summary,_=module.validate(summary_path.parent)
             if not summary['acceptance_passed']:raise ValueError(f'Unaccepted simulation evidence: {summary_path}')
+            if summary.get('torque_processing_version')!='shared_previous_output_v2':
+                raise ValueError(f'Evidence belongs to an older torque processor: {summary_path}')
             dest=output/'evidence'/str(i)/summary_path.parent.name
             dest.mkdir(parents=True)
             shutil.copy2(summary_path,dest/'summary.json')
@@ -71,6 +90,7 @@ def build_motion_handoff(output,evidence=()):
     manifest={'schema_version':1,'created_utc':datetime.now(timezone.utc).isoformat(),'git_revision':revision,
         'source_state':'snapshot may include uncommitted changes; file hashes authoritative',
         'hardware_approved':False,'hardware_adapter_ready':False,'tasks':[t['name'] for t in suite['tasks']],
+        'torque_processing_version':'shared_previous_output_v2','non_gravity_reset_seed':'zero',
         'versions':versions,'simulation_evidence':evidence_index,'files':files}
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2,allow_nan=False)+'\n')
     verify_motion_bundle(output)

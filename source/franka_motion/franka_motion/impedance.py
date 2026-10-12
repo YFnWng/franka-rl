@@ -59,8 +59,9 @@ class CartesianImpedanceController:
 class TorqueCommandProcessor:
     """Slew non-gravity command, low-pass it, add gravity, then enforce effort bounds.
 
-    The non-gravity slew/filter order follows the existing archived Franky joint
-    route. Gravity is supplied by PhysX in simulation (libfranka compensates it on
+    Franky slew and libfranka low-pass both use the previous outgoing command.
+    Only the filtered output persists; the limited candidate is telemetry.
+    Gravity is supplied by PhysX in simulation (FCI compensates it on
     hardware). The final clamp is a simulator effort bound, not a claimed Franky
     implementation detail. Reset deliberately seeds non-gravity state at zero.
     """
@@ -73,18 +74,21 @@ class TorqueCommandProcessor:
             raise ValueError("effort limits must be positive")
         self.reset()
 
-    def reset(self):
-        self.limited = np.zeros(7)
-        self.filtered = np.zeros(7)
+    def reset(self, initial_command=None):
+        """Zero deterministic reset, or seed recorded non-gravity tau_J_d."""
+        self.filtered = (np.zeros(7) if initial_command is None else
+                         np.asarray(finite_vector(initial_command, 7, "initial_command")).copy())
+        self.limited = self.filtered.copy()
 
     def compute(self, requested, gravity):
         requested = np.asarray(finite_vector(requested, 7, "requested"))
         gravity = np.asarray(finite_vector(gravity, 7, "gravity"))
-        self.limited += np.clip(requested - self.limited, -self.step, self.step)
+        self.limited = self.filtered + np.clip(requested - self.filtered, -self.step, self.step)
         self.filtered += self.alpha * (self.limited - self.filtered)
         unclipped = self.filtered + gravity
         applied = np.clip(unclipped, -self.effort, self.effort)
-        return {"requested": requested.copy(), "limited": self.limited.copy(), "filtered": self.filtered.copy(),
+        return {"requested": requested.copy(), "limited": self.limited.copy(),
+                "limited_candidate": self.limited.copy(), "filtered": self.filtered.copy(),
                 "gravity": gravity.copy(), "unclipped": unclipped, "applied": applied}
 
 

@@ -19,8 +19,8 @@ class BatchedCartesianImpedanceController:
         self.error = torch.zeros((count, 6), device=device)
         self.wrench = torch.zeros_like(self.error)
 
-    def reset(self, ids):
-        self.processor.reset(ids)
+    def reset(self, ids, initial_command=None):
+        self.processor.reset(ids, initial_command)
         self.error[ids] = 0.
         self.wrench[ids] = 0.
 
@@ -37,11 +37,7 @@ class BatchedCartesianImpedanceController:
         c["requested"].copy_(c["pd"]+coriolis)
         if "posture" in c:
             c["requested"].add_(c["posture"])
-        c["limited"].add_((c["requested"]-c["limited"]).clamp(-self.processor.step,self.processor.step))
-        c["filtered"].add_(self.processor.alpha*(c["limited"]-c["filtered"]))
-        c["unclipped"].copy_(c["filtered"]+gravity)
-        c["applied"].copy_(torch.maximum(torch.minimum(c["unclipped"],self.processor.effort),-self.processor.effort))
-        return c["applied"]
+        return self.processor.process_requested(gravity)
 
 
 def curve_projection_torch(position,kind,origin,radius):
@@ -73,8 +69,8 @@ class BatchedCurveImpedanceController(BatchedCartesianImpedanceController):
         self.normal_stiffness,self.normal_damping,self.tangent_damping = 100.,20.,20.
         self.reference = torch.zeros((count,13),device=device)
 
-    def reset(self,ids):
-        super().reset(ids)
+    def reset(self,ids,initial_command=None):
+        super().reset(ids,initial_command)
         self.reference[ids] = 0.
 
     def compute(self,pose,twist,reference,jacobian,coriolis,gravity):
@@ -128,10 +124,20 @@ class BatchedJointImpedanceController:
         self.effort = torch.tensor(effort_limits_nm, device=device)
         self.components = {key: torch.zeros((count, 7), device=device) for key in
             ("pd", "coriolis", "gravity", "requested", "limited", "filtered", "unclipped", "applied")}
+        # Legacy trace name is an alias, not a second persistent ramp state.
+        self.components["limited_candidate"] = self.components["limited"]
 
-    def reset(self, ids):
+    def reset(self, ids, initial_command=None):
+        if initial_command is not None:
+            seed = torch.as_tensor(initial_command, device=self.k.device,
+                                   dtype=self.components["filtered"].dtype).clone()
+            if seed.shape != self.components["filtered"][ids].shape or not torch.isfinite(seed).all():
+                raise ValueError("initial_command must be finite with shape (selected environments, 7)")
         for value in self.components.values():
             value[ids] = 0.
+        if initial_command is not None:
+            self.components["filtered"][ids] = seed
+            self.components["limited"][ids] = seed
 
     def compute(self, q, dq, q_ref, dq_ref, coriolis, gravity):
         c = self.components
@@ -139,7 +145,12 @@ class BatchedJointImpedanceController:
         c["coriolis"].copy_(coriolis)
         c["gravity"].copy_(gravity)
         c["requested"].copy_(c["pd"] + coriolis)
-        c["limited"].add_((c["requested"]-c["limited"]).clamp(-self.step, self.step))
+        return self.process_requested(gravity)
+
+    def process_requested(self, gravity):
+        """Both updates reference prior filtered tau_J_d; gravity bypasses them."""
+        c = self.components
+        c["limited"].copy_(c["filtered"] + (c["requested"]-c["filtered"]).clamp(-self.step, self.step))
         c["filtered"].add_(self.alpha * (c["limited"]-c["filtered"]))
         c["unclipped"].copy_(c["filtered"] + gravity)
         c["applied"].copy_(torch.maximum(torch.minimum(c["unclipped"], self.effort), -self.effort))
