@@ -89,6 +89,20 @@ def summarize(directory):
             phase[(elapsed>=transition_end)&(elapsed<=settle_end)]=label+'_settle'
             boundary |= np.abs(elapsed-transition_end)<=.025
             end=settle_end
+    phase_source='inferred_robot_time'
+    event_path=directory/'phase-events.jsonl'
+    if event_path.exists():
+        events=[json.loads(line) for line in event_path.open() if line.strip()]
+        transitions=[e for e in events if 'first_reference_sequence' in e]
+        if transitions:
+            phase_source='applied_reference_sequence'
+            boundary[:]=False
+            sequences=np.array([r['reference_sequence'] for r in rows])
+            for event in transitions:
+                mask=sequences>=event['first_reference_sequence']
+                phase[mask]=event['phase']
+                starts=np.flatnonzero(mask)
+                if len(starts):boundary|=np.abs(elapsed-elapsed[starts[0]])<=.025
     fault_indices = [i for i, s in enumerate(rows) if s['fault']]
     fault = None
     if fault_indices:
@@ -133,6 +147,21 @@ def summarize(directory):
                 lissajous_contour[track_mask] = values
                 contour_approximation = {'method':'nearest of 4096 analytic curve samples; upper approximation',
                                          'maximum_distance_overestimate_m':bound}
+        circle_phase_lag=None; circle_delay=None; circle_progress=None
+        if spec and spec['type']=='circle':
+            track_mask=(phase[indices]=='track') & ~boundary[indices]
+            if track_mask.any():
+                rotation=rotation_matrix_rpy_deg(spec['plane_rpy_deg'])
+                measured=(poses[track_mask,:3,3]-spec['center_m'])@rotation
+                desired=(references[track_mask,:3,3]-spec['center_m'])@rotation
+                am=np.unwrap(np.arctan2(measured[:,1],measured[:,0]))
+                ar=np.unwrap(np.arctan2(desired[:,1],desired[:,0]))
+                lag=np.arctan2(np.sin(ar-am),np.cos(ar-am))
+                omega=speed_ref[track_mask]/spec['radius_m']
+                circle_phase_lag=stats(lag)
+                moving=omega>.01
+                circle_delay=stats(lag[moving]/omega[moving])
+                circle_progress={'measured_rad':float(am[-1]-am[0]),'reference_rad':float(ar[-1]-ar[0])}
         for label in ('all_active', *dict.fromkeys(phase[indices])):
             mask = np.ones(len(indices), dtype=bool) if label == 'all_active' else (
                 (phase[indices] == label) & ~boundary[indices])
@@ -150,9 +179,28 @@ def summarize(directory):
                 'circle_contour_error_m':stats(contour[mask]) if contour is not None and label == 'track' else None,
                 'sampled_lissajous_contour_error_m':stats(lissajous_contour[mask])
                     if lissajous_contour is not None and label == 'track' else None}
+        settling={}
+        if posture_error is not None:
+            criteria=c.get('experiment',{}).get('settling',{'joint_norm_rad':.05,'position_m':.01,'orientation_rad':.05,'dwell_s':.5})
+            for label in dict.fromkeys(phase[indices]):
+                if not str(label).endswith('_settle'):continue
+                members=np.flatnonzero((phase[indices]==label)&~boundary[indices])
+                start_time=float(elapsed[indices[np.flatnonzero(phase[indices]==label)[0]]])
+                since=None;settled_time=None
+                for k in members:
+                    now=float(elapsed[indices[k]])
+                    inside=(posture_error[k]<=criteria['joint_norm_rad'] and error[k]<=criteria['position_m']
+                            and orientation[k]<=criteria['orientation_rad'])
+                    if not inside:since=None
+                    elif since is None:since=now
+                    if since is not None and now-since>=criteria['dwell_s']:
+                        settled_time=since-start_time;break
+                settling[str(label)]={'attained':settled_time is not None,'settling_time_s':settled_time,'criteria':criteria}
         for k, i in enumerate(indices):
             records.append(dict(elapsed_s=float(elapsed[i]), phase=str(phase[i]),
                                 boundary_excluded=bool(boundary[i]), position_error_m=float(error[k]),
+                                joint_displacement_norm_rad=float(displacement[k]),
+                                posture_reference_error_norm_rad=float(posture_error[k]) if posture_error is not None else None,
                                 orientation_error_rad=float(orientation[k]),
                                 circle_contour_error_m=float(contour[k]) if contour is not None and phase[i]=='track' else None,
                                 sampled_lissajous_contour_error_m=float(lissajous_contour[k])
@@ -168,7 +216,7 @@ def summarize(directory):
     dt = np.diff([s['robot_time_s'] for s in rows])
     host_dt = np.diff([s['monotonic_ns'] for s in rows])/1e9
     track = (phase=='track') & valid & ~boundary
-    summary = dict(schema_version=1, source_directory=str(directory.resolve()), terminal_report=report,
+    summary = dict(schema_version=1, phase_source=phase_source, source_directory=str(directory.resolve()), terminal_report=report,
         effective_limits=json.loads((directory/'effective-limits.json').read_text())
             if (directory/'effective-limits.json').exists() else None,
         completed=report['terminal_state']=='complete', first_fault=fault,
@@ -184,11 +232,27 @@ def summarize(directory):
                     active_reference_age_s=stats([rows[i]['reference_age_s'] for i in indices]),
                     active_command_success_rate_after_first_tick=stats([
                         rows[i]['command_success_rate'] for i in indices if i>0])),
-        limitations=['Phase boundaries inferred from first servo robot time; 25 ms boundary exclusion.',
+        limitations=['Phase source is recorded in phase_source; 25 ms boundary exclusion.',
                      'Errors use applied logged references and encoder/model FK, not external pose metrology.',
                      'RMS is sample-weighted; faulted/partial runs are not successful full-circle trials.',
                      'No acceleration/jerk differentiation or calibrated external-force/stiffness estimate.',
                      'Fixture/posture-specific curve progress and manipulability are not implemented here.'])
+    if len(indices):
+        samples=[rows[i] for i in indices]
+        summary['posture_settling']=settling
+        summary['circle_phase_lag_rad']=circle_phase_lag
+        summary['estimated_circle_delay_s']=circle_delay
+        summary['circle_progress']=circle_progress
+        summary['controller']=c['controller']
+        summary['profile_id']=c.get('experiment',{}).get('profile_id',directory.name)
+        summary['joint_reference_error_rad']=stats(np.linalg.norm([
+            np.asarray(r['joint_reference'])-r['q'] for r in samples if r.get('dls_active')],axis=1)) \
+            if any(r.get('dls_active') for r in samples) else None
+        if all('raw' in r and 'slew' in r for r in samples):
+            summary['max_abs_client_raw_torque_nm']=np.abs([r['raw'] for r in samples]).max(axis=0).tolist()
+            summary['client_raw_torque_rms_nm']=np.sqrt(np.mean(np.square([r['raw'] for r in samples]),axis=0)).tolist()
+            summary['slew_active_fraction']=float(np.mean(np.max(np.abs(np.array([r['raw'] for r in samples])-
+                np.array([r['slew'] for r in samples])),axis=1)>1e-9))
     return summary, records
 
 

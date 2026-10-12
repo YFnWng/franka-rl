@@ -1128,3 +1128,93 @@ trajectory/speed and two changed gain parameters prevent causal attribution
 of RMS improvement to stiffness alone. Not external pose metrology.
 Saved m4-metrics.json/.csv and fixture-audit.json in run folder. Config,
 controller and dependencies unchanged by audit; no hardware execution.
+
+
+## Compensation clarification: firmware motor friction versus client feedforward
+
+Official FCI libfranka documentation states external torque commands receive
+both gravity and motor-friction compensation on robot Control:
+https://support.franka.de/docs/libfranka.html
+Thus earlier statements that only gravity and Coriolis compensate this
+stack were incomplete. Zero Franky friction coefficients disable only the
+additional client friction feedforward, not robot-side motor-friction
+compensation. Installed libfranka0.21.2 public Model/RobotState APIs expose
+no calibrated friction coefficient table or friction-model query. Do not
+assume full joint/transmission stiction is removed or infer its calibration
+from tau_ext_hat_filtered. Residual-friction hypotheses remain unproven.
+
+Franky acceleration feedforward is conditional on target_acceleration being
+provided: unset means no Lambda*a_ref term, with no implicit acceleration
+estimate from velocity references. Runner currently publishes pose/twist
+only. Tracking trajectories could supply analytic acceleration in a future
+explicitly implemented comparison. Hand-guided fixtures have no timed
+acceleration reference. Additional Franky friction model is user-supplied
+Coulomb*tanh(dq/epsilon)+viscous*dq, clipped per joint; zero at zero velocity
+so not a static integral compensator. Any identification should estimate
+residual behavior with firmware compensation active, rather than add a full
+friction model and double-compensate. No runtime/config changes.
+
+
+## Next work: matched controller comparisons
+
+Operator reports all demo tasks successfully deployed and requests comparisons
+and a brief report. Implementation plan:
+`deployment/M4_CONTROLLER_COMPARISON_PLAN.md`.
+
+First reuse current Cartesian controller for independent stiffness/damping
+sweeps, add indexed multi-run metrics/reporting, then add native resolved-rate
+DLS + explicit joint PD using Franky's existing joint impedance law. Local
+Franky source audit found Jacobian and joint tracking APIs but no exposed
+ready-made DLS-to-joint-PD controller; CartesianMotion outputs FCI Cartesian
+commands, not that explicit baseline. Preserve tested dependencies below
+Franky and captured-pose stop-v2; build an isolated additive comparison wheel.
+
+Compare identical timed circle references (not hand-guided fixture geometry),
+and identical feasible A/B stationary-EE posture targets. Separate kinematic
+vs dynamic projector ablations; zero-posture circle has no projector effect.
+Proposed gain candidates are not blanket hardware execution approvals.
+Keep stiffness and damping sweeps separate, three repetitions of selected
+profiles, phase-resolved errors, realized posture motion, timing/torques and
+fault/stop outcomes. No controller/runtime/config changes or hardware execution
+in this planning step.
+
+
+## Comparison implementation delivered — 2026-10-12
+
+See `deployment/franky_runtime/M4_COMPARISONS.md` for commands and current
+contracts. Native optional DLS route added to M4RuntimeMotion, sharing the tested
+watchdog/guards/ring log and captured-pose stop-v2. Shared joint PD algebra is
+reused with JointImpedanceBase. Separate configured Cartesian stop gains ensure
+active gain sweeps do not silently vary braking gains. No libfranka/Ruckig/
+firmware/dependency changes: isolated franky-m4-comparison-server10, local
+Franky2.0.1.dev65+gm4compare.libfranka.0.21.2, all21 bundled dependency hashes
+identical to retained stop-server10. Wheel/receipts under deployment_bundles/
+2026-10-12/franky-m4-comparison.
+
+User requested each session automatically repeat3 times: runner now defaults3
+(or experiment.repeats), one start,5s interval, fresh live checks, individual
+trial folders. Fault, failed stop, logging loss, operator stop or repeat-start
+drift aborts continuation; no auto recovery/homing. --repeats1 for commissioning.
+Posture targets frozen within the session; paired sessions still require target
+and start matching from recorded plans. Existing executable configs are not
+silently replaced by new comparison candidates.
+
+22 candidate profiles generated, plus local single-profile executable-copy
+selector. Phase events tied to applied reference sequence, joint/DLS telemetry,
+phase/contour/posture/torque/settling metrics and repeat-aware report aggregator
+implemented. Existing historical runs exercised into comparison-baseline-report
+with indexed JSON/CSV, Markdown and PNG/PDF figures; exploratory evidence remains
+labelled as such. Tests42 Python and22 native cases/75 assertions passed.
+No FCI access or hardware motion performed. DLS composed route needs first
+hardware hold, then one circle trial before three-trial comparisons. Portable
+DLS law at source/franka_motion/franka_motion/dls_tracking.py is available to the
+simulation workstation; native/portable numerical parity tested.
+
+
+Posture comparison refinement: all posture candidates reuse the exact recorded
+successful150500Z posture-plan.json across profiles, with live FK/bounds/singular
+checks and source SHA recorded. First start must be within0.15rad per joint of
+its tested anchor and within existing pose guards. Returning posture sequences
+check subsequent start drift relative to the shared intended return anchor;
+other tasks use trial1 measured anchor. This is a validation/target selection,
+not automatic homing. Small initial-state differences remain logged.

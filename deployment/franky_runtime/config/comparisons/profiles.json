@@ -1,0 +1,114 @@
+{
+  "profiles": [
+    {
+      "profile_id": "cartesian.circle.k0.5.d1",
+      "config": "cartesian.circle.k0.5.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.circle.k1.d1",
+      "config": "cartesian.circle.k1.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.circle.k1.5.d1",
+      "config": "cartesian.circle.k1.5.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.circle.k1.d0.75",
+      "config": "cartesian.circle.k1.d0.75.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.circle.k1.d1.25",
+      "config": "cartesian.circle.k1.d1.25.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.circle.k50.d1",
+      "config": "joint.circle.k50.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.circle.k100.d1",
+      "config": "joint.circle.k100.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.circle.k200.d1",
+      "config": "joint.circle.k200.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.circle.k100.d0.75",
+      "config": "joint.circle.k100.d0.75.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.circle.k100.d1.25",
+      "config": "joint.circle.k100.d1.25.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.posture.k0.5.d1",
+      "config": "cartesian.posture.k0.5.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.posture.k1.d1",
+      "config": "cartesian.posture.k1.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.posture.k1.5.d1",
+      "config": "cartesian.posture.k1.5.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.posture.k1.d0.75",
+      "config": "cartesian.posture.k1.d0.75.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian.posture.k1.d1.25",
+      "config": "cartesian.posture.k1.d1.25.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.posture.k50.d1",
+      "config": "joint.posture.k50.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.posture.k100.d1",
+      "config": "joint.posture.k100.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.posture.k200.d1",
+      "config": "joint.posture.k200.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.posture.k100.d0.75",
+      "config": "joint.posture.k100.d0.75.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.posture.k100.d1.25",
+      "config": "joint.posture.k100.d1.25.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "cartesian_dynamic.posture.k1.d1",
+      "config": "cartesian_dynamic.posture.k1.d1.pending.yaml",
+      "repeats": 3
+    },
+    {
+      "profile_id": "joint.hold.k100.d1",
+      "config": "joint.hold.k100.d1.pending.yaml",
+      "repeats": 3
+    }
+  ]
+}

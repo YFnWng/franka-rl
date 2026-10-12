@@ -14,7 +14,7 @@ from ..backend import EncoderForwardKinematics, _snapshot, _matrix
 from ..core import _approval, require, vector, sha256
 from franka_motion.config import _load, TrajectorySpec
 from franka_motion.trajectories import validate_trajectory
-from franka_motion.kinematics import UrdfKinematicsProvider, DampedLeastSquaresIK, validate_path_ik
+from franka_motion.kinematics import UrdfKinematicsProvider, DampedLeastSquaresIK, validate_path_ik, pose_error_base
 
 LIMIT_VECTORS = {'joint_lower': 7, 'joint_upper': 7, 'joint_velocity': 7,
                  'external_torque': 7, 'command_torque': 7, 'workspace_lower': 3, 'workspace_upper': 3}
@@ -29,7 +29,7 @@ SAMPLE_FIELDS = ('tick', 'reference_sequence', 'monotonic_ns', 'robot_time_s', '
 FAULTS = {1:'reference_timeout', 2:'reference_sequence', 3:'callback_gap', 4:'nonfinite', 5:'joint_bounds',
           6:'joint_velocity', 7:'workspace', 8:'pose_error', 9:'cartesian_speed', 10:'external_torque',
           11:'contact_collision', 12:'singularity', 13:'robot_error', 14:'command_success',
-          15:'command_torque', 16:'logger_overflow', 17:'controller_projection', 18:'stop_timeout'}
+          15:'command_torque', 16:'logger_overflow', 17:'controller_projection', 18:'stop_timeout', 19:'joint_reference_limit'}
 
 
 def scheduling_snapshot():
@@ -63,6 +63,9 @@ def preserve_caller_scheduler(*, realtime=False):
 def serialize_runtime_sample(sample):
     record = {name: getattr(sample, name) for name in SAMPLE_FIELDS}
     record['stop_fault'] = getattr(sample, 'stop_fault', 0)
+    for name in ('joint_reference','joint_velocity_reference','secondary_velocity','outer_correction',
+                 'dls_active','dls_rank','dls_velocity_scale'):
+        if hasattr(sample,name): record[name]=getattr(sample,name)
     feedback_valid = sample.min_singular_value > 0 and sample.fault not in (4, 17)
     for name in ('pose', 'reference_pose'):
         value = getattr(sample, name).matrix
@@ -92,6 +95,22 @@ def load_hardware_config(path, *, execute=False):
     require(c.get('runtime') == 'franky_m4_cartesian_v1', 'unsupported M4 runtime')
     require(c.get('execution_context') == 'hardware', 'M4 requires hardware context')
     _approval(c, execute)
+    route=c['controller'].get('kind','cartesian_impedance')
+    require(route in ('cartesian_impedance','dls_joint_pd'),'invalid controller kind')
+    if route=='dls_joint_pd':
+        require(c['task']['kind'] in ('hold','tracking','posture'),'DLS supports hold/tracking/posture only')
+        require(c['controller']['projector']=='kinematic','DLS requires kinematic velocity projector')
+        d=c['controller']['dls']
+        for name,size in (('stiffness',7),('damping',7),('reference_error_limit',7),('pose_gain',6),('task_scale',6)):
+            require(all(v>0 for v in vector(d[name],size,name)),f'invalid DLS {name}')
+        for name in ('lambda_value','rank_tolerance'):
+            require(type(d[name]) in (int,float) and math.isfinite(d[name]) and d[name]>0,f'invalid DLS {name}')
+        require(d['rank_tolerance']<1,'invalid DLS rank tolerance')
+        require(type(d['posture_gain']) in (int,float) and math.isfinite(d['posture_gain']) and d['posture_gain']>=0,'invalid DLS posture gain')
+    for name,default in (('repeats',3),):
+        require(type(c.get('experiment',{}).get(name,default)) is int and 1<=c.get('experiment',{}).get(name,default)<=10,'invalid repeats')
+    interval=c.get('experiment',{}).get('inter_trial_s',5.)
+    require(type(interval) in (int,float) and math.isfinite(interval) and interval>=0,'invalid trial interval')
     require(c['task']['kind'] in ('hold', 'tracking', 'posture', 'z_line', 'yz_circle'), 'unsupported task')
     for name, size in LIMIT_VECTORS.items():
         values = vector(c['limits'][name], size, name)
@@ -113,6 +132,13 @@ def load_hardware_config(path, *, execute=False):
                     'circle radius must be positive and finite')
     for name in ('stiffness', 'damping'):
         require(all(v >= 0 for v in vector(c['controller'][name], 6, name)), 'negative gains')
+    require(('stop_stiffness' in c['controller'])==('stop_damping' in c['controller']),'both stop gain vectors required')
+    for name in ('stop_stiffness','stop_damping'):
+        if name in c['controller']:
+            require(all(v>0 for v in vector(c['controller'][name],6,name)),'invalid stop gains')
+    for name in ('repeat_start_tolerance_rad','repeat_position_tolerance_m','repeat_orientation_tolerance_rad'):
+        value=c.get('experiment',{}).get(name,.1)
+        require(type(value) in (float,int) and math.isfinite(value) and value>0,'invalid repeat-start tolerance')
     for name in ('posture_stiffness', 'posture_damping'):
         require(math.isfinite(c['controller'][name]) and c['controller'][name] >= 0, 'invalid posture gains')
     require(math.isfinite(c['task']['duration_s']) and 0 < c['task']['duration_s'] <= 600, 'invalid duration')
@@ -120,7 +146,7 @@ def load_hardware_config(path, *, execute=False):
     require(c['controller']['projector'] in ('kinematic', 'dynamic'), 'invalid projector')
     # Posture comparisons may explicitly choose the original kinematic or M4
     # dynamically consistent torque projector. Other tasks retain their contract.
-    if c['task']['kind'] != 'posture':
+    if c['task']['kind'] != 'posture' and route=='cartesian_impedance':
         require(c['controller']['projector'] == 'dynamic', 'wrong task projector')
     require(c['controller']['cutoff_hz'] == 100 and c['controller']['max_delta_tau'] == 1, 'preserve tested torque pipeline')
     require(c['reference_hz'] == 50, 'M4 reference rate must be 50 Hz')
@@ -225,6 +251,10 @@ class FrankyMotionBackend:
         require(hasattr(f, 'M4RuntimeMotion'), 'wheel lacks M4 native runtime')
         require(getattr(f.M4RuntimeMotion, 'stop_behavior_version', 1) >=
                 config.get('required_stop_behavior_version', 1), 'wheel lacks required M4 pose-hold stop')
+        if config['controller'].get('kind')=='dls_joint_pd':
+            require(hasattr(f,'M4DlsParams'),'wheel lacks native DLS comparison route')
+        require(getattr(f.M4RuntimeMotion,'comparison_runtime_version',0)>=config.get('required_comparison_runtime_version',0),
+                'wheel lacks comparison runtime version')
         self.f = f
         self.scheduling_evidence = {'before_robot_constructor': scheduling_snapshot()}
         with preserve_caller_scheduler():
@@ -292,6 +322,29 @@ class FrankyMotionBackend:
             model = UrdfKinematicsProvider(Path(c['bundle'])/'model/robot_returned_model.urdf')
             solver = DampedLeastSquaresIK(model, c['limits']['joint_lower'], c['limits']['joint_upper'])
             q = np.asarray(snapshot.q)
+            shared=c.get('experiment',{}).get('posture_plan_path')
+            if shared:
+                plan=json.loads(Path(shared).read_text())
+                require(len(plan['targets_rad'])==2,'shared posture plan requires A/B')
+                anchor=np.asarray(vector(plan['anchor_q_rad'],7,'shared posture anchor'))
+                goals=[anchor]+[np.asarray(vector(t,7,'shared posture target')) for t in plan['targets_rad']]
+                require(np.max(np.abs(q-anchor))<=.15,'shared posture start must be within0.15rad of tested anchor')
+                for goal in goals:
+                    require(np.all(goal>=c['limits']['joint_lower']) and np.all(goal<=c['limits']['joint_upper']),
+                            'shared posture joints outside bounds')
+                    position,rotation,j=model.evaluate(goal)
+                    error=pose_error_base(position,rotation,plan['fixed_position_m'],plan['fixed_orientation_xyzw'])
+                    require(np.linalg.norm(error[:3])<=.001 and np.linalg.norm(error[3:])<=.005,'shared posture FK mismatch')
+                    require(np.linalg.svd(j,compute_uv=False).min()>=c['limits']['minimum_jacobian_singular_value'],'shared posture target singular')
+                initial_error=pose_error_base(*model.evaluate(q)[:2],plan['fixed_position_m'],plan['fixed_orientation_xyzw'])
+                require(np.linalg.norm(initial_error[:3])<c['limits']['position_error_m'] and
+                        np.linalg.norm(initial_error[3:])<c['limits']['orientation_error_rad'],'shared posture pose differs from live start')
+                sequence=[q,anchor,*goals[1:]]+([anchor] if c['task']['posture_return_to_start'] else [])
+                for previous,target in zip(sequence,sequence[1:]):
+                    require(np.all(1.875*np.abs(target-previous)/c['task']['posture_transition_s']<=c['limits']['joint_velocity']),
+                            'shared posture reference velocity exceeds limits')
+                self.posture_plan=dict(plan,source_path=str(Path(shared).resolve()),source_sha256=sha256(Path(shared)))
+                return None
             j = model.evaluate(q)[2]
             _, _, vh = np.linalg.svd(j, full_matrices=True)
             targets = [solver.solve(snapshot.flange_position_m, snapshot.flange_orientation_xyzw,
@@ -364,7 +417,21 @@ class FrankyMotionBackend:
         for name, value in c['stop'].items(): setattr(stop, name, value)
         # Native initialization validation runs on the actual first servo state.
         fixture = make_curve_fixture(c, f, snapshot)
-        self.motion = f.M4RuntimeMotion(params, limits, stop, fixture, c['log_capacity'])
+        dls=None
+        if c['controller'].get('kind')=='dls_joint_pd':
+            dls=f.M4DlsParams()
+            for name,value in c['controller']['dls'].items(): setattr(dls,name,value)
+            dls.validate()
+        if 'stop_stiffness' in c['controller']:
+            self.motion=f.M4RuntimeMotion(params,limits,stop,fixture,c['log_capacity'],dls,
+                np.diag(c['controller']['stop_stiffness']),np.diag(c['controller']['stop_damping']))
+        elif dls is None:
+            self.motion = f.M4RuntimeMotion(params, limits, stop, fixture, c['log_capacity'])
+        else:
+            self.motion = f.M4RuntimeMotion(params, limits, stop, fixture, c['log_capacity'],dls)
+        self._last_sample=None
+        self.stop_evidence={}
+
         self.publish(snapshot.flange_position_m, snapshot.flange_orientation_xyzw, np.zeros(6))
         previous_threads = {int(p.name) for p in Path('/proc/self/task').iterdir()}
         with preserve_caller_scheduler(realtime=True):

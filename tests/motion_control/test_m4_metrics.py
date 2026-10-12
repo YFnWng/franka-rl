@@ -51,3 +51,22 @@ def test_fault_and_stop_do_not_pollute_active_metrics(tmp_path):
     assert summary['first_fault']['position_error_m']==pytest.approx(.1)
     assert summary['planned_track_duration_s'] is None
     json.dumps(summary,allow_nan=False)
+
+
+def test_phase_events_follow_consumed_reference_sequence(tmp_path):
+    config=yaml.safe_load((ROOT/'deployment/franky_runtime/config/m4.hold.pending.yaml').read_text())
+    (tmp_path/'config.yaml').write_text(yaml.safe_dump(config))
+    (tmp_path/'report.json').write_text(json.dumps({'terminal_state':'complete'}))
+    samples=[]
+    for i in range(100):
+        pose=np.eye(4);ref=pose.copy();ref[0,3]=.001
+        samples.append(dict(robot_time_s=i*.001,monotonic_ns=i*1000000,
+            reference_sequence=1 if i<40 else 2,fault=0,stopping=False,ee_feedback_valid=True,
+            pose=pose.tolist(),reference_pose=ref.tolist(),nonfinite_fields=[],twist=[0.]*6,
+            reference_twist=[0.]*6,q=[0.,-.8,0.,-2.3,0.,1.5,0.],command_success_rate=1.,reference_age_s=.005))
+    (tmp_path/'servo.jsonl').write_text(''.join(json.dumps(s)+'\n' for s in samples))
+    (tmp_path/'phase-events.jsonl').write_text(json.dumps({'phase':'initial_hold','first_reference_sequence':1})+'\n'+
+        json.dumps({'phase':'a_transition','first_reference_sequence':2})+'\n')
+    summary,records=metrics.summarize(tmp_path)
+    assert summary['phase_source']=='applied_reference_sequence'
+    assert records[39]['phase']=='initial_hold' and records[40]['phase']=='a_transition'
