@@ -14,6 +14,59 @@ from franky_experiment.core import ConfigError
 CONFIG=ROOT/'deployment/franky_runtime/config/m4.hold.pending.yaml'
 
 
+def test_native_stop_exception_preserves_timeout_and_never_reports_success():
+    backend=object.__new__(FrankyMotionBackend)
+    backend.config={'stop':{'max_duration':2.}}
+    backend.f=SimpleNamespace(M4RuntimeMotion=SimpleNamespace(stop_behavior_version=2))
+    backend.motion=SimpleNamespace(request_stop=lambda:None, stop_fault=18)
+    def join(timeout):raise RuntimeError('M4 stop timeout: not at sustained rest')
+    backend.robot=SimpleNamespace(is_in_control=False,join_motion=join,
+                                  stop=lambda:pytest.fail('already inactive: no redundant abort'))
+    backend._last_sample=SimpleNamespace(stop_finished=False,stop_at_rest=False)
+    backend.drain=lambda stream:[]
+    assert backend.stop(None) is False
+    assert backend.stop_evidence['stop_fault']==18
+    assert 'timeout' in backend.stop_evidence['exception']
+
+
+def test_start_anchored_fixture_uses_measured_orientation_not_identity():
+    from franky_experiment.motion_demos.hardware import make_curve_fixture
+    f=SimpleNamespace(CurveFixtureParams=SimpleNamespace,
+                      CurveFixtureType=SimpleNamespace(ZLine='z',YZCircle='circle'))
+    c={'task':{'kind':'z_line','fixture_anchor_to_start':True},
+       'fixture':{'origin':[0.,0.,0.], 'orientation':[0.,0.,0.,1.]}}
+    s=SimpleNamespace(flange_position_m=[.4,.01,.5],
+                      flange_orientation_xyzw=[1.,0.,0.,0.])
+    fixture=make_curve_fixture(c,f,s)
+    assert fixture.origin==s.flange_position_m
+    assert fixture.orientation==s.flange_orientation_xyzw
+    c['task']['fixture_anchor_to_start']=False
+    fixture=make_curve_fixture(c,f,s)
+    assert fixture.orientation==[0.,0.,0.,1.]
+    assert fixture.origin==[0.,0.,0.]
+
+
+def test_start_anchored_circle_starts_on_top_with_measured_orientation():
+    from franky_experiment.motion_demos.hardware import curve_fixture_values
+    c={'task':{'kind':'yz_circle','fixture_anchor_to_start':True},
+       'fixture':{'origin':[0.,0.,0.],'radius':.05}}
+    s=SimpleNamespace(flange_position_m=[.4,.01,.5],flange_orientation_xyzw=[1.,0.,0.,0.])
+    fixture=curve_fixture_values(c,s)
+    assert np.allclose(fixture['origin'],[.4,.01,.45])
+    assert np.allclose(np.array(s.flange_position_m)-fixture['origin'],[0.,0.,.05])
+    assert fixture['orientation']==s.flange_orientation_xyzw
+
+
+def test_circle_rejects_workspace_overrun_before_ik():
+    backend=object.__new__(FrankyMotionBackend)
+    backend.config={'task':{'kind':'yz_circle','fixture_anchor_to_start':True},
+                    'fixture':{'origin':[0.,0.,0.],'radius':.05},
+                    'limits':{'position_error_m':.03,'workspace_lower':[.2,-.2,.2],
+                              'workspace_upper':[.6,.2,.7]}}
+    s=SimpleNamespace(flange_position_m=[.4,0.,.25],flange_orientation_xyzw=[1.,0.,0.,0.])
+    with pytest.raises(ConfigError,match='outside workspace'):backend.plan(s)
+
+
 @pytest.mark.parametrize('projector',['kinematic','dynamic'])
 def test_posture_accepts_explicit_projector_comparisons(tmp_path,projector):
     c=yaml.safe_load(CONFIG.read_text())

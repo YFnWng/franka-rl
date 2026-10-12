@@ -62,6 +62,7 @@ def preserve_caller_scheduler(*, realtime=False):
 
 def serialize_runtime_sample(sample):
     record = {name: getattr(sample, name) for name in SAMPLE_FIELDS}
+    record['stop_fault'] = getattr(sample, 'stop_fault', 0)
     feedback_valid = sample.min_singular_value > 0 and sample.fault not in (4, 17)
     for name in ('pose', 'reference_pose'):
         value = getattr(sample, name).matrix
@@ -103,6 +104,13 @@ def load_hardware_config(path, *, execute=False):
         require(np.all(np.array(c['limits'][name+'_lower']) < c['limits'][name+'_upper']), 'unordered bounds')
     require(type(c['limits']['abort_on_contact']) is bool, 'abort_on_contact must be bool')
     require(c['limits']['minimum_command_success_rate'] <= 1, 'invalid success rate')
+    if c['task']['kind'] in ('z_line', 'yz_circle'):
+        require(type(c['task'].get('fixture_anchor_to_start', False)) is bool,
+                'fixture_anchor_to_start must be bool')
+        if c['task']['kind']=='yz_circle':
+            radius=c['fixture']['radius']
+            require(type(radius) in (float,int) and math.isfinite(radius) and radius>0,
+                    'circle radius must be positive and finite')
     for name in ('stiffness', 'damping'):
         require(all(v >= 0 for v in vector(c['controller'][name], 6, name)), 'negative gains')
     for name in ('posture_stiffness', 'posture_damping'):
@@ -158,6 +166,28 @@ def load_hardware_config(path, *, execute=False):
     return c
 
 
+def curve_fixture_values(c, snapshot):
+    values=dict(c['fixture'])
+    if c['task'].get('fixture_anchor_to_start', False):
+        origin=np.array(snapshot.flange_position_m,dtype=float)
+        if c['task']['kind']=='yz_circle':
+            # Start at the top of a base-frame YZ circle; the circle extends down.
+            origin=origin-np.array([0.,0.,values['radius']])
+        values['origin']=origin.tolist()
+        values['orientation']=snapshot.flange_orientation_xyzw
+    return values
+
+
+def make_curve_fixture(c, f, snapshot):
+    if c['task']['kind'] not in ('z_line', 'yz_circle'):
+        return None
+    fixture = f.CurveFixtureParams()
+    fixture.type = f.CurveFixtureType.ZLine if c['task']['kind']=='z_line' else f.CurveFixtureType.YZCircle
+    for name, value in curve_fixture_values(c,snapshot).items():
+        setattr(fixture, name, value)
+    return fixture
+
+
 def verify_runtime_dependencies(c, f):
     package = Path(f.__file__).parent
     for filename, digest in c['dependencies'].items():
@@ -193,6 +223,8 @@ class FrankyMotionBackend:
         import franky as f
         verify_runtime_dependencies(config, f)
         require(hasattr(f, 'M4RuntimeMotion'), 'wheel lacks M4 native runtime')
+        require(getattr(f.M4RuntimeMotion, 'stop_behavior_version', 1) >=
+                config.get('required_stop_behavior_version', 1), 'wheel lacks required M4 pose-hold stop')
         self.f = f
         self.scheduling_evidence = {'before_robot_constructor': scheduling_snapshot()}
         with preserve_caller_scheduler():
@@ -232,6 +264,30 @@ class FrankyMotionBackend:
     def plan(self, snapshot):
         """Construct tracking entry from the measured start; fixtures never auto-enter."""
         c = self.config
+        if c['task']['kind']=='yz_circle':
+            values=curve_fixture_values(c,snapshot)
+            center=np.array(values['origin']);radius=values['radius']
+            extent=np.array([0.,radius,radius])
+            margin=c['limits']['position_error_m']
+            require(np.all(center-extent-margin>=c['limits']['workspace_lower']) and
+                    np.all(center+extent+margin<=c['limits']['workspace_upper']),
+                    'circle plus normal-error margin outside workspace; reposition or reduce radius')
+            model=UrdfKinematicsProvider(Path(c['bundle'])/'model/robot_returned_model.urdf')
+            solver=DampedLeastSquaresIK(model,c['limits']['joint_lower'],c['limits']['joint_upper'])
+            q=np.asarray(snapshot.q);minimum_sigma=float('inf')
+            for angle in np.linspace(0.,2*np.pi,65):
+                point=center+radius*np.array([0.,np.sin(angle),np.cos(angle)])
+                q=solver.solve(point,values.get('orientation',snapshot.flange_orientation_xyzw),q)
+                minimum_sigma=min(minimum_sigma,float(np.linalg.svd(model.evaluate(q)[2],compute_uv=False).min()))
+            require(minimum_sigma>=c['limits']['minimum_jacobian_singular_value'], 'circle IK Jacobian singular')
+            self.fixture_plan={'type':'base_frame_yz_circle','origin_m':center.tolist(),
+                               'radius_m':radius,'orientation_xyzw':list(values.get('orientation',snapshot.flange_orientation_xyzw)),
+                               'start_position_m':list(snapshot.flange_position_m),
+                               'workspace_margin_m':margin,'ik_sample_count':65,
+                               'minimum_jacobian_singular_value':minimum_sigma,
+                               'motion_role':'hand guidance only; no automatic trajectory',
+                               'collision_clearance_role':'workspace and sampled IK checks do not certify swept-link clearance'}
+            return None
         if c['task']['kind'] == 'posture' and 'posture_offset_rad' in c['task']:
             model = UrdfKinematicsProvider(Path(c['bundle'])/'model/robot_returned_model.urdf')
             solver = DampedLeastSquaresIK(model, c['limits']['joint_lower'], c['limits']['joint_upper'])
@@ -306,12 +362,8 @@ class FrankyMotionBackend:
             'reason': 'Match robot wire float32 representation; equality passes, lower values fault.'}
         stop = f.TorqueStopParams()
         for name, value in c['stop'].items(): setattr(stop, name, value)
-        fixture = None
-        if c['task']['kind'] in ('z_line', 'yz_circle'):
-            fixture = f.CurveFixtureParams()
-            fixture.type = f.CurveFixtureType.ZLine if c['task']['kind']=='z_line' else f.CurveFixtureType.YZCircle
-            for name, value in c['fixture'].items(): setattr(fixture, name, value)
-            # Native initialization validation runs on the actual first servo state.
+        # Native initialization validation runs on the actual first servo state.
+        fixture = make_curve_fixture(c, f, snapshot)
         self.motion = f.M4RuntimeMotion(params, limits, stop, fixture, c['log_capacity'])
         self.publish(snapshot.flange_position_m, snapshot.flange_orientation_xyzw, np.zeros(6))
         previous_threads = {int(p.name) for p in Path('/proc/self/task').iterdir()}
@@ -344,16 +396,35 @@ class FrankyMotionBackend:
         result = [] if self.motion is None else self.motion.drain()
         for s in result:
             self._last_sample = s
-            stream.write(json.dumps(serialize_runtime_sample(s), allow_nan=False)+'\n')
+            record = serialize_runtime_sample(s)
+            if s.stopping and getattr(self.f.M4RuntimeMotion, 'stop_behavior_version', 1) >= 2:
+                record['stop_joint_damping'] = (-np.asarray(self.config['stop']['damping'])*np.asarray(s.dq)).tolist()
+                record['stop_raw_role'] = 'pose_hold_plus_joint_damping_before_transition_blend_and_slew'
+            stream.write(json.dumps(record, allow_nan=False)+'\n')
         return result
 
     def stop(self, stream):
         if self.motion is None: return True
+        self.stop_evidence = {'behavior_version': getattr(self.f.M4RuntimeMotion, 'stop_behavior_version', 1)}
         self.motion.request_stop()
         end = time.monotonic() + self.config['stop']['max_duration'] + 2
-        while self.robot.is_in_control and time.monotonic() < end:
-            self.drain(stream); time.sleep(.01)
-        joined = self.robot.join_motion(.1)
-        samples = self.drain(stream)
-        if not joined: self.robot.stop() # Explicit emergency fallback if native stop cannot finish.
-        return bool(joined) and self._last_sample is not None and self._last_sample.stop_finished and self._last_sample.stop_at_rest
+        joined = False
+        try:
+            while self.robot.is_in_control and time.monotonic() < end:
+                self.drain(stream); time.sleep(.01)
+            joined = self.robot.join_motion(.1)
+        except Exception as error:
+            self.stop_evidence['exception'] = str(error)
+        finally:
+            self.drain(stream)
+        if not joined and self.robot.is_in_control:
+            self.stop_evidence['fallback_abort_requested'] = True
+            try:
+                self.robot.stop() # Explicit abort, not a successful smooth stop.
+                self.robot.join_motion(.5)
+            except Exception as error:
+                self.stop_evidence['fallback_exception'] = str(error)
+        self.stop_evidence['stop_fault'] = getattr(self.motion, 'stop_fault', 0)
+        self.stop_evidence['joined'] = bool(joined)
+        return (bool(joined) and not self.stop_evidence['stop_fault'] and
+                self._last_sample is not None and self._last_sample.stop_finished and self._last_sample.stop_at_rest)

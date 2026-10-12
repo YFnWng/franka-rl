@@ -1,0 +1,42 @@
+{
+  "config_sha256": "e1157ae8ad5e827641f5ae2237d24085532eb729b041bd1934d03a059abce0c5",
+  "radius_m": 0.1,
+  "recorded_pose_checks": {
+    "recorded_start": {
+      "passed": true,
+      "plan": {
+        "type": "base_frame_yz_circle",
+        "origin_m": [
+          0.306968507050192,
+          -5.951702970865626e-05,
+          0.49013557588737766
+        ],
+        "radius_m": 0.1,
+        "orientation_xyzw": [
+          0.9999999847034736,
+          -2.4322677780898577e-05,
+          -0.00017309185774009496,
+          -6.37720735637852e-06
+        ],
+        "start_position_m": [
+          0.306968507050192,
+          -5.951702970865626e-05,
+          0.5901355758873776
+        ],
+        "workspace_margin_m": 0.03,
+        "ik_sample_count": 65,
+        "minimum_jacobian_singular_value": 0.18116006047871372,
+        "motion_role": "hand guidance only; no automatic trajectory",
+        "collision_clearance_role": "workspace and sampled IK checks do not certify swept-link clearance"
+      }
+    },
+    "recorded_stop": {
+      "passed": false,
+      "reason": "Full-pose IK did not converge: position=0.003061 m, rotation=0.005765 rad"
+    }
+  },
+  "native_constructor_verified": true,
+  "dependencies_verified": true,
+  "fci_accessed": false,
+  "hardware_executed": false
+}

@@ -38,6 +38,9 @@ def main():
         snapshot = backend.preflight()
         (output/'preflight.json').write_text(json.dumps(asdict(snapshot),indent=2)+'\n')
         if args.preflight:
+            if c['task']['kind']=='yz_circle':
+                backend.plan(snapshot)
+                (output/'fixture-plan.json').write_text(json.dumps(backend.fixture_plan,indent=2)+'\n')
             report.update(terminal_state='complete',terminal_reason='no_motion_preflight')
             return
         path = backend.plan(snapshot)
@@ -56,6 +59,8 @@ def main():
         (output/'start.json').write_text(json.dumps(asdict(snapshot),indent=2)+'\n')
         if hasattr(backend, 'posture_plan'):
             (output/'posture-plan.json').write_text(json.dumps(backend.posture_plan,indent=2)+'\n')
+        if hasattr(backend, 'fixture_plan'):
+            (output/'fixture-plan.json').write_text(json.dumps(backend.fixture_plan,indent=2)+'\n')
         with (output/'servo.jsonl').open('w') as log:
             try:
                 backend.start(snapshot)
@@ -90,10 +95,12 @@ def main():
                 report.update(terminal_state='fault',terminal_reason=str(error))
             finally:
                 report['smooth_stop_ok']=backend.stop(log)
+                report['stop_evidence']=getattr(backend, 'stop_evidence', {})
+                report['stop_fault']=getattr(backend.motion, 'stop_fault', 0) if backend.motion else 0
                 report['native_fault']=backend.motion.fault if backend.motion else None
                 report['dropped_samples']=backend.motion.dropped_samples if backend.motion else 0
                 if (not report['smooth_stop_ok'] or report['native_fault'] or report['dropped_samples']) and report['terminal_state']=='complete':
-                    report.update(terminal_state='fault',terminal_reason='stop_or_logging_fault')
+                    report.update(terminal_state='fault',terminal_reason=FAULTS.get(report['stop_fault'], 'stop_or_logging_fault'))
     except Exception as error:
         report.update(terminal_state='fault',terminal_reason=str(error))
     finally:

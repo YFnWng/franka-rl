@@ -559,3 +559,572 @@ still pass measured-start IK/bounds/conditioning/reference-velocity checks.
 Swept-arm collision clearance is not established by those endpoint checks.
 No new FCI connection/motion executed by the agent. Design receipt updated at
 config/m4.posture.design-audit.json; previous actual config preserved in session.
+
+
+## Larger dynamic posture excursion completed (2026-10-12 15:05 UTC)
+
+`posture.20261012T150500Z` completed with native fault 0, zero dropped samples
+and successful smooth stop. Executed seed 0.90 rad, posture K10/D2.236,
+dynamic projector, Cartesian K800/K40 and D56.5685/D13; timing unchanged.
+Measured peak displacement from initial joints: J1 29.45 deg, J3 19.34 deg,
+J5 12.62 deg, J7 14.34 deg. Full A-to-B measured peak-to-peak ranges:
+J1 56.49 deg, J3 36.83 deg, J5 24.51 deg, J7 27.68 deg.
+Fixed-EE error over active phases: position RMS 3.506 mm, maximum 5.338 mm;
+orientation RMS 1.805 deg, maximum 2.211 deg. Previous 0.60 rad trial
+maximum errors were 5.163 mm / 1.947 deg: larger visible reconfiguration
+with a modest increase in EE drift. Starts differ and targets are regenerated,
+so this is an operational comparison, not a controlled identical-start study.
+
+Return is compliant rather than exact homing: final measured J1/J3/J7 offsets
+from initial were +6.10/-3.46/+4.71 deg; return-settle posture error norm
+was approximately 0.163 rad. Do not equate session completion with exact
+posture tracking. Current profile is a useful visible stationary-EE demo
+candidate; next recommendation is repeat unchanged to check reproducibility.
+No config, native controller or dependencies changed during this audit.
+Raw data, executed config, actual posture plan, and generated `m4-metrics.json`
+/ `m4-metrics.csv` are in
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/posture.20261012T150500Z/`.
+
+
+## First Z-axis fixture smoke (prepared 2026-10-12)
+
+User requested curve-constrained Cartesian impedance, starting with Z axis.
+`config/m4.z_line.approved.yaml` runs 30 seconds of native Z-line impedance,
+anchored to the flange position at the actual measured start, not a catalog
+home. Added an opt-in `task.fixture_anchor_to_start` for Z line only; Python
+sets the native fixture origin once before starting. Native wheel/dependencies
+and torque/stop processing unchanged. Orientation is held at measured start
+with K40/D13; posture gains zero. Fixture translation replaces Cartesian
+translation PD: normal K100 N/m, normal D20 N*s/m, tangent D20 N*s/m, as in
+the transferred fixture suite. X/Y are elastically constrained; Z has damping
+but no restoring stiffness. No automatic push, homing or path traversal.
+
+Gentle manual guidance along base-frame Z, initially within +/-2 cm. The
+native fixture projects the position reference onto the line every tick: the
+3 cm position-error guard limits perpendicular distance, not Z displacement.
+Workspace and speed limits still bound permitted Z motion. Contact abort
+is disabled for hand guidance; native collision, external torque, workspace,
+speed, singularity and all other guards remain enabled. Start pose must remain
+inside the existing workspace. `start.json` records actual line origin and
+orientation; executed configuration is preserved with the servo log.
+Offline config/bundle verification and native fixture construction passed;
+Adapter tests: 22 passed, 1 skipped in system Python (native module unavailable
+in that interpreter); native fixture construction checked separately in the
+hardware venv. No robot connection or motion by this update.
+
+Run:
+```bash
+/home/chen-lab/yifan/venvs/franky-m4-baseline-server10/bin/python \
+  /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/run_m4_hardware.py \
+  --config /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.z_line.approved.yaml \
+  --execute
+```
+Type `start`; type `stop` or Ctrl-C for native smooth stop.
+
+
+## Z-line first-tick orientation fault corrected
+
+`z_line.20261012T151511Z` stopped at first tick with fault 8 / pose_error.
+Position error was only 1.26 micrometres; orientation error 3.14158039 rad.
+Native fixture overrides reference orientation using CurveFixtureParams; its
+default identity differed from the measured near-180-degree flange orientation.
+Python had anchored origin only. Fixed measured-start Z-line setup to anchor
+both origin and orientation in `make_curve_fixture`, preserving xyzw order.
+No gain/guard/dependency changes or native rebuild; same approved YAML/command.
+Successful smooth stop, no dropped samples; no valid active tracking interval
+in this failed session. Added regression test for nonidentity measured start
+and explicit fixed-orientation behavior: 23 passed, 1 native-module skip in
+system Python. Native fixture constructed using recorded start in hardware
+venv and config verified without FCI connection. Recommend gentle initial
++/-2 cm guidance; this is an operator test recommendation, not a Z-distance
+guard. Position guard is distance from projected curve, workspace still bounds Z.
+
+
+## Z-line speed fault audit (15:17 UTC)
+
+`z_line.20261012T151711Z` passed the corrected first-tick orientation setup
+but faulted at elapsed 2.144 s on measured linear speed 0.1001863 m/s, just
+over the unchanged 0.100 m/s bound. Angular speed 0.04535 rad/s was below
+0.5 rad/s. At fault, distance from projected line was 3.071 mm, within
+30 mm; active Z displacement approximately 21.69 mm. Zero dropped samples.
+Metrics JSON/CSV generated in session.
+
+Smooth stop was NOT confirmed: native stop reached its 2.0-second deadline
+with stop_finished=true, stop_at_rest=false; final J2 velocity 0.20058 rad/s
+versus 0.02 rad/s rest threshold. Initial fault remains latched as speed fault9.
+Logs do not establish whether operator force persisted during stopping; do
+not attribute this uniquely to hand guidance or assume stop-at-rest success.
+Before further tuning, clarify external guidance during the fault/stop and
+verify robot is stationary. No speed, damping, stop or collision thresholds
+changed by this audit. Suggested same-limit retry only with slower guidance
+and release of guidance on stop; investigate native damping stop if motion
+persists after release. Agent did not connect to or move hardware.
+
+
+## Operator feedback and stop-phase diagnosis for Z-line 15:17
+
+Operator reports hard locking after fault, possible continued force after lock,
+and apparent large orientation change with little restoring feel. Separating
+phases: active orientation error maximum was only 1.1154 degrees, not the
+38.5242-degree end-of-stop error. During the two-second stop the flange moved
+additional [-35.81,-4.43,-248.29] mm, with peak linear speed 0.34362 m/s.
+This is substantial stop-phase motion; do not commission further guidance
+by simply raising the speed guard. Operator force contribution remains unknown.
+
+Native `src/motion/stop_motion.cpp` replaces task stiffness with joint damping
+and optional Coriolis, ramps from prior command over 0.2 s, and calls
+MotionFinished at max_duration even when not at rest. Current joint damping
+[2,2,2,1,1,1,0.5] produces only ~0.40 Nm on J2 at 0.20 rad/s. Native runtime
+stops enforcing ordinary task guards once stopping; latched original fault 9
+also masks subsequent stop-timeout fault code18. Python reports smooth_stop_ok
+false correctly. Locking after exit may be robot behavior, not proven by these
+logs; native damping stop has no position-locking stiffness.
+
+Active fixture stiffness was weak by design: at 3.07 mm normal displacement,
+normal spring force is only ~0.307 N; Z has no spring. Rotational K40 gave
+~0.78 Nm spring wrench at 1.12 degrees, plus damping. Joint task commands were
+nonzero (peak J2/J4/J6 ~2.11/2.28/1.49 Nm), so the controller was not absent.
+Next engineering priority: commission a stop suitable for hand guidance, with
+adequate braking/pose retention and explicit deadline failure reporting, before
+raising fixture gains or speed thresholds. Do not change firmware/libfranka.
+No new config, motion or native build performed by this diagnosis.
+
+
+## M4 stop v2 implementation (2026-10-12)
+
+The user requested correction of the Z-line stopping failure. M4-only native
+stop now captures measured encoder/FK pose and current joints when stopping
+begins. It ignores subsequent publisher references and replaces the fixture's
+free tangent with full-six-axis Cartesian hold using existing controller gains
+(K800 translation/K40 rotation for this Z-line config), zero desired twist,
+inherited Coriolis/joint-limit processing and additional configured joint damping.
+A smoothstep ramp over the existing 0.2 seconds blends from actual prior
+filtered tau_J_d into hold torque, then applies command bounds and the existing
+1 Nm/tick slew; libfranka still filters at 100 Hz. No gravity added by client.
+Regular guidance gains and immutable simulation bundle remain unchanged.
+
+Normal MotionFinished requires all joints below 0.02 rad/s continuously for
+100 ms after the ramp. Two-second deadline without sustained rest is stop
+fault18 and a native control exception, not MotionFinished while moving.
+Stop position/orientation containment uses 3 cm / 0.2 rad about captured stop
+pose; joint and workspace bounds continue to apply. Model/nonfinite failure,
+collision/robot errors or containment failure abort control explicitly.
+A native abort may result in a stiff robot; it is not a compliant guidance
+mode, and firmware behavior after FCI exits is not controlled by this code.
+Pose hold under continued external force is not an assured collision-free stop.
+
+Separate stop_fault preserves evidence even when original fault9 remains
+latched. Python catches join exceptions, drains final telemetry and reports
+stop_evidence/stop_fault without labeling an abort a smooth stop. Stop logs
+include extra joint damping and identify raw torque as pre-transition hold
+output. Standalone Franky TorqueStopMotion and existing velocity controller
+are unchanged; only M4RuntimeMotion has this stop policy.
+
+New isolated runtime: `~/yifan/venvs/franky-m4-stop-server10`, Franky
+`2.0.1.dev64+gm4stop.libfranka.0.21.2`. All 21 native dependency files must
+match baseline byte-for-byte; tested baseline environment is retained.
+Z-line approved config now requires stop_behavior_version2 and the new
+Franky version. `config/m4.stop-check.approved.yaml` is a five-second
+measured-pose hold with the same Cartesian gains, no trajectory/homing or
+hand guidance, for first stationary commissioning of the new stop.
+Old circle/posture configs remain tied to their original runtime.
+
+Native deterministic tests passed 18 cases/62 assertions, including former
+fixture tangent restoring force, orientation restoring force, opposing braking
+force, bounds/slew, low-speed dwell with reset, moving deadline and containment.
+These tests do not prove physical braking or human-contact performance.
+No robot access or motion performed during this fix. Verify stationary stop
+first, then limited gentle Z guidance with release of hand force when stopping.
+
+Final stop-v2 verification: 28 Python tests passed in the new runtime (no
+skips), 18 native cases/62 assertions passed; installed dependency hashes
+match all 21 baseline files. Wheel, SHA256SUMS, source/dependency receipt and
+offline-validation.json are at
+`~/yifan/deployment_bundles/2026-10-12/franky-m4-stop-v2/`.
+Stationary commissioning command:
+```bash
+/home/chen-lab/yifan/venvs/franky-m4-stop-server10/bin/python \
+ /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/run_m4_hardware.py \
+ --config /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.stop-check.approved.yaml \
+ --execute
+```
+Type start, leave the arm untouched for this five-second check. Verify
+smooth_stop_ok=true and stop_fault=0 before returning to guidance.
+
+
+## Stop-v2 stationary hardware check passed (15:44 UTC)
+
+`hold.20261012T154417Z` completed with smooth_stop_ok=true,
+stop_behavior_version2, stop_fault0, native_fault0, zero dropped samples and
+joined=true. Active measured-pose hold maximum position/orientation error
+0.966 mm / 0.135 deg. Stop lasted 0.301 s (0.2-second ramp plus 100 ms
+sustained rest); maximum drift from captured stop pose 0.267 mm / 0.0383 deg.
+Final peak absolute joint velocity 0.004151 rad/s, below 0.02 threshold.
+Metrics JSON/CSV saved in session. This validates stationary stopping, not
+braking from a moving hand-guided state or resistance to continued forcing.
+
+Next: same Z-line config in `franky-m4-stop-server10`, gentle short guidance,
+release hand force when requesting stop; audit moving-stop displacement before
+raising gains, speed or guidance range. No config or dependency changes by
+this audit and no motion executed by the agent.
+
+
+## Stop-v2 moving Z-line check passed; speed guard tripped (15:48 UTC)
+
+`z_line.20261012T154821Z` faulted at 2.270 s on measured linear speed
+0.1001625 m/s versus 0.100 m/s threshold. Angular speed 0.02977 rad/s
+was below 0.5 rad/s. Active line error maximum 3.754 mm; orientation error
+maximum 0.919 deg; active Z span 24.20 mm.
+
+Corrected stop completed successfully from ~0.100 m/s: smooth_stop_ok=true,
+stop_fault0, joined=true; original native fault9 preserved, zero drops.
+Stop duration 0.301 s, maximum drift from captured stop pose 13.302 mm,
+maximum orientation drift 0.0829 deg. Peak stop linear speed 0.10277 m/s,
+final 0.0008524 m/s; final maximum joint speed 0.002199 rad/s. Compared
+with prior damping-only failed stop's additional 248 mm downward motion
+and 38.5-degree orientation error, this is a materially improved observed
+stop in this one guided trial; not an exhaustive braking validation.
+
+The 0.10 m/s guidance guard remains unchanged. For easier manual speed
+control, a future user-authorized comparison could raise tangent damping
+20 to 40 N*s/m (doubling resistance at a given Z velocity), before raising
+allowed speed. No configuration/gain/limit/dependency changes made by this
+audit; metrics saved in session. Agent did not access or move the robot.
+
+
+## Z-line guidance damping and speed increased by user request
+
+After 15:48 trial, operator reports barely touching the robot before speed
+guard. User explicitly requested raising both damping and speed limit. Active
+`config/m4.z_line.approved.yaml` now has tangent damping40 N*s/m (was20),
+linear speed limit0.15 m/s (was0.10). Normal K100/D20, rotational K40/D13,
+stop-v2 Cartesian hold gains, all joint/torque/workspace/orientation limits,
+duration and other parameters unchanged. This is a two-variable guidance
+comparison, not a controller identification ablation. Existing session configs
+are preserved. Stop performance above ~0.10 m/s not hardware-validated yet.
+Config/bundle/dependency and native fixture validation passed offline. No
+robot access/motion, new wheel or dependency update. Same stop-v2 interpreter
+and Z-line execution command. Evaluate drift/resistance and stop displacement
+in next log; operator observation alone does not identify unforced drift.
+
+
+## Z-line normal compliance audit (15:54 UTC)
+
+Operator guided downward and sideways, reporting weak sideways impedance.
+`z_line.20261012T155441Z` faulted at 9.705 s on distance from original Z
+line 30.0067 mm, just over 30 mm guard. Original orientation error 2.3566 deg
+was below 0.2 rad. K100 spring force magnitude ~3.001 N; including D20
+normal velocity damping gives predicted normal force [0.3061,-3.4753,0] N.
+These are controller-law predictions, not measured Cartesian forces.
+Thus gentle hand force can plausibly overcome this soft normal spring.
+
+First fault sample reference is overwritten by captured stop pose on this
+tick; naive pose-minus-reference then yields zero fault error. Original
+fixture geometry reconstructed from first active reference, and orientation
+from prior active reference. `fixture-audit.json` records reconstructed
+trigger and force predictions alongside m4-metrics.json/csv.
+Stop-v2 succeeded: smooth_stop_ok=true, stop_fault0, no dropped samples;
+stop duration0.688 s, maximum captured-stop pose drift12.399 mm and
+orientation1.984 deg. No config changes or hardware access by audit.
+
+Recommended next normal profile K500 N/m, D45 N*s/m, preserving tangent
+D40 and linear speed0.15 m/s, rotational gains, stop and all limits.
+At 1 cm offset spring force would be5 N versus current1 N. This is a
+proposed comparison, not applied; stronger normal constraint does not
+require widening the 3 cm guard.
+
+
+## K500/D45 normal-constraint trial prepared
+
+User authorized implementing the proposed next trial. Updated existing
+`config/m4.z_line.approved.yaml` normal stiffness100->500 N/m and
+normal damping20->45 N*s/m. Tangent damping40, linear speed limit0.15 m/s,
+rotation gains, 30 mm line-distance guard, other bounds and stop-v2 unchanged.
+Offline approved-config validation, actual native fixture/stop construction,
+Franky version, immutable bundle and dependency checks passed. Receipt saved
+to `config/m4.z_line.design-audit.json`. Existing executed configs remain
+in session directories. No FCI access, motion, wheel build or dependency change.
+
+Execute with `~/yifan/venvs/franky-m4-stop-server10/bin/python` and
+`run_m4_hardware.py --config config/m4.z_line.approved.yaml --execute`.
+Start gently, observe initial untouched behavior and then small sideways
+displacements; stronger spring produces5 N at1 cm normal offset. Release
+guidance force on stop. Audit normal deflection, orientation and stop behavior.
+
+
+## Hand-guidance joint-speed guards relaxed after 16:00 fault
+
+`z_line.20261012T160013Z` fault6 at8.828 s: J2 measured0.435958 rad/s
+versus0.435 guard; Cartesian linear speed approximately0.096 m/s below0.15.
+User explicitly requested relaxing velocity limits for hand guidance. Active
+Z-line config now uses30% of existing model maxima (previous20%):
+J1-J4 0.6525 rad/s, J5-J7 0.783 rad/s. Normal K500/D45, tangent D40,
+Cartesian linear0.15/angular0.5, torque/joint-position/workspace/error guards
+and stop-v2 settings unchanged. Native config/bundle/dependency validation
+passed offline; updated design receipt. No robot access or motion by agent.
+
+This session also failed stopping: stop_fault18, native timeout exception,
+smooth_stop_ok=false; original fault6 retained, zero dropped samples.
+Stop lasted2 s, maximum captured-pose drift27.818 mm. At deadline J6 speed
+0.1051 rad/s, J4 -0.06033, J2 0.04849; Cartesian speed0.03398 m/s.
+Final estimated external torque includes J2 -4.648/J4 6.392 Nm; this does
+not alone prove continued hand force. Asked operator whether force persisted
+during stopping; unresolved pending reply. Speed guard relaxation does not
+resolve this stop failure. No stop damping/deadline changed by this trial
+preparation. Metrics generated in session directory.
+
+
+## Operator clarification: force continued during 16:00 stopping
+
+Operator confirmed continued hand force during the two seconds after the
+joint_velocity fault in z_line.20261012T160013Z. This resolves the missing
+operator context: timeout occurred under continued forcing, not a confirmed
+released-arm braking test. It does not establish that continued force was the
+sole cause or validate stop performance at the raised joint limits.
+Keep prepared30% joint speed guards and other current settings; no further
+stop/gain/timeout changes from this clarification. Next trial should release
+hand force when requesting stop or when a fault occurs, then audit sustained
+rest and smooth_stop_ok. Stop-v2 requires100 ms continuously below0.02 rad/s
+and explicitly aborts at2 s if that criterion is not met.
+
+
+## Stronger K800/D57 normal-guidance trial prepared after16:08 run
+
+`z_line.20261012T160859Z` fault8 at10.399 s: normal distance30.02185 mm,
+orientation2.1988 deg. Original line geometry reconstructed because first
+fault reference becomes captured stop pose. K500 predicted normal spring
+magnitude15.0109 N at this displacement. Stop timed out at2 s with
+stop_fault18, smooth_stop_ok=false, max stop drift24.819 mm, finalJ2
+velocity0.03984 rad/s; no samples dropped. Operator confirmed force
+continued during stopping; not a confirmed released-arm stop test.
+
+User requested larger stiffness for stronger constraint. Active Z-line config
+normal K500->800 N/m and D45->57 N*s/m. D scaled approximately with sqrt(K);
+no claim of physical critical damping. Spring force8 N per1 cm normal error.
+Tangent D40, Cartesian speed0.15 m/s, joint speed30% model maxima, 30mm
+normal guard, torque/workspace/orientation bounds and native stop-v2 unchanged.
+Existing full Cartesian stop K800/D56.5685 unchanged. No wheel/dependency
+updates, FCI connection or agent motion. Offline approved-config/native
+constructor/bundle/dependency checks passed; design receipt updated.
+Same execution command with franky-m4-stop-server10. Release hand force
+when stopping or upon fault to measure unforced settling in next run.
+
+
+## K800/D57 guidance feel accepted; gentle repeat before circle
+
+User reports robot behavior is now ideal in `z_line.20261012T161419Z`,
+and plans gentle repeat followed by circular constraint. Run fault9 at24.948 s
+on measured linear speed0.150863 m/s, just above0.15; angular0.01911 rad/s.
+Active line error max26.510 mm; orientation max2.247 deg. Native stop-v2
+succeeded: smooth_stop_ok=true, stop_fault0, joined=true, no dropped samples.
+Stop lasted1.003 s, maximum captured-pose drift20.298 mm and orientation
+1.195 deg, final linear speed0.0001043 m/s. Metrics JSON/CSV saved.
+
+Record K800/D57 normal with tangent D40 as operator-preferred Z-line feel,
+not a complete task acceptance since speed guard tripped. Configuration
+unchanged: linear0.15 m/s, joint guards30% model maximum, all other limits
+retained. Await gentle repeat audit before circular-constraint commissioning;
+no circular configuration generated/activated by this audit. No robot access,
+agent motion, gain/guard, wheel or dependency changes.
+
+
+## Hand-guided YZ-circle fixture prepared
+
+User requested circular constraint after accepting Z-line K800/D57 feel.
+New `config/m4.yz_circle.approved.yaml`: radius0.05 m (10 cm diameter),
+30-second hand guidance, normal K800/D57 for out-of-plane X and radial YZ
+error, tangent D40, measured-start orientation K40/D13. Cartesian0.15 m/s,
+joint speed30% model max, all other guards and installed stop-v2 unchanged.
+Circle center is measured start minus[0,0,radius], so start is top of circle.
+No automatic approach, homing, push or trajectory traversal.
+
+Python measured-start fixture anchoring extended to YZCircle; native C++
+fixture already supports it, so no wheel/libfranka/Ruckig changes. Live plan
+checks circle plus30mm error margin inside workspace and65 orientation-
+preserving sampled IK points/joint bounds with minimum Jacobian sigma.
+Plan regenerated before prompt and after start; actual geometry saved to
+fixture-plan.json. --preflight also checks and saves circle plan without motion.
+These checks do not certify full swept-link collision clearance.
+
+Offline design checks passed at prior recorded home-like start (minimum sigma
+0.22053) and last recorded Z-line stop (0.17385), and native constructor and
+bundle/dependency checks passed. Receipt config/m4.yz_circle.design-audit.json.
+Python tests30 passed in stop-v2 venv, including start-on-circle orientation
+and rejection of workspace overrun; no robot access/motion performed.
+
+Run:
+```bash
+/home/chen-lab/yifan/venvs/franky-m4-stop-server10/bin/python \
+ /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/run_m4_hardware.py \
+ --config /home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.yz_circle.approved.yaml \
+ --execute
+```
+Type start, begin with gentle small arcs in base-frame YZ. Release hand
+force on stop/fault. Change fixture.radius for another size; live workspace
+and IK checks rerun. Existing Z-line config retained unchanged. Output
+folder kind is yz_circle under existing hardware_inventory/2026-10-12/m4.
+
+
+## Circle radius changed to15 cm; recorded-pose workspace checks reject
+
+User requested radius15 cm. Active m4.yz_circle.approved.yaml fixture.radius
+updated0.05->0.15m (30cm diameter), approval records updated. All gains,
+guards, workspace bounds, stop and measured-start placement unchanged.
+At both recorded start and recorded stop from Z-line16:14 run, circle plus
+30mm normal-error margin fails workspace check; design receipt replaced
+with explicit rejection results. No FCI access or motion.
+
+Current Y bounds +/-0.18m: radius0.15+margin0.03 leaves no allowance for
+nonzero centerY, while measured-start placement uses actual startY. Current
+Z lower0.17: top-anchored circle requires startZ>=0.50m to accommodate
+30cm downward span plus3cm lower margin. Recorded stopZ0.4325m is too low.
+Do not claim15cm geometry is ready or bypass live checks. Before running
+this size, revise placement (e.g. exact centered Y with on-circle start) and
+check full-circle IK at a sufficiently high start, or explicitly review
+workspace changes. No workspace/joint guards automatically relaxed.
+
+
+## Circle radius10 cm selected; higher recorded start passes
+
+User proposed10cm instead of15cm. Active fixture.radius now0.10m (20cm
+diameter), center10cm below measured starting pose. All gains, guards and
+stop unchanged. Offline circle-plus30mm workspace margin and65 sampled
+full-pose IK checks passed at recorded home-like startZ0.5901356m:
+minimum Jacobian sigma0.18116, above0.02 guard. Native fixture constructor
+and bundle/dependency verification passed; receipt updated.
+
+At recorded lower stopZ0.4325133m, workspace check passes but full-circle
+IK fails convergence (position3.061mm, orientation0.005765rad residual).
+Do not claim radius10cm valid from any start. Use tested home-like start
+and retain live workspace/IK checks; no automatic homing or repositioning.
+No FCI access or robot motion executed. Same circle command with stop-v2
+interpreter and m4.yz_circle.approved.yaml.
+
+
+## 10 cm YZ circle completed: 20261012T163205Z
+
+User executed `hardware_inventory/2026-10-12/m4/yz_circle.20261012T163205Z`.
+Report: complete, native fault0, stop fault0, smooth stop true, joined true,
+zero dropped samples. Active duration29.998s, 29,999 active samples;
+30,504 total records. Same normal K800/D57, tangent D40, rotation K40/D13,
+dynamic projector and stop-v2. Live 65-point IK passed, min sigma0.181159.
+
+Encoder/model-FK geometric normal distance to 0.10m circle: RMS7.428mm,
+maximum13.688mm (30mm guard). Maximum X out-of-plane9.140mm and radial
+error11.879mm. Orientation RMS2.413deg, maximum4.018deg (0.2rad guard).
+Unwrapped angular span408.301deg, net travel-367.092deg: more than one
+full revolution with some reversal; this was manually guided, not timed
+path tracking. Max linear speed0.074514m/s, angular0.098117rad/s, joint
+speed0.163795rad/s. Minimum joint soft-bound margin0.099380rad.
+Command success min0.96, mean0.994887 active; max active reference age
+24.816ms. No velocity/error/communication guard triggered.
+
+Stop settled in0.504s: maximum captured-pose drift12.804mm/1.147deg;
+final max joint speed0.002367rad/s and linear speed0.001079m/s. Positive
+first completed circle-fixture demonstration; keep current parameters for
+repeatability testing rather than automatically increasing gains/limits.
+All errors are encoder/model FK, not external metrology or calibrated
+force/stiffness measurements. One run does not establish repeatability.
+
+Offline audit outputs in the session folder: `m4-metrics.json`,
+`m4-metrics.csv`, `fixture-audit.json`. Generic summarizer's circle-contour
+field is null for fixture tasks; fixture-audit explicitly computes analytic
+normal distance and unwrapped angular coverage from fixture-plan.json.
+No FCI access or robot motion performed by the auditing agent.
+
+
+## Repeated circle and residual-error investigation: 20261012T163526Z
+
+Repeated same approved config/hash e1157ae8ad5e827641f5ae2237d24085532eb729b041bd1934d03a059abce0c5.
+Completed, native/stop faults0, smooth stop true, joined true, dropped0.
+Active circle normal error RMS5.770mm/max9.580mm (first run7.428/13.688mm),
+orientation RMS2.199deg/max3.780deg, max speed0.064311m/s.
+Angular span386.376deg/net-385.085deg. Stop completed in0.302s.
+
+User reports hand released at end but residual offset did not correct.
+Logs independently show motion nearly stationary over final5s: normal
+error approximately4.79mm with mean linear speed below1mm/s. Last active
+sample error4.789mm, commanded translational spring magnitude3.831N,
+vector[-3.554,0.606,-1.294]N. Task torque still nonzero (J2~-1.27Nm).
+Raw and slewed commands agree within1.4e-17Nm; this is not slew saturation.
+No command-torque guard fault, nullspace and joint-limit terms zero at end.
+
+Native active fixture law F=800*(project(p)-p)-57*v_normal-40*v_tangent;
+torque J^T*wrench plus Coriolis (gravity remains firmware). It is a soft
+spring, not a geometric lock. Under hand force,5mm offset gives4N and10mm
+8N spring force. Damping affects moving response; cannot remove a static
+error because velocity then nearly zero. No integral correction; Cartesian
+friction feedforward remains disabled defaults in current hardware runner.
+Static joint friction and gravity/load/model bias are plausible causes of
+residual balance, but no measured release event or calibrated force sensor
+establishes which dominates. Do not equate external torque estimates to a
+calibrated hand-force measurement or claim missing gravity compensation.
+
+Separate stop behavior: M4RuntimeMotion captures measured pose at30s and
+switches from fixture to full6D pose hold there. It deliberately preserves
+current off-curve position instead of snapping to its projection. This does
+not explain the preceding5s plateau, but explains absence of correction
+while stopping/after session complete. There is no tangential spring to
+return to the start point while guiding.
+
+Recommendation: preserve this tested stop behavior. For tighter active
+normal guidance, compare a modest normal-stiffness increase with an explicit
+hands-off interval before timed stop, recording the release time. Changing
+damping alone will not solve static offset. Do not add uncalibrated friction
+feedforward or integral action automatically. No controller/config/library
+changes or hardware execution during this audit. Saved m4-metrics.json/.csv
+and fixture-audit.json in run directory.
+
+
+## Next circle comparison: normal K1200, normal D69.810, tangent D20
+
+User requested higher impedance with lower tangent damping. Updated active
+`config/m4.yz_circle.approved.yaml`: normal stiffness800->1200N/m,
+normal damping57->69.810Ns/m (sqrt(1.5) scaling preserves previous nominal
+ratio), tangent damping40->20Ns/m. Radius0.10m, duration30s, rotation
+K40/D13, full6D stop-hold K800/rotation40 and associated damping, stop-v2,
+all guards, stack and workspace unchanged. Fixture spring at5mm error now6N
+versus4N; ideal static error under the same disturbance would shrink to2/3,
+but friction/model effects make this a hypothesis, not a guarantee.
+Tangential resistance at0.05m/s now1N versus2N; guide gently because the
+same hand force can produce more tangential speed. Existing speed guards
+remain active. Aim to release hand force at25s for5s active correction
+before measured-pose capture at30s. No automatic correction after stop.
+
+Approved config/schema and immutable transfer verified offline; native
+fixture gain properties accepted; controller/stop/robot/guard dictionaries
+checked identical against completed circle163526Z. No FCI access or motion.
+Same execute command and stop-server10 interpreter. Existing session config
+copies preserve the previous K800/D57/tangent40 experiments.
+
+
+## Higher normal impedance / lower tangent damping completed: 20261012T164958Z
+
+User-run circle radius0.10m, normal K1200/D69.81, tangent D20,
+rotation and stop-hold gains unchanged; executed config SHA256
+ac79addb84054c561f3030263a4dc0789df9a3ff2d90a9f244ec997a8a61628c.
+Complete, native/stop faults0, joined, smooth stop true, drops0.
+Active29.997s, angular span385.308deg/net-382.519deg.
+
+Normal error RMS4.328mm/max9.116mm, versus prior repeat K800/D57/tangent40
+5.770/9.580mm (RMS25.0% lower). Orientation RMS2.082deg/max3.416deg
+versus2.199/3.780deg. Max Cartesian speed0.070241m/s, max joint speed
+0.157668rad/s, minimum soft joint margin0.096642rad; min active command
+success0.97, max reference age20.053ms. Raw/slew agree within7e-18Nm,
+so no torque slew saturation. Max radial error7.515mm, X-plane error6.266mm.
+
+Last active normal offset3.209mm versus4.789mm previously (~33% lower);
+corresponding spring force3.851N vs3.831N, consistent with similar residual
+load/friction and1.5x stiffness, but not proof of its physical source.
+Operator release timestamp not recorded. Motion persisted after25s:
+25-27s mean speed45.55mm/s;27-29s20.82mm/s;29-30s4.39mm/s.
+Cannot call this a controlled5s hands-off static-settling comparison.
+Last-second mean error3.451mm, down from6.282mm at25-27s.
+
+Stop duration0.302s, max captured-pose drift0.565mm/0.0812deg,
+final max joint speed0.005700rad/s. Improved run supports repeating this
+profile, without further gain/guard changes. Differences in manual force,
+trajectory/speed and two changed gain parameters prevent causal attribution
+of RMS improvement to stiffness alone. Not external pose metrology.
+Saved m4-metrics.json/.csv and fixture-audit.json in run folder. Config,
+controller and dependencies unchanged by audit; no hardware execution.
