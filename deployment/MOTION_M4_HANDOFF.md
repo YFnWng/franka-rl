@@ -380,3 +380,117 @@ the summary includes this evidence. No minimum-success intent relaxation,
 watchdog change, gain change or native-wheel rebuild. Threshold boundary regression
 covers 94/95/96%. This change has not been tested in another hardware motion.
 Real delivery misses still exist; allowing equality will not cure their cause.
+
+
+## First completed hardware circle session — 2026-10-12
+
+`hardware_inventory/2026-10-12/m4/tracking.20261012T142209Z` completed the
+approach, circle and return with native fault 0, smooth stop and zero dropped
+telemetry samples. Bundle torque-v2 verified, Cartesian translation K800/D56.5685,
+rotation K20/D9.1924, zero posture gains, circle center [0.475,0,0.35] m,
+radius 0.15 m, speed 0.2 rad/s, 18 s approach/return and 4 s settle.
+Native FIFO99/Python OTHER0 are confirmed in scheduling-evidence.json.
+Configured 95% command-success minimum uses wire float32 representation;
+this run's minimum active success was 97%, mean 99.5805%. This successful
+run does not independently prove the threshold fix or scheduler change was the
+sole cause of earlier failures. No further guard/gain/native dependency change.
+
+Track-phase metrics (25 ms boundary exclusions): position RMS/max
+7.115/9.004 mm; geometric contour RMS/max 3.776/6.777 mm; orientation
+RMS/max 0.06710/0.08008 rad (about 3.84/4.59 degrees). Approach position
+RMS/max 5.968/8.704 mm; return position RMS/max 9.221/10.963 mm.
+Active reference age p95/max 19.045/22.263 ms. Metrics use encoder/model FK,
+not independent external metrology. Saved m4-metrics.json and m4-metrics.csv
+include terminal status and phase exclusions. Completed-circle recording spans
+33.365 s after 25 ms boundary exclusion versus planned track 33.416 s.
+
+This establishes one successful hardware tracking trial, not repeatability,
+full-suite acceptance, posture/fixture commissioning or identified dynamics.
+Next comparison: repeat the same configuration without changing gains, geometry,
+speed or guards, preferably from the same recorded start. Keep start snapshots
+for any repeatability comparison; the runner does not home automatically.
+
+
+## Second completed circle and rotation-gain comparison
+
+`tracking.20261012T142630Z` completed with native fault 0, smooth stop and
+zero dropped samples, providing a second successful full session at translation
+K800/D56.5685 and rotation K20/D9.1924. Track position RMS/max
+7.050/9.295 mm;
+contour RMS/max 3.720/6.558 mm;
+orientation RMS/max 0.06625/0.08077 rad.
+Metrics JSON/CSV saved in its session directory.
+
+User requested higher rotational gains. Active `config/m4.circle_yz.approved.yaml`
+now uses rotation K40/D13, translation K800/D56.5685 unchanged. Geometry,
+speed, approach/return timings, workspace, all guards, torque pipeline and
+native dependencies unchanged. Offline config/bundle validation passed; no
+new motion was performed by the agent. Previous executed gain configuration
+remains in both completed sessions. This comparison targets orientation error;
+check translation errors and torque/timing as well because the task axes couple
+through the arm dynamics. No claim of improved orientation until the next audit.
+
+
+## Completed rotation K40 comparison — 2026-10-12
+
+`tracking.20261012T142902Z` completed with native fault 0, smooth stop and
+zero dropped samples. Translation K800/D56.5685, rotation K40/D13, other
+settings unchanged. Track position RMS/max 7.193/9.457 mm; contour RMS/max
+3.713/6.970 mm; orientation RMS/max 2.013/2.447 degrees. Against the immediately
+preceding K20 repeat, orientation RMS decreased ~47% (3.796 to 2.013 degrees),
+while translation RMS changed ~2% (7.050 to 7.193 mm); contour RMS essentially
+unchanged (3.720 to 3.713 mm). Initial measured pose/posture differed, so this
+is not an isolated controlled gain comparison. Only one K40 repeat is completed.
+Active command-success min/mean ~95%/99.5505%; nominal 95% now passes the
+corrected float32 boundary, with no intent to allow 94%. No further tuning was
+applied. Keep K40 as the current candidate and repeat unchanged to check stability
+and repeatability before stronger rotational gains. Metrics JSON/CSV and
+rotation-gain-comparison.json are saved in the run directory.
+
+
+## Rotation K40 repeat completed; Lissajous prepared
+
+`tracking.20261012T143526Z` completed without native faults or dropped samples,
+with smooth stop. Track RMS: position 7.195 mm,
+contour 3.679 mm,
+orientation 1.945 degrees.
+Metrics JSON/CSV saved; two full circle sessions now completed at rotation K40.
+
+User requested Lissajous with the same parameters. Approved local config:
+`config/m4.lissajous_yz.approved.yaml`, immutable bundled `lissajous_yz_small`:
+center [0.475,0,0.35] m, plane [0,90,0] deg, amplitude [0.08,0.08] m,
+harmonics [1,2], speed 0.2 rad/s, fixed quaternion [1,0,0,0]. Translation
+K800/D56.5685, rotation K40/D13, zero posture gains, 18-second approach/return,
+4-second settle and all guards/stop/native dependencies unchanged. Total
+73.416 s, sampled peak reference speed 0.03578 m/s from the recorded stop pose.
+Trajectory derivative limits and full path IK passed offline; runner rechecks
+live measured start. Config/bundle validation passed with no FCI. No Lissajous
+motion executed by the agent. Circle successful config remains available.
+Current hardware summarizer computes Lissajous position/orientation/timing
+metrics but does not yet compute sampled Lissajous contour error; circle-contour
+metric remains null rather than applying an incorrect circle distance.
+
+
+## First completed Lissajous hardware session
+
+`tracking.20261012T144044Z` completed with native fault 0, smooth stop and
+zero dropped samples; native FIFO99/Python OTHER0 recorded. Same controller:
+translation K800/D56.5685, rotation K40/D13, 0.2 rad/s, 18-second
+approach/return, 4-second settle. Track position RMS/max
+6.709/9.046 mm;
+sampled Lissajous contour RMS/max
+3.926/6.672 mm;
+orientation RMS/max
+1.745/2.173 degrees.
+Minimum active command success 95.00%.
+
+Hardware summarizer now includes sampled Lissajous contour distance through the
+shared sampled_curve_contour_error helper. It uses 4096 points on the analytic
+periodic curve and reports an upper approximation, not exact geometric distance;
+maximum distance overestimate bound 0.1372 mm
+from the analytic derivative norm bound and phase-grid spacing. Tests cover
+known off-plane error and discretization bound; 3 metrics tests passed.
+JSON/CSV saved in the session directory. Prior note that Lissajous contour was
+unimplemented is superseded. One completed Lissajous run establishes initial
+feasibility; repeat unchanged before treating performance as repeatable.
+No hardware setting/gain/native binary was changed during this audit.

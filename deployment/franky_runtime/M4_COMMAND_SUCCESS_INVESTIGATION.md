@@ -87,3 +87,32 @@ the summary includes this evidence. No minimum-success intent relaxation,
 watchdog change, gain change or native-wheel rebuild. Threshold boundary regression
 covers 94/95/96%. This change has not been tested in another hardware motion.
 Real delivery misses still exist; allowing equality will not cure their cause.
+
+
+## First completed hardware circle session — 2026-10-12
+
+`hardware_inventory/2026-10-12/m4/tracking.20261012T142209Z` completed the
+approach, circle and return with native fault 0, smooth stop and zero dropped
+telemetry samples. Bundle torque-v2 verified, Cartesian translation K800/D56.5685,
+rotation K20/D9.1924, zero posture gains, circle center [0.475,0,0.35] m,
+radius 0.15 m, speed 0.2 rad/s, 18 s approach/return and 4 s settle.
+Native FIFO99/Python OTHER0 are confirmed in scheduling-evidence.json.
+Configured 95% command-success minimum uses wire float32 representation;
+this run's minimum active success was 97%, mean 99.5805%. This successful
+run does not independently prove the threshold fix or scheduler change was the
+sole cause of earlier failures. No further guard/gain/native dependency change.
+
+Track-phase metrics (25 ms boundary exclusions): position RMS/max
+7.115/9.004 mm; geometric contour RMS/max 3.776/6.777 mm; orientation
+RMS/max 0.06710/0.08008 rad (about 3.84/4.59 degrees). Approach position
+RMS/max 5.968/8.704 mm; return position RMS/max 9.221/10.963 mm.
+Active reference age p95/max 19.045/22.263 ms. Metrics use encoder/model FK,
+not independent external metrology. Saved m4-metrics.json and m4-metrics.csv
+include terminal status and phase exclusions. Completed-circle recording spans
+33.365 s after 25 ms boundary exclusion versus planned track 33.416 s.
+
+This establishes one successful hardware tracking trial, not repeatability,
+full-suite acceptance, posture/fixture commissioning or identified dynamics.
+Next comparison: repeat the same configuration without changing gains, geometry,
+speed or guards, preferably from the same recorded start. Keep start snapshots
+for any repeatability comparison; the runner does not home automatically.

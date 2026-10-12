@@ -20,6 +20,17 @@ def test_geometric_pose_errors():
     np.testing.assert_allclose(r,[0,np.pi/2])
 
 
+def test_lissajous_contour_includes_off_plane_error_and_bounds_sampling():
+    specification=dict(amplitudes_m=[.08,.08],harmonics=[1,2],phase_offsets_rad=[0.,0.],
+                       plane_rpy_deg=[0.,0.,0.],center_m=[0.,0.,0.])
+    theta=.123
+    p=np.array([[0.,0.,.01],[.08*np.sin(theta),.08*np.sin(2*theta),0.]])
+    error,bound=metrics.lissajous_contour_errors(p,specification)
+    assert error[0]==pytest.approx(.01)
+    assert 0<=error[1]<=bound
+    assert bound<.00014
+
+
 def test_fault_and_stop_do_not_pollute_active_metrics(tmp_path):
     config=yaml.safe_load((ROOT/'deployment/franky_runtime/config/m4.hold.pending.yaml').read_text())
     (tmp_path/'config.yaml').write_text(yaml.safe_dump(config))

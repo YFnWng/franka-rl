@@ -5,8 +5,8 @@ status: approved
 executable: true
 motion_authorized: true
 approval:
-  approved_by: 'Yifan Wang (user instruction: do the next comparison, give command)'
-  approved_at: '2026-10-12T14:08:25.082204+00:00'
+  approved_by: 'Yifan Wang (user instruction: next try higher rotation gain)'
+  approved_at: '2026-10-12T14:28:32.468633+00:00'
   physical_stop_procedure: Operator uses terminal stop or Ctrl-C for native smooth
     stop; reachable physical E-stop for emergency stop, as previously confirmed by
     operator.
@@ -20,7 +20,8 @@ approval:
     unchanged. User authorized translation K400/D40; rotation gains, slow timings,
     workspace and all guards unchanged. User authorized translation K800/D56.5685
     comparison; rotation gains, trajectory, slow approach/return, workspace and guards
-    unchanged.'
+    unchanged. User authorized rotation K40/D13 comparison; translation K800/D56.5685,
+    trajectory, workspace and guards unchanged.'
 bundle: /home/chen-lab/yifan/2026-10-12_m4_torque_v2_verified
 bundle_manifest_sha256: 79c3ea84734761e46bc4954320555f5c8bf70a4b14060f43c621aec972938816
 output_root: /home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4
@@ -59,16 +60,16 @@ controller:
   - 800.0
   - 800.0
   - 800.0
-  - 20.0
-  - 20.0
-  - 20.0
+  - 40.0
+  - 40.0
+  - 40.0
   damping:
   - 56.568542494923804
   - 56.568542494923804
   - 56.568542494923804
-  - 9.19238815542512
-  - 9.19238815542512
-  - 9.19238815542512
+  - 13.000000000000004
+  - 13.000000000000004
+  - 13.000000000000004
   posture_stiffness: 0.0
   posture_damping: 0.0
   projector: dynamic

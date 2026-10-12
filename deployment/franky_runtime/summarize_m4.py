@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 from franka_motion.config import TrajectorySpec
-from franka_motion.metrics import circle_contour_error
+from franka_motion.metrics import circle_contour_error, sampled_curve_contour_error
 from franka_motion.trajectories import rotation_matrix_rpy_deg
 
 
@@ -31,6 +31,22 @@ def pose_errors(pose, reference):
     relative = np.swapaxes(pose[:, :3, :3], 1, 2) @ reference[:, :3, :3]
     rotation = np.arccos(np.clip((np.trace(relative, axis1=1, axis2=2)-1)/2, -1, 1))
     return position, rotation
+
+
+def lissajous_contour_errors(positions, specification, sample_count=4096):
+    """Nearest sampled curve upper approximation with a discretization bound."""
+    theta = np.arange(sample_count)*2*np.pi/sample_count
+    amplitudes = np.asarray(specification['amplitudes_m'])
+    harmonics = np.asarray(specification['harmonics'])
+    offsets = np.asarray(specification['phase_offsets_rad'])
+    local = np.column_stack((amplitudes*np.sin(theta[:,None]*harmonics+offsets),
+                             np.zeros(sample_count)))
+    rotation = rotation_matrix_rpy_deg(specification['plane_rpy_deg'])
+    curve = np.asarray(specification['center_m']) + local @ rotation.T
+    error = sampled_curve_contour_error(positions, curve)
+    # ||dp/dtheta|| <= ||A*h||; nearest parameter grid point is <= pi/N away.
+    bound = float(np.linalg.norm(amplitudes*harmonics)*np.pi/sample_count)
+    return error, bound
 
 
 def summarize(directory):
@@ -79,6 +95,7 @@ def summarize(directory):
     valid &= ~np.array([bool(s['fault']) for s in rows]) & ~stopping
     indices = np.flatnonzero(valid)
     records, summaries = [], {}
+    contour_approximation = None
     if len(indices):
         samples = [rows[i] for i in indices]
         poses = np.array([s['pose'] for s in samples])
@@ -91,9 +108,18 @@ def summarize(directory):
         margin = np.minimum(q-c['limits']['joint_lower'], c['limits']['joint_upper']-q).min(axis=1)
         displacement = np.linalg.norm(q-np.array(rows[0]['q']), axis=1)
         contour = None
+        lissajous_contour = None
         if spec and spec['type'] == 'circle':
             contour = circle_contour_error(poses[:, :3, 3], spec['center_m'],
                                           spec['radius_m'], rotation_matrix_rpy_deg(spec['plane_rpy_deg']))
+        elif spec and spec['type'] == 'lissajous':
+            track_mask = (phase[indices]=='track') & ~boundary[indices]
+            lissajous_contour = np.full(len(indices),np.nan)
+            if track_mask.any():
+                values,bound = lissajous_contour_errors(poses[track_mask,:3,3],spec)
+                lissajous_contour[track_mask] = values
+                contour_approximation = {'method':'nearest of 4096 analytic curve samples; upper approximation',
+                                         'maximum_distance_overestimate_m':bound}
         for label in ('all_active', *dict.fromkeys(phase[indices])):
             mask = np.ones(len(indices), dtype=bool) if label == 'all_active' else (
                 (phase[indices] == label) & ~boundary[indices])
@@ -107,12 +133,16 @@ def summarize(directory):
                 'joint_displacement_norm_rad':stats(displacement[mask]),
                 'joint_limit_margin_rad':stats(margin[mask]),
                 # Geometric circle distance is meaningful only on the circle phase.
-                'circle_contour_error_m':stats(contour[mask]) if contour is not None and label == 'track' else None}
+                'circle_contour_error_m':stats(contour[mask]) if contour is not None and label == 'track' else None,
+                'sampled_lissajous_contour_error_m':stats(lissajous_contour[mask])
+                    if lissajous_contour is not None and label == 'track' else None}
         for k, i in enumerate(indices):
             records.append(dict(elapsed_s=float(elapsed[i]), phase=str(phase[i]),
                                 boundary_excluded=bool(boundary[i]), position_error_m=float(error[k]),
                                 orientation_error_rad=float(orientation[k]),
                                 circle_contour_error_m=float(contour[k]) if contour is not None and phase[i]=='track' else None,
+                                sampled_lissajous_contour_error_m=float(lissajous_contour[k])
+                                    if lissajous_contour is not None and np.isfinite(lissajous_contour[k]) else None,
                                 measured_speed_m_s=float(speed[k]), reference_speed_m_s=float(speed_ref[k])))
             records[-1].update({f'measured_{axis}_m':float(poses[k,j,3]) for j,axis in enumerate('xyz')})
             records[-1].update({f'reference_{axis}_m':float(references[k,j,3]) for j,axis in enumerate('xyz')})
@@ -128,6 +158,7 @@ def summarize(directory):
         effective_limits=json.loads((directory/'effective-limits.json').read_text())
             if (directory/'effective-limits.json').exists() else None,
         completed=report['terminal_state']=='complete', first_fault=fault,
+        contour_approximation=contour_approximation,
         sample_count=len(rows), excluded_fault_stop_invalid_samples=int((~valid).sum()),
         boundary_excluded_samples=int((boundary & valid).sum()), phases=summaries,
         observed_track_span_s=float(np.ptp(elapsed[track])) if track.sum()>1 else 0.,

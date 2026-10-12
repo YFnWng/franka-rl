@@ -1,0 +1,18 @@
+{
+  "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.lissajous_yz.approved.yaml",
+  "duration_s": 73.41592653589794,
+  "recorded_start_source": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/tracking.20261012T143526Z/servo.jsonl final measured sample",
+  "position_min_m": [
+    0.3158508530749542,
+    -0.07999997844017931,
+    0.270000003557177
+  ],
+  "position_max_m": [
+    0.475,
+    0.07999998535938949,
+    0.5908126918879865
+  ],
+  "peak_reference_speed_m_s": 0.035777030674204714,
+  "trajectory_limits_and_ik": "passed; execution rechecks live start",
+  "hardware_executed": false
+}
