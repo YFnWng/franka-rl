@@ -2,6 +2,27 @@
 
 # Instructions for the receiving Franka deployment agent
 
+## M4 transfer — five non-RL demos
+
+Read `deployment/MOTION_M4_HANDOFF.md` first. The workstation implemented a
+portable wheel/source/YAML/URDF/golden-fixture bundle builder and offline
+fake/no-motion runner for circle (`circle_yz_m2`), Lissajous
+(`lissajous_yz_small`, current YAML), static pose with posture A/B, infinite Z
+fixture and closed YZ circle fixture. See
+`source/franka_motion/franka_motion/config/suites/hardware_transfer.yaml`.
+No policy models are needed for these five tasks. Mode is fake and approval false.
+
+`deployment/franky_runtime/franky_experiment/motion_demos/FrankyMotionBackend`
+is a fail-closed unsupported adapter, not a ready Cartesian hardware controller.
+Implement and audit native 1 kHz parity and safety on this machine; never use
+Python torque stepping or repeated high-level waypoint motions as a fallback.
+The receiving-agent gates and required logging/compensation conventions are
+listed in the M4 handoff. Existing PPO runtime/routes are preserved.
+
+Transferred simulation summaries retain their source configuration/hashes and
+are not automatically evidence for the newly enlarged Lissajous path. Re-run
+matching simulation trials before qualifying each current hardware candidate.
+
 ## 2026-10-11 — non-RL motion-demo M0 evidence request
 
 The simulation workstation now has the portable `source/franka_motion` package,

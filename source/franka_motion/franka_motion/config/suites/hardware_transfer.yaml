@@ -1,0 +1,13 @@
+schema_version: 1
+mode: fake
+hardware_approved: false
+controller: cartesian_soft
+reference_hz: 50
+servo_hz: 1000
+tracking_posture: {stiffness: 2.0, damping: 1.0, rcond: 0.000001}
+tasks:
+  - {name: circle_tracking, kind: tracking, trajectory: circle_yz_m2, angular_speed_rad_s: 0.2, twist_feedforward: true}
+  - {name: lissajous_tracking, kind: tracking, trajectory: lissajous_yz_small, angular_speed_rad_s: 0.2, twist_feedforward: true}
+  - {name: static_posture, kind: posture, configuration: demo_b_fixture_posture.yaml}
+  - {name: z_impedance, kind: curve, curve: z_line, configuration: curve_fixture.yaml}
+  - {name: circle_impedance, kind: curve, curve: yz_circle, configuration: curve_fixture.yaml}

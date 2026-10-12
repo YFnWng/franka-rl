@@ -566,6 +566,37 @@ requires an installed-controller audit and physical tool/cable/environment
 clearance review; increase amplitude incrementally during separately authorized
 hardware commissioning. Do not interpret simulation acceptance as hardware approval.
 
+## M4: portable five-demo hardware transfer
+
+The five candidate tasks are circle (`circle_yz_m2`), Lissajous
+(`lissajous_yz_small`, using the current YAML geometry), static EE with posture
+A/B, Z-line impedance and YZ-circle impedance. See
+`deployment/MOTION_M4_HANDOFF.md` for exact contracts, local-machine commands,
+compensation and native-controller implementation gates.
+
+```bash
+cd /home/chen-lab/isaac/franka-rl
+direnv exec . /home/chen-lab/isaac/.venv/bin/python scripts/motion_control/build_handoff.py
+```
+
+This writes a new immutable directory under
+`${FRANKA_RL_DATA_ROOT}/motion_control/handoff_bundles/`, containing the portable
+wheel/source, YAML, archived URDF, golden numerical fixtures, adapter scaffold,
+dependency versions and SHA-256 manifest. Optional repeated
+`--simulation-evidence <accepted-suite-directory>` arguments copy validated
+summaries/finalization records, not large traces. The actual trace hash and
+original path are recorded; matching current YAML/controller evidence still
+needs explicit review. Bundle verification rejects missing, extra or mutated
+files. Generated wheels and reports stay out of Git.
+
+The default fake runner is an offline reference/lifecycle/parity test, **not a
+physical simulator or hardware controller**. Hardware mode is explicitly
+unsupported pending the audited native Franky Cartesian/fixture adapter;
+missing API support cannot silently trigger an SDK upgrade or alternate motion.
+No hardware network calls are made on this workstation. Existing PPO deployment
+is unchanged. Tests check all five contracts, full-path sampled IK/reference
+limits, fake lifecycle, fail-closed hardware mode and manifest integrity.
+
 ## Curve-constrained impedance (infinite Z line / closed YZ circle)
 
 This is a separate task, `Franka-FR3v2-MotionControl-CurveFixture-v0`, not a

@@ -693,6 +693,17 @@ hardware**: audit controller parity, installed tool/cable/environment clearance,
 approved gains and stop behavior first; commission amplitude incrementally on
 the real-time machine under local authorization.
 
+## M4 transfer implementation status
+
+Implemented `scripts/motion_control/build_handoff.py`, portable transfer
+contracts/golden fixtures, five-demo YAML, local `run_motion_suite.py` and
+fake/no-motion adapters. Details: `deployment/MOTION_M4_HANDOFF.md`.
+The five choices are circle_yz_m2, lissajous_yz_small, static-pose posture A/B,
+infinite Z fixture and closed YZ circle fixture. Native hardware mode explicitly
+fails closed: installed continuous Cartesian/fixture APIs and stop/controller
+parity remain receiving-agent implementation gates. This is a reproducible
+transfer candidate, not completion or approval of hardware demonstrations.
+
 ## Endpoint-free curve fixture extension
 
 Implemented separately from M3's finite feedforward line fixture. See

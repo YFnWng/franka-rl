@@ -100,3 +100,4 @@ docs/superpowers/
 
 # Portable deployment package initializer
 !/deployment/franka_policy_bundle/__init__.py
+!/deployment/franky_runtime/franky_experiment/motion_demos/__init__.py

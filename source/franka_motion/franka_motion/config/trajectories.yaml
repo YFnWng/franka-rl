@@ -4,7 +4,7 @@ trajectories:
     type: circle
     center_m: [0.475, 0.0, 0.35]
     plane_rpy_deg: [0.0, 90.0, 0.0]
-    radius_m: 0.05
+    radius_m: 0.15
     quaternion_xyzw: [1.0, 0.0, 0.0, 0.0]
     phase_rad: 3.141592653589793
     turns: 1.0
@@ -34,7 +34,7 @@ trajectories:
     center_m: [0.475, 0.0, 0.35]
     plane_rpy_deg: [0.0, 90.0, 0.0]
     radius_m: 0.05
-    quaternion_xyzw: [0.0, 1.0, 0.0, 0.0]
+    quaternion_xyzw: [1.0, 0.0, 0.0, 0.0]
     phase_rad: 3.141592653589793
     turns: 1.0
     ramp_duration_s: 2.0
