@@ -201,6 +201,13 @@ policy, implicit motor PD, operational-space inertia shaping, hidden IK servo,
 or secondary posture torque. Targets, speeds, feedforward choices and repeats
 come from YAML. Clones reset explicitly; faults never trigger automatic recovery.
 
+When using `--viz kit`, circle and Lissajous tracking trials automatically show
+the complete target tracking curve as a cyan, non-colliding scene overlay.
+The overlay excludes the home approach/return corridor, is transformed from
+robot base to world for each clone, and is updated only between trials (not in
+the servo loop). Headless trials do not create these markers. The existing
+visualized commands need no additional flags.
+
 For base-frame geometric Jacobian $J$, flange pose error
 $e=[p_d-p;\operatorname{Log}(R_dR^T)^\vee]$ and flange twist $V$:
 

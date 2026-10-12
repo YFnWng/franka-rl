@@ -18,6 +18,7 @@ class IsaacCartesianMotionRunner:
     def __init__(self, env, suite, *, profile_steps=0):
         self.env, self.suite = env.unwrapped, suite
         self.profile_steps = profile_steps
+        self.path_visualization = None
         repo = Path(__file__).resolve().parents[4]
         path = repo/suite.workspace.data["model"]["archived_urdf"]
         if hashlib.sha256(path.read_bytes()).hexdigest() != suite.workspace.data["model"]["urdf_sha256"]:
@@ -28,7 +29,7 @@ class IsaacCartesianMotionRunner:
         self.kinematics = UrdfKinematicsProvider(path)
         shared = repo/"source/franka_motion/franka_motion"
         task = Path(__file__).resolve().parents[1]/"tasks/manager_based/franka_motion_control/mdp"
-        sources = [Path(__file__),*(task/name for name in ("controllers.py","actions.py","observations.py")),
+        sources = [Path(__file__),Path(__file__).with_name("motion_path_visualization.py"),*(task/name for name in ("controllers.py","actions.py","observations.py")),
                    *(shared/name for name in ("kinematics.py","trajectories.py","time_scaling.py","metrics.py","impedance.py"))]
         self.source_hashes = {str(p.relative_to(repo)):hashlib.sha256(p.read_bytes()).hexdigest() for p in sources}
 
@@ -101,6 +102,11 @@ class IsaacCartesianMotionRunner:
         feasibility,ik_trace = validate_path_ik(path,DampedLeastSquaresIK(self.kinematics,b["lower"],b["upper"]),q0)
         if feasibility["minimum_jacobian_singular_value_mixed_units"] < .02:
             raise ValueError("Path enters configured mixed-unit Jacobian singularity guard")
+        if self.env.sim.has_gui():
+            from .motion_path_visualization import MotionPathVisualization
+            if self.path_visualization is None:
+                self.path_visualization = MotionPathVisualization()
+            self.path_visualization.show(path,self.env.scene["robot"])
         times = np.arange(math.ceil((2+path.duration_s)/self.env.step_dt))*self.env.step_dt
         refs,phases = [],[]
         for t in times:
