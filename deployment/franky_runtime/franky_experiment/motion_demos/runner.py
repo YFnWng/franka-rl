@@ -12,7 +12,8 @@ class FrankyMotionRunner:
 
     def run_suite(self,output):
         # Fail before creating artifacts or accessing a robot for unsupported hardware mode.
-        if self.suite['mode']=='hardware':FrankyMotionBackend()
+        if self.suite['mode']=='hardware':
+            raise RuntimeError('Use run_m4_hardware.py with a local commissioning config; transfer fixtures are not hardware trajectories')
         output=Path(output);output.mkdir(parents=True,exist_ok=False)
         backend=FakeMotionBackend();results=[]
         try:

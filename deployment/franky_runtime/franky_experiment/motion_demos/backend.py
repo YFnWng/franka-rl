@@ -17,18 +17,17 @@ class FakeMotionBackend:
 
 
 def audit_motion_capabilities():
-    try:version=importlib.metadata.version('franky')
-    except importlib.metadata.PackageNotFoundError:version=None
-    return {'franky_version':version,'hardware_ready':False,
-        'missing':['audited native Cartesian SO3 torque tracker and timestamped pose/twist publication',
-            'reset-anchored dynamic torque projector using hardware model inertia/Jacobian',
-            'M3 explicit posture targets with original kinematic projector',
-            'native 1 kHz line/circle projection, normal impedance and tangent damping',
-            'encoder-derived flange pose/twist; native buffered telemetry and applied-reference sequence',
-            'workspace, singularity, joint/contact/velocity guards; watchdog and audited torque stop',
-            'gain/torque filter/slew/FCI compensation parity and locally approved commissioning']}
+    try:
+        version=importlib.metadata.version('franky-control')
+        import franky
+        native=hasattr(franky, 'M4RuntimeMotion')
+    except (importlib.metadata.PackageNotFoundError, ImportError):
+        version=None; native=False
+    return {'franky_version':version, 'native_runtime_available':native,
+            'hardware_ready':False,
+            'missing': ([] if native else ['installed M4 native runtime wheel']) +
+                       ['local reviewed commissioning configuration and hardware commissioning evidence'],
+            'note':'Availability is distinct from physical commissioning.'}
 
 
-class FrankyMotionBackend:
-    def __init__(self,*args,**kwargs):
-        raise RuntimeError('Hardware mode unavailable: '+ '; '.join(audit_motion_capabilities()['missing']))
+from .hardware import FrankyMotionBackend

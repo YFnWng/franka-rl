@@ -717,3 +717,165 @@ Infinite vertical line / closed YZ circle only; fixed full downward orientation;
 normal spring/damper, no tangent spring, positive tangent damping. Independent
 workspace guard remains mandatory despite endpoint-free geometry. Four CPU
 two-clone known-force cases and reset/parity checks passed. Hardware is not approved.
+
+## M4 real-time controller audit and workstation action — 2026-10-11
+
+The real-time machine recovered and audited the exact controller sources:
+
+- Franky `f88f0e9b8f598d7c537b4e727e4411e67c95e017`, with the previously
+  transferred joint-velocity-impedance patch committed as `2c12acab` in fork
+  `YFnWng/franky`, branch `m4-hardware-controller`;
+- libfranka 0.21.2, commit
+  `9f9304ec0ac897eff3219a67f612b959948535e2`;
+- implementation branch `m4-dynamic-projector-fixtures` for the opt-in M4
+  dynamic projector and native callback-synchronous line/circle fixtures.
+
+The Cartesian pose/twist impedance equation, `J^T` wrench mapping, model
+Coriolis term, robot-side gravity split and zero-order-held tracking reference
+match the intended M4 architecture. Franky's default posture projector is the
+kinematic `I-J^+J`; keep it for the static M3-compatible posture demo. The M4
+tracking and curve routes will add the opt-in dynamic torque projector
+
+$$
+N_\tau=I-J^T(JM^{-1}J^T)^+JM^{-1}.
+$$
+
+The native curve motion will compute the measured-state Z-line/YZ-circle
+projection, tangent/normal decomposition and fixed-orientation impedance inside
+the 1 kHz Franky callback. This requires a maintained Franky fork but no
+libfranka change. Hardware implementation details are in
+`deployment/MOTION_M4_HARDWARE_DEPLOYMENT_PLAN.md`; the source-level parity
+audit is in
+`deployment/hardware_control_audit/2026-10-11-m4-franky-controller-parity/README.md`.
+
+### Required simulation torque-processing correction
+
+The existing simulation processor has two independent persistent states:
+`limited` advances by at most 1 Nm per tick, and `filtered` follows `limited`.
+That is not the selected hardware recurrence. The hardware path is:
+
+```text
+tau_raw = tau_task_or_joint + tau_posture + coriolis + tau_limit
+tau_previous = robot_state.tau_J_d
+tau_franky = tau_previous + clip(tau_raw - tau_previous, +/-1 Nm)
+tau_command = tau_previous + alpha * (tau_franky - tau_previous)
+alpha = 0.001 / (0.001 + 1/(2*pi*100)) = 0.385869545095...
+```
+
+Franky performs the first update. libfranka performs the 100 Hz low-pass update
+against the same previous `tau_J_d`; its additional rate limiter is disabled.
+Hardware runtime settings remain:
+
+```text
+Franky max_delta_tau = 1.0 Nm/callback
+libfranka cutoff_frequency = 100.0 Hz
+libfranka limit_rate = false
+```
+
+On the workstation, update both the portable NumPy `TorqueCommandProcessor` and
+the batched Torch implementation in
+`source/franka_rl/franka_rl/tasks/manager_based/franka_motion_control/mdp/controllers.py`.
+The persistent non-gravity command state should be the prior filtered/output
+command. Per tick:
+
+```python
+previous = command_state
+limited_candidate = previous + clip(raw - previous, -max_delta, max_delta)
+command_state = previous + alpha * (limited_candidate - previous)
+```
+
+`limited_candidate` may remain in telemetry but is not an independent
+persistent ramp state. Initialize `command_state` deliberately at reset; use
+zero for the current deterministic simulation reset and record that choice.
+For a hardware-log replay/parity fixture, allow it to be seeded from the
+recorded initial `tau_J_d`.
+
+After this non-gravity processing, simulation continues to add simulated
+gravity exactly once and applies its simulator effort clamp:
+
+```text
+tau_unclipped = command_state + gravity
+tau_applied_sim = clip(tau_unclipped, +/-effort_limit)
+```
+
+Do not put gravity through the Franky/libfranka recurrence, and do not add
+gravity to the FCI torque command. Retain separate telemetry for `requested`,
+`limited_candidate`, filtered/outgoing non-gravity command, gravity,
+`unclipped`, and simulator-applied effort.
+
+### Workstation verification and transfer consequences
+
+1. Update NumPy and Torch implementations together and preserve component-level
+   parity tests.
+2. Replace the old independent-state analytical test with the exact recurrence
+   above, including reversals, saturation and reset/seed cases.
+3. Keep the M4 dynamic projector and curve-fixture equations unchanged.
+4. Re-run M1 joint, M2 Cartesian, M3 posture/fixture and all five M4 portable
+   fixture tests. Re-run the selected simulation trials because command
+   transients and path lag can change.
+5. Record that the simulation effort clamp is a simulator guard and has no
+   identical client-side Franky clamp; compare the non-gravity outgoing command
+   before making torque-parity claims.
+6. Build a new immutable transfer bundle. The existing
+   `2026-10-11_21-02-42_m4` manifest hashes and simulation acceptance summaries
+   describe the previous torque processor and cannot be relabeled as results
+   for the corrected controller.
+
+The selected direction is to preserve the already integrated Franky/libfranka
+processing and correct simulation to match it. Do not disable libfranka's filter
+or introduce a replacement hardware filter solely to preserve the earlier
+simulation implementation.
+
+### Native receiving implementation completed — 2026-10-11
+
+The Franky library work above is implemented locally on branch
+`m4-dynamic-projector-fixtures` at commit `057a0646`. The implementation adds:
+
+- an opt-in dynamically consistent torque projector with relative cutoff
+  `rcond=1e-6`, while retaining the kinematic projector as the default;
+- native callback-synchronous Z-line and YZ-circle projection;
+- separate normal stiffness, normal damping and tangent damping;
+- fixed full-orientation regulation and 1 mm initialization validation;
+- lock-free curve projection/wrench diagnostics; and
+- Python bindings plus pure projector/fixture helpers for golden-fixture tests.
+
+The source was compiled and tested with Python 3.12, libfranka 0.21.2 and
+Ruckig 0.17.3. The transferred Z-line fixture matches exactly; the YZ-circle
+fixture has maximum absolute force difference `1.28e-15`. The repaired wheel is:
+
+```text
+franky_control-2.0.1.dev62+g057a0646.libfranka.0.21.2-cp312-cp312-manylinux_2_35_x86_64.whl
+SHA-256 a06c85249f705aa1ff9a8540dfe1b611098b2c77c85834886a3622d485a54e79
+```
+
+The isolated receiving environment is `~/yifan/venvs/franky-m4-server10`.
+`ldd` resolves its bundled `libfranka` to 0.21.2 and its bundled Ruckig from
+`franky_control.libs`. This completes the native projector/fixture library gate;
+it does not approve physical motion. The remaining receiver work is the
+hardware runtime's watchdog, workspace/contact/joint guards, bounded session
+logger and reviewed stop/commissioning configuration.
+
+
+## Hardware runtime and dependency preservation — 2026-10-12
+
+The receiver added native `M4RuntimeMotion` watchdog/guard/stop dispatch and a
+bounded 1 kHz telemetry ring, plus a hardware adapter and single-task runner
+`deployment/franky_runtime/run_m4_hardware.py`. It supports pose/twist tracking,
+measured-pose hold, native quintic posture references, and line/circle fixtures.
+The first local candidate is `config/m4.hold.pending.yaml`: 10-second hold with
+zero posture gains. It is pending local review, not automatically authorized.
+
+The new wheel `2.0.1.dev63+gm4baseline.libfranka.0.21.2` bundles byte-identical
+copies of all 21 native dependencies from the tested RL velocity runtime,
+including libfranka and Ruckig. The earlier dev62 dependency rebuild is
+superseded for commissioning. Installed environment:
+`~/yifan/venvs/franky-m4-baseline-server10`. Artifact and dependency/source hash
+receipt: `~/yifan/deployment_bundles/2026-10-12/franky-m4-baseline/`.
+
+Native tests (13 cases/41 assertions), installed binding/adapter tests (9),
+portable five-fixture replay and native curve helper parity passed offline.
+There has been no FCI connection or hardware motion. Full compiled tracking/
+posture torque replay and physical timing/stop commissioning remain unvalidated;
+the simulation torque-processing correction requested above also remains open.
+Detailed commands, telemetry semantics and guard provenance are in
+`deployment/franky_runtime/M4_HARDWARE_PREP.md`.

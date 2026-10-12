@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "torque_processing": {
+    "dt_s": 0.001,
+    "cutoff_hz": 100.0,
+    "low_pass_alpha": 0.3858695450950375,
+    "max_delta_nm_per_tick": 1.0,
+    "step_input_nm": 100.0,
+    "samples": [
+      {
+        "tick": 1,
+        "time_ms": 1,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 0.3858695450950375,
+        "franky_plus_libfranka_command_nm": 0.3858695450950375
+      },
+      {
+        "tick": 2,
+        "time_ms": 2,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 1.0087133294532613,
+        "franky_plus_libfranka_command_nm": 0.771739090190075
+      },
+      {
+        "tick": 5,
+        "time_ms": 5,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 3.5474853014272107,
+        "franky_plus_libfranka_command_nm": 1.9293477254751874
+      },
+      {
+        "tick": 10,
+        "time_ms": 10,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 8.420596378958535,
+        "franky_plus_libfranka_command_nm": 3.8586954509503752
+      },
+      {
+        "tick": 20,
+        "time_ms": 20,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 18.408543259069,
+        "franky_plus_libfranka_command_nm": 7.717390901900747
+      },
+      {
+        "tick": 50,
+        "time_ms": 50,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 48.40845056912224,
+        "franky_plus_libfranka_command_nm": 19.293477254751863
+      },
+      {
+        "tick": 100,
+        "time_ms": 100,
+        "simulation_filtered_non_gravity_nm_before_effort_clip": 98.40845056908105,
+        "franky_plus_libfranka_command_nm": 38.586954509503784
+      }
+    ],
+    "interpretation": "The two cascades are not equivalent. With a sustained large step, the current Franky+libfranka client path can change its outgoing command by alpha*1 Nm per tick, whereas the simulation limiter state advances by 1 Nm per tick and its filtered output asymptotically acquires that 1 Nm/tick slope."
+  },
+  "projectors": {
+    "seed": 20261011,
+    "jacobian_shape": [
+      6,
+      7
+    ],
+    "franky_vs_simulation_static_max_abs": 1.9290125052862095e-15,
+    "franky_vs_simulation_dynamic_max_abs": 0.22588131090526997,
+    "franky_vs_simulation_dynamic_frobenius": 0.5107542993077872,
+    "franky_nullspace_residual_frobenius": 1.0543171507725542e-14,
+    "dynamic_nullspace_residual_frobenius": 1.0948881198204486e-14,
+    "interpretation": "Franky's orthogonal kinematic torque projector matches the M3 static-posture projector to numerical precision. It is generally different from M4's mass-weighted dynamically consistent torque projector."
+  }
+}

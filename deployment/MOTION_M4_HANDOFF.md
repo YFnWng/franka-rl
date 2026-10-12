@@ -90,3 +90,62 @@ silent SDK upgrades or a Python 1 kHz callback. Before any movement:
 
 Only then create a new hardware-approved configuration and functional native
 adapter. Hardware results and simulation results must remain separately labeled.
+
+## M4 real-time receiving plan — 2026-10-11
+
+The real-time machine verified the immutable manifest and all five offline
+golden fixtures without connecting to FCI. Hardware remains blocked at the
+native-adapter gate. The receiving architecture, guards, telemetry contract and
+stepwise commissioning sequence are recorded in
+`deployment/MOTION_M4_HARDWARE_DEPLOYMENT_PLAN.md`. Receipt evidence is under
+`/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-11/m4/`.
+
+## Native projector/fixture receipt — 2026-10-11
+
+Franky branch `m4-dynamic-projector-fixtures` now implements the opt-in M4
+dynamic projector and native 1 kHz Z-line/YZ-circle fixture at commit
+`057a0646`. The default projector remains kinematic for the M3 static-posture
+route. The repaired Python 3.12/libfranka 0.21.2 wheel has SHA-256
+`a06c85249f705aa1ff9a8540dfe1b611098b2c77c85834886a3622d485a54e79`.
+The compiled controller matches both transferred curve fixtures to below
+`1.3e-15` maximum absolute error.
+
+The simulation workstation must preserve the M4 controller equations and
+change its torque processor to the hardware recurrence:
+
+```text
+previous = prior filtered/output non-gravity command
+limited_candidate = previous + clip(raw - previous, -1 Nm, +1 Nm)
+output = previous + 0.385869545095 * (limited_candidate - previous)
+```
+
+Use one persistent `output` state; do not retain an independently advancing
+limiter state. Add simulated gravity once after this recurrence. On hardware,
+Franky supplies the clip, libfranka supplies the 100 Hz filter with
+`limit_rate=false`, and FCI supplies gravity. Full workstation instructions and
+required reruns are in `FR3_Industrial_Motion_Control_Demos_HANDOFF.md`.
+
+
+## Hardware runtime and dependency preservation — 2026-10-12
+
+The receiver added native `M4RuntimeMotion` watchdog/guard/stop dispatch and a
+bounded 1 kHz telemetry ring, plus a hardware adapter and single-task runner
+`deployment/franky_runtime/run_m4_hardware.py`. It supports pose/twist tracking,
+measured-pose hold, native quintic posture references, and line/circle fixtures.
+The first local candidate is `config/m4.hold.pending.yaml`: 10-second hold with
+zero posture gains. It is pending local review, not automatically authorized.
+
+The new wheel `2.0.1.dev63+gm4baseline.libfranka.0.21.2` bundles byte-identical
+copies of all 21 native dependencies from the tested RL velocity runtime,
+including libfranka and Ruckig. The earlier dev62 dependency rebuild is
+superseded for commissioning. Installed environment:
+`~/yifan/venvs/franky-m4-baseline-server10`. Artifact and dependency/source hash
+receipt: `~/yifan/deployment_bundles/2026-10-12/franky-m4-baseline/`.
+
+Native tests (13 cases/41 assertions), installed binding/adapter tests (9),
+portable five-fixture replay and native curve helper parity passed offline.
+There has been no FCI connection or hardware motion. Full compiled tracking/
+posture torque replay and physical timing/stop commissioning remain unvalidated;
+the simulation torque-processing correction requested above also remains open.
+Detailed commands, telemetry semantics and guard provenance are in
+`deployment/franky_runtime/M4_HARDWARE_PREP.md`.

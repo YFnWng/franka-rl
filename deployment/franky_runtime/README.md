@@ -304,3 +304,7 @@ reached five waypoints but visibly jittered and faulted when J4 lagged the
 virtual reference by 0.082061 rad. Do not produce another approved hardware
 config for this policy/adapter pair by relaxing tracking thresholds. See
 `../hardware_control_audit/2026-09-27-native-velocity-adapter/`.
+
+## M4 native Cartesian runtime
+
+See [M4_HARDWARE_PREP.md](M4_HARDWARE_PREP.md) for the dependency-preserving wheel, no-motion preflight and first measured-pose hold.
