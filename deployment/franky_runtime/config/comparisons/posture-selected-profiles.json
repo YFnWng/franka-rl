@@ -1,0 +1,188 @@
+{
+  "profiles": [
+    {
+      "profile_id": "cartesian.posture.selected.kinematic",
+      "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/comparisons/cartesian.posture.selected.kinematic.pending.yaml",
+      "controller": {
+        "stiffness": [
+          1200.0,
+          1200.0,
+          1200.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "damping": [
+          69.28203230275508,
+          69.28203230275508,
+          69.28203230275508,
+          13.000000000000004,
+          13.000000000000004,
+          13.000000000000004
+        ],
+        "posture_stiffness": 10.0,
+        "posture_damping": 2.23606797749979,
+        "projector": "kinematic",
+        "cutoff_hz": 100.0,
+        "max_delta_tau": 1.0,
+        "kind": "cartesian_impedance",
+        "stop_stiffness": [
+          800.0,
+          800.0,
+          800.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "stop_damping": [
+          56.568542494923804,
+          56.568542494923804,
+          56.568542494923804,
+          13.0,
+          13.0,
+          13.0
+        ]
+      },
+      "repeats": 1
+    },
+    {
+      "profile_id": "cartesian.posture.selected.dynamic",
+      "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/comparisons/cartesian.posture.selected.dynamic.pending.yaml",
+      "controller": {
+        "stiffness": [
+          1200.0,
+          1200.0,
+          1200.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "damping": [
+          69.28203230275508,
+          69.28203230275508,
+          69.28203230275508,
+          13.000000000000004,
+          13.000000000000004,
+          13.000000000000004
+        ],
+        "posture_stiffness": 10.0,
+        "posture_damping": 2.23606797749979,
+        "projector": "dynamic",
+        "cutoff_hz": 100.0,
+        "max_delta_tau": 1.0,
+        "kind": "cartesian_impedance",
+        "stop_stiffness": [
+          800.0,
+          800.0,
+          800.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "stop_damping": [
+          56.568542494923804,
+          56.568542494923804,
+          56.568542494923804,
+          13.0,
+          13.0,
+          13.0
+        ]
+      },
+      "repeats": 1
+    },
+    {
+      "profile_id": "joint.posture.selected.kinematic",
+      "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/comparisons/joint.posture.selected.kinematic.pending.yaml",
+      "controller": {
+        "stiffness": [
+          800.0,
+          800.0,
+          800.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "damping": [
+          56.568542494923804,
+          56.568542494923804,
+          56.568542494923804,
+          13.000000000000004,
+          13.000000000000004,
+          13.000000000000004
+        ],
+        "posture_stiffness": 10.0,
+        "posture_damping": 2.23606797749979,
+        "projector": "kinematic",
+        "cutoff_hz": 100.0,
+        "max_delta_tau": 1.0,
+        "kind": "dls_joint_pd",
+        "dls": {
+          "stiffness": [
+            200.0,
+            200.0,
+            200.0,
+            200.0,
+            200.0,
+            200.0,
+            200.0
+          ],
+          "damping": [
+            28.284271247461902,
+            28.284271247461902,
+            28.284271247461902,
+            28.284271247461902,
+            28.284271247461902,
+            28.284271247461902,
+            28.284271247461902
+          ],
+          "reference_error_limit": [
+            0.15,
+            0.15,
+            0.15,
+            0.15,
+            0.15,
+            0.15,
+            0.15
+          ],
+          "pose_gain": [
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            2.0
+          ],
+          "task_scale": [
+            1.0,
+            1.0,
+            1.0,
+            0.2,
+            0.2,
+            0.2
+          ],
+          "lambda_value": 0.01,
+          "rank_tolerance": 1e-06,
+          "posture_gain": 0.5
+        },
+        "stop_stiffness": [
+          800.0,
+          800.0,
+          800.0,
+          40.0,
+          40.0,
+          40.0
+        ],
+        "stop_damping": [
+          56.568542494923804,
+          56.568542494923804,
+          56.568542494923804,
+          13.0,
+          13.0,
+          13.0
+        ]
+      },
+      "repeats": 1
+    }
+  ],
+  "shared_posture_plan_sha256": "a7031d34d706ff13343b0cf823cb5a2cd6e4646a5ef646e69a4d7fadaf68e181"
+}

@@ -1258,3 +1258,11 @@ its tested anchor and within existing pose guards. Returning posture sequences
 check subsequent start drift relative to the shared intended return anchor;
 other tasks use trial1 measured anchor. This is a validation/target selection,
 not automatic homing. Small initial-state differences remain logged.
+
+### Circle sweep and reduced posture comparison (2026-10-12)
+
+All ten circle gain profiles have completed trials. Latest-representative position RMS selected Cartesian translation K1200/D69.282 (orientation K40/D13), 4.668 mm position and 1.860 deg orientation RMS; joint PD K200/D28.284, 1.107 mm and 0.111 deg. These are provisional single-trial findings with varying starts. The reduced posture experiment uses Cartesian kinematic, Cartesian dynamic and DLS joint-PD kinematic routes with the same saved A/B/return schedule. [Selection and commands](franky_runtime/M4_POSTURE_SELECTED.md). Full indexed circle report, faults and plots reside in hardware inventory `2026-10-12/m4/circle-comparison-report/`. No simulator, firmware, libfranka or Franky-wheel changes were needed for this preparation.
+
+### Completed reduced posture comparison
+
+[Posture audit](franky_runtime/M4_POSTURE_AUDIT.md): Cartesian kinematic: 3.00 mm / 0.60 deg RMS; Cartesian dynamic: 2.52 mm / 1.65 deg; DLS joint K100/D20: 1.47 mm / 0.25 deg across all active phases. All three completed with smooth stops; K200 failed the J7 torque guard and is excluded from full-task means. DLS K100 achieved A and return settling but not B; neither Cartesian case achieved the strict joint-norm settling criterion. Exact shared targets and nearly identical starts support a preliminary comparison, not statistical conclusions. Full report/log indices reside in hardware inventory `2026-10-12/m4/posture-comparison-report/`.

@@ -125,3 +125,11 @@ The hold trial `hold.20261012T190454.670383Z/trial-01` faulted on callback 1 bec
 Sessions `tracking.20261012T191434.905431Z` and `tracking.20261012T191631.743364Z` reached 94% FCI command success against the 95% guard, at 28.179s in tracking and 59.817s in exit respectively. Both completed smooth stop without dropped logs. Native threads had FIFO priority 99. The retry completed the timed circle segment. Post-run host inspection found CPU governor `powersave` and no Ethernet interface errors/drops; these counters do not exclude command latency. Root cause remains unconfirmed. Test the `performance` CPU governor before further sweeps; preserve gain and guard settings. If recurring, collect NIC EEE/coalescing and callback computation/transmit timing evidence.
 
 The investigation of the subsequent K0.5 communication reflex is recorded in [M4_COMMUNICATION_INVESTIGATION.md](M4_COMMUNICATION_INVESTIGATION.md). All CPUs were already on performance, but Ethernet EEE was enabled and active. Disable EEE as a separate controlled test before further comparisons; root cause is not yet established.
+
+## Reduced posture comparison after circle sweep
+
+The operator chose to omit the full posture gain sweep and use circle-selected gains. See [M4_POSTURE_SELECTED.md](M4_POSTURE_SELECTED.md) for the ten-profile circle table, exact source trials and three new pending configs. Cartesian translation K1200/D69.282 (orientation K40/D13) and joint K200/D28.284 were selected provisionally by lowest circle-segment position RMS among latest completed representatives. Run `cartesian.posture.selected.kinematic`, `cartesian.posture.selected.dynamic`, and `joint.posture.selected.kinematic`, each with one trial. Shared feasible A/B/return targets, all guards and separate stop gains are preserved. No posture hardware execution performed during preparation.
+
+## Completed posture results
+
+See [M4_POSTURE_AUDIT.md](M4_POSTURE_AUDIT.md). Cartesian kinematic/dynamic completed; selected joint K200 faulted at the J7 torque guard, while fallback K100/D20 completed. Use K100 for the completed posture comparison. Session completion did not imply all posture settling criteria passed. Historical selected configs and failed trial remain preserved.
