@@ -1,0 +1,18 @@
+{
+  "config": "/home/chen-lab/yifan/franka-rl/deployment/franky_runtime/config/m4.circle_yz.approved.yaml",
+  "start_evidence": "/home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4/hold.20261012T134119Z/start.json",
+  "duration_s": 47.41592653589793,
+  "position_min_m": [
+    0.30645598835092625,
+    -0.1499999894499483,
+    0.2000000713149762
+  ],
+  "position_max_m": [
+    0.475,
+    0.14999998644937101,
+    0.5907345352510828
+  ],
+  "max_reference_speed_m_s": 0.05984604945441551,
+  "trajectory_limits_and_ik": "passed using completed hold start; execution rechecks current measured start",
+  "hardware_executed": false
+}

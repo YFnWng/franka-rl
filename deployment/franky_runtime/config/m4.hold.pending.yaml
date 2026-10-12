@@ -12,8 +12,8 @@ approval:
   approved_at: null
   physical_stop_procedure: null
   workspace_review: null
-bundle: /home/chen-lab/yifan/2026-10-11_21-02-42_m4
-bundle_manifest_sha256: 26d718217de37b132bccdfb7ecd147dc47554e48f21637c19c5f174380ed7d09
+bundle: /home/chen-lab/yifan/2026-10-12_m4_torque_v2_verified
+bundle_manifest_sha256: 79c3ea84734761e46bc4954320555f5c8bf70a4b14060f43c621aec972938816
 output_root: /home/chen-lab/franka_ros2_ws/hardware_inventory/2026-10-12/m4
 reference_hz: 50
 log_capacity: 4096

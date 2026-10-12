@@ -924,3 +924,40 @@ selected tracking/M3/curve acceptance summaries; the builder rejects old-process
 The `2026-10-11_21-02-42_m4` bundle is unchanged and historical. This is
 algebraic processor parity and simulation evidence, not full native hardware
 torque replay, timing/stop qualification or physical-motion approval.
+
+
+## Torque v2 verified receipt and live preflight — 2026-10-12
+
+The receiver now selects `~/yifan/2026-10-12_m4_torque_v2_verified`, manifest
+SHA-256 `79c3ea84734761e46bc4954320555f5c8bf70a4b14060f43c621aec972938816`.
+All 74 files passed integrity verification. The seeded 30-tick torque fixture
+matches the installed portable processor and the independent hardware recurrence
+exactly in limited/filtered/gravity-added/effort-guarded channels. All five
+portable task fixtures pass offline. All 11 included simulation summaries are
+complete/accepted and identify `shared_previous_output_v2`; circle/Lissajous
+geometry and Cartesian profile explicitly match the included catalogs.
+No geometry/gain catalog changes from the prior bundle were found.
+
+The new `franka-motion` wheel (still version 0.1.0) was force-reinstalled with
+`--no-deps` in `franky-m4-baseline-server10`. The local `m4.hold.pending.yaml`
+bundle path and manifest hash were updated. All 21 bundled Franky native
+dependencies remain byte-identical to the tested baseline. No Franky C++ wheel,
+libfranka, Ruckig, robot firmware, gains or guard thresholds needed changing.
+The simulation torque-processor correction previously listed as open is now
+received and verified; physical commissioning is still separate.
+
+The preflight error `Robot has no attribute server_version` was an adapter API
+mistake, not a firmware incompatibility. Only the Gripper exposes that Python
+property in this wheel. The fixed adapter records the successful checksum-pinned
+libfranka protocol-10 handshake as compatibility evidence; it does not fabricate
+a Python-measured server version. A regression test covers the missing binding.
+
+Live no-motion preflight passed at
+`~/franka_ros2_ws/hardware_inventory/2026-10-12/m4/hold.20261012T133558Z/`.
+It checked live URDF, payload/frame, rest state, joint/workspace limits and the
+start Jacobian. `connection-evidence.json` explicitly records the unavailable
+Python server-version value as null. No motion API was called; the Franky
+constructor applied the configured 20 Nm/30 N collision thresholds. An earlier
+restricted-sandbox retry's I/O error is separate from the successful permitted
+retry. Receipt: `hardware_inventory/2026-10-12/m4/torque-v2-receipt.json`.
+The pending 10-second measured-pose hold remains the next commissioning task.

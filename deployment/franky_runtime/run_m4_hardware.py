@@ -95,6 +95,10 @@ def main():
     except Exception as error:
         report.update(terminal_state='fault',terminal_reason=str(error))
     finally:
+        if backend is not None and hasattr(backend, 'scheduling_evidence'):
+            (output/'scheduling-evidence.json').write_text(json.dumps(backend.scheduling_evidence, indent=2)+'\n')
+        if backend is not None and hasattr(backend, 'connection_evidence'):
+            (output/'connection-evidence.json').write_text(json.dumps(backend.connection_evidence, indent=2)+'\n')
         if backend is not None and hasattr(backend, 'preflight_snapshot'):
             (output/'last-preflight.json').write_text(json.dumps(asdict(backend.preflight_snapshot), indent=2)+'\n')
         (output/'report.json').write_text(json.dumps(report,indent=2)+'\n')

@@ -4,6 +4,9 @@ import importlib.metadata
 import json
 import hashlib
 import math
+import os
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 import time
 import numpy as np
@@ -27,6 +30,28 @@ FAULTS = {1:'reference_timeout', 2:'reference_sequence', 3:'callback_gap', 4:'no
           6:'joint_velocity', 7:'workspace', 8:'pose_error', 9:'cartesian_speed', 10:'external_torque',
           11:'contact_collision', 12:'singularity', 13:'robot_error', 14:'command_success',
           15:'command_torque', 16:'logger_overflow', 17:'controller_projection', 18:'stop_timeout'}
+
+
+def scheduling_snapshot():
+    return {'tid': threading.get_native_id(),
+            'policy': os.sched_getscheduler(0), 'priority': os.sched_getparam(0).sched_priority}
+
+
+@contextmanager
+def preserve_caller_scheduler(*, realtime=False):
+    """Keep libfranka's FIFO promotion out of the Python publisher/logger.
+
+    std::thread inherits its creator's scheduler: promote briefly while spawning
+    the native control thread, then restore only the calling Python thread.
+    """
+    policy, parameter = os.sched_getscheduler(0), os.sched_getparam(0)
+    try:
+        if realtime:
+            os.sched_setscheduler(0, os.SCHED_FIFO,
+                                  os.sched_param(os.sched_get_priority_max(os.SCHED_FIFO)))
+        yield
+    finally:
+        os.sched_setscheduler(0, policy, parameter)
 
 
 def serialize_runtime_sample(sample):
@@ -93,6 +118,12 @@ def load_hardware_config(path, *, execute=False):
     if c['task']['kind']=='tracking':
         require(isinstance(c['task']['trajectory'], str), 'trajectory required')
         require(math.isfinite(c['task']['angular_speed_rad_s']) and c['task']['angular_speed_rad_s'] > 0, 'invalid angular speed')
+        for name in ('approach_duration_s', 'exit_duration_s', 'settle_duration_s'):
+            if name in c['task']:
+                value = c['task'][name]
+                require(type(value) in (float, int) and math.isfinite(value)
+                        and (value >= 0 if name == 'settle_duration_s' else value > 0),
+                        f'invalid {name}')
     if c['task']['kind']=='posture':
         vector(c['task']['posture_target_rad'], 7, 'posture target')
         require(c['task']['posture_transition_s'] > 0, 'invalid posture transition')
@@ -106,6 +137,24 @@ def verify_runtime_dependencies(c, f):
                 f'dependency mismatch: {filename}')
 
 
+def connection_protocol_evidence(robot):
+    """Call only after successful connection with the checksum-pinned libfranka.
+
+    This Franky Robot binding lacks server_version. libfranka connects using
+    protocol 10 and rejects incompatible versions in its native handshake.
+    Preserve the distinction between compatible connection and an exposed
+    measured server-version value.
+    """
+    exposed = getattr(robot, 'server_version', None)
+    if exposed is not None:
+        require(int(exposed) == 10, 'FCI server must be 10')
+    return {'client_protocol_version': 10,
+            'server_version_from_python_api': int(exposed) if exposed is not None else None,
+            'compatibility_verified': True,
+            'evidence': 'successful checksum-pinned libfranka 0.21.2 connection handshake',
+            'python_server_version_available': exposed is not None}
+
+
 class FrankyMotionBackend:
     """One native motion, native watchdog/guards/stop, native bounded 1 kHz log."""
     def __init__(self, config=None):
@@ -117,9 +166,13 @@ class FrankyMotionBackend:
         verify_runtime_dependencies(config, f)
         require(hasattr(f, 'M4RuntimeMotion'), 'wheel lacks M4 native runtime')
         self.f = f
-        self.robot = f.Robot(config['robot']['host'], realtime_config=f.RealtimeConfig.Enforce,
-                            default_torque_threshold=config['robot']['collision_torque_nm'],
-                            default_force_threshold=config['robot']['collision_force_n'])
+        self.scheduling_evidence = {'before_robot_constructor': scheduling_snapshot()}
+        with preserve_caller_scheduler():
+            self.robot = f.Robot(config['robot']['host'], realtime_config=f.RealtimeConfig.Enforce,
+                                default_torque_threshold=config['robot']['collision_torque_nm'],
+                                default_force_threshold=config['robot']['collision_force_n'])
+            self.scheduling_evidence['inside_robot_constructor_scope'] = scheduling_snapshot()
+        self.scheduling_evidence['python_after_robot_constructor'] = scheduling_snapshot()
         self.encoder = EncoderForwardKinematics(self.robot, f)
         self.motion = None
         self.sequence = 0
@@ -130,7 +183,7 @@ class FrankyMotionBackend:
         s = _snapshot(self.robot, state, self.encoder)
         self.preflight_snapshot = s
         c = self.config
-        require(self.robot.server_version == 10, 'FCI server must be 10')
+        self.connection_evidence = connection_protocol_evidence(self.robot)
         expected_model = Path(c['bundle'])/'model/robot_returned_model.urdf'
         require(hashlib.sha256(self.robot.model_urdf.encode()).hexdigest() == sha256(expected_model), 'live robot model differs from transfer')
         require(not s.has_errors and not s.is_in_control, 'robot has errors or active controller')
@@ -154,7 +207,12 @@ class FrankyMotionBackend:
         if c['task']['kind'] != 'tracking': return None
         bundle = Path(c['bundle'])
         catalog = _load(bundle/'config/trajectories.yaml')['trajectories']
-        path = TrajectorySpec(c['task']['trajectory'], catalog[c['task']['trajectory']]).build(
+        # Local commissioning timing overrides leave the verified bundle immutable.
+        specification = dict(catalog[c['task']['trajectory']])
+        for name in ('approach_duration_s', 'exit_duration_s', 'settle_duration_s'):
+            if name in c['task']:
+                specification[name] = c['task'][name]
+        path = TrajectorySpec(c['task']['trajectory'], specification).build(
             c['task']['angular_speed_rad_s'], snapshot.flange_position_m, snapshot.flange_orientation_xyzw)
         validate_trajectory(path, max_speed_m_s=c['limits']['linear_speed_m_s'], max_acceleration_m_s2=c['reference_limits']['acceleration_m_s2'],
                             max_jerk_m_s3=c['reference_limits']['jerk_m_s3'], lower_m=c['limits']['workspace_lower'], upper_m=c['limits']['workspace_upper'])
@@ -188,7 +246,21 @@ class FrankyMotionBackend:
             # Native initialization validation runs on the actual first servo state.
         self.motion = f.M4RuntimeMotion(params, limits, stop, fixture, c['log_capacity'])
         self.publish(snapshot.flange_position_m, snapshot.flange_orientation_xyzw, np.zeros(6))
-        self.robot.move(self.motion, asynchronous=True, limit_rate=False, cutoff_frequency=100.)
+        previous_threads = {int(p.name) for p in Path('/proc/self/task').iterdir()}
+        with preserve_caller_scheduler(realtime=True):
+            self.scheduling_evidence['control_thread_creator'] = scheduling_snapshot()
+            self.robot.move(self.motion, asynchronous=True, limit_rate=False, cutoff_frequency=100.)
+        self.scheduling_evidence['python_after_native_start'] = scheduling_snapshot()
+        self.scheduling_evidence['new_native_threads'] = []
+        for entry in Path('/proc/self/task').iterdir():
+            tid = int(entry.name)
+            if tid not in previous_threads:
+                try:
+                    self.scheduling_evidence['new_native_threads'].append(
+                        {'tid':tid, 'policy':os.sched_getscheduler(tid),
+                         'priority':os.sched_getparam(tid).sched_priority})
+                except ProcessLookupError:
+                    pass
 
     def publish(self, p, q, twist, posture=None):
         self.sequence += 1
