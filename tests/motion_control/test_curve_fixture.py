@@ -66,3 +66,14 @@ def test_curve_config():
     config = load_curve_fixture(ROOT/"source/franka_motion/franka_motion/config/suites/curve_fixture.yaml")
     assert config["tangent_damping"] > 0 and len(config["experiments"]) == 4
     assert Path(config["motion_suite"]).is_file()
+
+
+def test_curve_secondary_torque_is_processed_and_reset():
+    c=controllers().BatchedCurveImpedanceController(2,"cpu",[100.]*3+[10.]*3,[20.]*3+[6.5]*3)
+    c.components["posture"]=torch.full((2,7),.2)
+    pose=torch.tensor([[0.,0.,0.,1.,0.,0.,0.]]).repeat(2,1)
+    c.compute(pose,torch.zeros(2,6),torch.zeros(2,13),torch.zeros(2,6,7),torch.zeros(2,7),torch.zeros(2,7))
+    torch.testing.assert_close(c.components["requested"],torch.full((2,7),.2))
+    c.reset(torch.tensor([0]))
+    assert not c.components["posture"][0].any()
+    torch.testing.assert_close(c.components["posture"][1],torch.full((7,),.2))

@@ -141,6 +141,12 @@ class CartesianMotionAction(JointMotionAction):
         self.stop_controller = BatchedJointImpedanceController(self.num_envs, self.device, (0.,)*7, (20.,)*7, **processing)
         self.cart_lower = torch.tensor(cfg.cartesian_lower, device=self.device)
         self.cart_upper = torch.tensor(cfg.cartesian_upper, device=self.device)
+        self.posture_anchor = torch.zeros((self.num_envs,7),device=self.device)
+        self.tracking_posture_enabled = cfg.tracking_posture_stiffness>0 or cfg.tracking_posture_damping>0
+        if cfg.tracking_posture_stiffness<0 or cfg.tracking_posture_damping<0 or not 0<cfg.tracking_projector_rcond<1:
+            raise ValueError("Invalid tracking posture gains/projector cutoff")
+        if self.tracking_posture_enabled:
+            self.controller.components["posture"] = torch.zeros_like(self.posture_anchor)
 
     @property
     def action_dim(self):
@@ -181,6 +187,12 @@ class CartesianMotionAction(JointMotionAction):
         coriolis = (wp.to_torch(raw_c) if isinstance(raw_c,wp.array) else raw_c)[:,self.dynamics_ids]
         gravity = self._asset.data.gravity_compensation_forces.torch[:,self.dynamics_ids]
         jacobian = self.jacobian_base()
+        if self.tracking_posture_enabled:
+            from .controllers import dynamic_torque_projector_torch
+            mass = self._asset.data.mass_matrix.torch[:,self.dynamics_ids][:,:,self.dynamics_ids]
+            projector = dynamic_torque_projector_torch(jacobian,mass,self.cfg.tracking_projector_rcond)
+            raw = self.cfg.tracking_posture_stiffness*(self.posture_anchor-q)-self.cfg.tracking_posture_damping*dq
+            self.controller.components["posture"].copy_((projector@raw.unsqueeze(-1)).squeeze(-1))
         if self.action_dim == 20:
             projector = nullspace_projector_torch(jacobian,self.cfg.projector_rcond)
             raw = self.cfg.posture_stiffness*(self._processed[:,13:]-q)-self.cfg.posture_damping*dq
@@ -214,6 +226,7 @@ class CartesianMotionAction(JointMotionAction):
         self._processed[ids,7:] = 0.
         self.fault_hold_q[ids] = self._asset.data.joint_pos.torch[ids][:,self.ids]
         self.stop_controller.reset(ids)
+        self.posture_anchor[ids] = self._asset.data.joint_pos.torch[ids][:,self.ids]
 
 
 class CartesianPostureMotionAction(CartesianMotionAction):
@@ -237,6 +250,8 @@ class CurveImpedanceAction(CartesianMotionAction):
         super().__init__(cfg,env)
         self.controller = BatchedCurveImpedanceController(self.num_envs,self.device,cfg.stiffness,cfg.damping,
             dt=env.physics_dt,slew_rate_nm_s=cfg.slew_rate_nm_s,cutoff_hz=cfg.cutoff_hz,effort_limits_nm=cfg.effort_limits_nm)
+        if self.tracking_posture_enabled:
+            self.controller.components["posture"] = torch.zeros_like(self.posture_anchor)
 
     def check_state(self):
         q,dq = super().check_state()

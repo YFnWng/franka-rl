@@ -249,6 +249,12 @@ class IsaacCartesianMotionRunner:
             additional, passed = analyze_trace(trace)
             metrics.update(additional)
             accepted = accepted and passed
+        metrics["max_joint_displacement_from_initial_rad"] = float(np.linalg.norm(
+            trace["q"]-trace["initial_q"][None],axis=-1).max())
+        metrics["terminal_joint_displacement_from_initial_rad"] = float(np.linalg.norm(
+            trace["terminal_q"]-trace["initial_q"],axis=-1).max())
+        if "posture" in trace:
+            metrics["max_posture_torque_nm"] = float(np.abs(trace["posture"]).max())
         metrics = {key:value if np.isfinite(value) else None for key,value in metrics.items()}
         summary = {"schema_version":1,"trial_id":trial.trial_id,"status":"fault" if fault.any() or runtime_error else "complete",
             "acceptance_passed":bool(accepted),"runtime_error":runtime_error,"metrics":metrics,"fault_codes":fault.tolist(),
@@ -259,7 +265,14 @@ class IsaacCartesianMotionRunner:
             "controller":trial.controller.data,"trajectory":trial.trajectory.data,"angular_speed_rad_s":trial.angular_speed_rad_s,
             "twist_feedforward":trial.twist_feedforward,"file_hashes":self.suite.file_hashes,
             "processing_order":"J^T [K*base_pose_log_error + D*(desired_twist-measured_twist)] + PhysX C -> non-gravity slew -> first-order lowpass -> PhysX G -> effort clamp",
-            "posture_torque":"none (M3)","fault_stop":"gravity-compensated velocity damper candidate; not hardware-qualified",
+            "tracking_posture":{"enabled":action.tracking_posture_enabled,
+                "stiffness_nm_rad":action.cfg.tracking_posture_stiffness,
+                "damping_nm_s_rad":action.cfg.tracking_posture_damping,
+                "anchor_rad":action.posture_anchor.cpu().tolist(),
+                "projector":"I - J.T (J M^-1 J.T)^+ J M^-1",
+                "rcond":action.cfg.tracking_projector_rcond},
+            "posture_torque":"see tracking_posture or task-specific metadata",
+            "fault_stop":"gravity-compensated velocity damper candidate; not hardware-qualified",
             "collision_validation":"runtime moving-link contact proxy only; no mesh clearance certificate",
             "measured_abort_limits":{key:getattr(action.cfg,key) for key in ("abort_lower","abort_upper","max_measured_velocity")},
             "contact_proxy_threshold_n":action.cfg.contact_threshold_n,

@@ -32,10 +32,15 @@ class CartesianMotionActionCfg(JointMotionActionCfg):
     cartesian_upper: tuple = (.6,.2,.55)
     max_reference_linear_velocity: float = .1
     max_reference_angular_velocity: float = .5
+    tracking_posture_stiffness: float = 2.
+    tracking_posture_damping: float = 1.
+    tracking_projector_rcond: float = 1e-6
 
 
 @configclass
 class CartesianPostureMotionActionCfg(CartesianMotionActionCfg):
+    tracking_posture_stiffness: float = 0.
+    tracking_posture_damping: float = 0.
     class_type: str = "{DIR}.actions:CartesianPostureMotionAction"
     posture_stiffness: float = 2.
     posture_damping: float = 1.

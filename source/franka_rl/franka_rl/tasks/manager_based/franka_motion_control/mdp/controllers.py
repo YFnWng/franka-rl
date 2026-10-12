@@ -99,6 +99,15 @@ def nullspace_projector_torch(jacobian, rcond=1e-6):
     return torch.eye(7,device=jacobian.device,dtype=jacobian.dtype)-jt@torch.linalg.pinv(jt,rtol=rcond)
 
 
+def dynamic_torque_projector_torch(jacobian,mass,rcond=1e-6):
+    """N_tau = I - J.T (J M^-1 J.T)^+ J M^-1; no inertia shaping."""
+    inverse_mass_jt = torch.linalg.solve(mass,jacobian.transpose(-1,-2))
+    task_inverse_mass = jacobian@inverse_mass_jt
+    return (torch.eye(7,device=jacobian.device,dtype=jacobian.dtype)
+            -jacobian.transpose(-1,-2)@torch.linalg.pinv(task_inverse_mass,rtol=rcond)
+            @inverse_mass_jt.transpose(-1,-2))
+
+
 def line_fixture_reference_torch(position,velocity,origin,axis,filtered,alpha,lower,upper,max_speed):
     s = ((position-origin)*axis).sum(-1)
     filtered = filtered+alpha*((velocity*axis).sum(-1)-filtered)

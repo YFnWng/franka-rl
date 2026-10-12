@@ -197,9 +197,38 @@ Existing PPO tasks are untouched.
 
 Task: `Franka-FR3v2-MotionControl-Cartesian-v0`, physical 13D pose/twist action,
 1 kHz torque servo and 50 Hz zero-order-held reference publication. There is no
-policy, implicit motor PD, operational-space inertia shaping, hidden IK servo,
-or secondary posture torque. Targets, speeds, feedforward choices and repeats
+policy, implicit motor PD, operational-space inertia shaping, or hidden IK servo.
+Tracking now includes a soft initial-posture preference. Targets, speeds, feedforward choices and repeats
 come from YAML. Clones reset explicitly; faults never trigger automatic recovery.
+
+### Tracking posture redundancy resolution
+
+The standard Cartesian task now adds a dynamically consistent secondary torque
+at 1 kHz, anchored to each clone's **measured reset joint configuration**:
+
+$$
+N_\tau=I-J^T(JM^{-1}J^T)^+JM^{-1},\qquad
+\tau_n=N_\tau\left[K_n(q_0-q)-D_n\dot q\right].
+$$
+
+The current PhysX joint-space inertia $M$ and geometric Jacobian $J$ are used;
+the pseudoinverse cutoff is $10^{-6}$. At full retained task rank,
+$JM^{-1}N_\tau=0$, so the secondary torque does not directly accelerate the
+Cartesian task in the ideal instantaneous model. Add it before the common
+Coriolis/slew/filter/gravity/effort processing. Filtering, saturation and finite
+precision can still introduce task coupling; near-singular truncated modes are
+not guaranteed to decouple exactly. Existing singularity/contact/limit guards
+remain unchanged.
+
+Defaults in `CartesianMotionActionCfg`: `tracking_posture_stiffness=2` Nm/rad,
+`tracking_posture_damping=1` Nm·s/rad. Set both to zero to reproduce the former
+tracking controller. Gains, anchor and projection formula are recorded in each
+summary, with secondary torque in the physics trace. This is a soft local joint
+displacement preference, not a global minimum-motion planner or guarantee that
+final joints equal initial joints. The curve-fixture task also enables this
+reset-anchored term; M3's explicit posture experiment retains its previous law.
+Portable NumPy parity helper: `dynamic_torque_projector` in `impedance.py`.
+Hardware transfer still needs its own model/controller parity and commissioning.
 
 When using `--viz kit`, circle and Lissajous tracking trials automatically show
 the complete target tracking curve as a cyan, non-colliding scene overlay.
@@ -557,7 +586,17 @@ There is no tangent spring or tangent velocity feedforward. Positive $D_t$ gives
 resistance to hand motion and dissipates velocity after release. Orientation
 uses the existing SO(3)-log spring/damper. Wrench maps through $J^T$, followed by
 the existing Coriolis compensation, torque slew, lowpass, gravity compensation,
-and effort clamp. No secondary posture objective is added.
+and effort clamp. The reset-anchored secondary posture term described above is
+also enabled (K=2 Nm/rad, D=1 Nm·s/rad). It projects against the full six-row
+geometric Jacobian, so it preserves all instantaneous Cartesian acceleration
+directions in the ideal model, including permitted tangent motion. It does not
+add a tangent spring or change initialization: the curve must pass the home TCP.
+
+With this posture term enabled, all four two-clone CPU known-force trials passed
+again, as did selective-reset/fault checks and 50 offline tests. Line/circle
+tangent travel remained 25.06/23.82 mm; maximum curve error was 0.73/2.00 mm.
+Evidence: `/tmp/motion-curve-posture-v1` and its `-compiled` sibling. These short
+force trials verify integration, not long-horizon posture optimality.
 
 The infinite line has no artificial endpoint spring; an independent measured
 TCP workspace guard instead latches fault bit 32. Undefined circle projection

@@ -1421,6 +1421,15 @@ checks are evidence for the bare-flange model, not physical clearance certificat
 
 ## Curve-constrained impedance simulation candidate
 
+Standard Cartesian circle/Lissajous tracking now also has an independent
+reset-anchored posture preference: K=2 Nm/rad, D=1 Nm·s/rad, dynamically consistent
+torque projector `I - J.T (J M^-1 J.T)^+ J M^-1`, cutoff 1e-6. See
+`docs/industrial_motion_control.md` and portable `dynamic_torque_projector` for
+hardware parity implementation. It runs before existing torque processing.
+The curve fixture now also enables this reset-anchored term against the full
+six-row Jacobian; home-on-curve initialization is unchanged. M3 explicit-posture
+uses its separate law. This change is not hardware-approved.
+
 New `Franka-FR3v2-MotionControl-CurveFixture-v0` supports an infinite vertical
 line and closed YZ circle, fixed xyzw `[1,0,0,0]` orientation (tip Z = base −Z).
 At each 1 kHz tick, project measured TCP, apply normal spring/damper and positive

@@ -6,6 +6,18 @@ from .contracts import finite_vector, positive
 from .kinematics import pose_error_base, nullspace_projector
 
 
+def dynamic_torque_projector(jacobian,mass,rcond=1e-6):
+    """Inertia-aware secondary torque projection, for portable/hardware parity."""
+    j,m = np.asarray(jacobian,dtype=float),np.asarray(mass,dtype=float)
+    if j.shape!=(6,7) or m.shape!=(7,7) or not np.isfinite(j).all() or not np.isfinite(m).all():
+        raise ValueError("Expected finite 6x7 Jacobian and 7x7 inertia")
+    if not np.allclose(m,m.T) or not 0<rcond<1:
+        raise ValueError("Expected symmetric inertia and valid pseudoinverse cutoff")
+    np.linalg.cholesky(m)
+    x=np.linalg.solve(m,j.T)
+    return np.eye(7)-j.T@np.linalg.pinv(j@x,rcond=rcond)@x.T
+
+
 def compute_posture_torque(jacobian,q,dq,target,stiffness,damping,rcond=1e-6):
     """Projected secondary PD torque before the common servo processing."""
     q,dq,target = (np.array(finite_vector(x,7,"posture")) for x in (q,dq,target))
