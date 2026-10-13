@@ -9,19 +9,19 @@ The robot completed circle and Lissajous path demonstrations, three matched post
 A bare-flange FR3 ran a native C++ 1 kHz torque controller with Python Cartesian/posture references at 50 Hz. The retained stack uses firmware 5.9.2, FCI server 10 and libfranka 0.21.2. Franky was extended with dynamic torque projection, curve fixtures and a DLS-to-joint-PD route. 
 <!-- This report describes those implemented controllers rather than PPO policies. -->
 
-Let $q\in\mathbb R^7$ be encoder joint positions, $p(q)$ and $R(q)$ the model forward-kinematics flange pose, and $J(q)\in\mathbb R^{6\times7}$ the base-frame geometric Jacobian. Here $\operatorname{col}$ stacks column vectors. Then
+Let $q\in\mathbb R^7$ be encoder joint positions, $p(q)$ and $R(q)$ the model forward-kinematics flange pose, and $J(q)\in\mathbb R^{6\times7}$ the base-frame geometric Jacobian. Here $\mathrm{col}$ stacks column vectors. Then
 
 $$
-\nu=\operatorname{col}(v,\omega)=J(q)\dot q,\qquad
- e=\operatorname{col}\!\left(p_d-p,\operatorname{Log}(R_dR^T)^\vee\right).
+\nu=\mathrm{col}(v,\omega)=J(q)\dot q,\qquad
+ e=\mathrm{col}\!\left(p_d-p,\mathrm{Log}(R_dR^T)^\vee\right).
 $$
 
 Position and orientation metrics are
 
 $$
  E_p=\|p_d-p\|_2,\qquad
- E_R=\cos^{-1}\!\left[\operatorname{clip}\left(\frac{\operatorname{tr}(R^TR_d)-1}{2},-1,1\right)\right],
-\qquad \operatorname{RMS}(E)=\sqrt{\frac1N\sum_{k=1}^N E_k^2}.
+ E_R=\cos^{-1}\!\left[\mathrm{clip}\left(\frac{\mathrm{tr}(R^TR_d)-1}{2},-1,1\right)\right],
+\qquad \mathrm{RMS}(E)=\sqrt{\frac1N\sum_{k=1}^N E_k^2}.
 $$
 
 All EE feedback is **encoder/model FK**, in `fr3_link0` with `fr3_flange` as the controlled frame. These are internal model-consistency/tracking measurements, not external pose metrology. Path results use the circle/Lissajous **track phase**, excluding 25 ms at recorded phase boundaries. Posture results use **all active phases**; fixture results use active guidance. Fault and stop samples are excluded from successful-task error metrics. Older exploratory runs use inferred robot-time phases; newer comparison runs use recorded consumed-reference sequences.
@@ -30,7 +30,7 @@ The client torque pipeline is
 
 $$
  \tau_{\rm slew}=\tau_{J,d}^{\rm previous}
- +\operatorname{clip}(\tau_{\rm raw}-\tau_{J,d}^{\rm previous},-\Delta\tau_{\max},+\Delta\tau_{\max}),\quad \Delta\tau_{\max}=1\ \mathrm{Nm}.
+ +\mathrm{clip}(\tau_{\rm raw}-\tau_{J,d}^{\rm previous},-\Delta\tau_{\max},+\Delta\tau_{\max}),\quad \Delta\tau_{\max}=1\ \mathrm{Nm}.
 $$
 
 followed by libfranka's 100 Hz low-pass filter (`limit_rate=False`). Client model Coriolis compensation is included in $\tau_{\rm raw}$; **firmware adds gravity and motor-friction compensation**. Reported client torques exclude those firmware additions. No target-acceleration feedforward, integral correction or additional client friction compensation was used. Bounds, communication checks and the native stop remained active. [FCI torque pipeline](https://frankarobotics.github.io/docs/doc/libfranka/docs/overview.html).
@@ -64,15 +64,15 @@ $$
 
 The implemented pose-error clips apply before multiplication by the gains. Nullspace posture gains are zero during circle tracking, so the chosen torque projector has no effect in this task.
 
-**DLS with explicit joint PD** first converts pose/twist errors into joint velocity. With $S=\operatorname{diag}(1,1,1,0.2,0.2,0.2)$, $\bar J=SJ=U\Sigma V^T$ and $G=2I$ s$^{-1}$,
+**DLS with explicit joint PD** first converts pose/twist errors into joint velocity. With $S=\mathrm{diag}(1,1,1,0.2,0.2,0.2)$, $\bar J=SJ=U\Sigma V^T$ and $G=2I$ s$^{-1}$,
 
 $$
- \dot q_{\rm primary}=\bar J^\#_\lambda S(\nu_d+Ge),\qquad
- \bar J^\#_\lambda=V\operatorname{diag}\left(\frac{\sigma_i}{\sigma_i^2+\lambda^2}\right)U^T,
+ \dot q_{\rm primary}=\bar J^\dagger_\lambda S(\nu_d+Ge),\qquad
+ \bar J^\dagger_\lambda=V\mathrm{diag}\left(\frac{\sigma_i}{\sigma_i^2+\lambda^2}\right)U^T,
  \quad\lambda=0.01.
 $$
 
-Uniform scaling enforces joint-velocity bounds. At each native tick,
+Here $\dagger_\lambda$ denotes the damped pseudoinverse defined above. Uniform scaling enforces joint-velocity bounds. At each native tick,
 
 $$
  q_{{\rm ref},k+1}=q_{{\rm ref},k}+\Delta t_k\dot q_{{\rm ref},k},\qquad
@@ -186,10 +186,10 @@ The **DLS route** adds a secondary velocity instead of a secondary torque:
 
 $$
  N_q=I-V_rV_r^T,\qquad
- \dot q_{\rm ref}=\bar J^\#_\lambda SGe+N_q\,\gamma(q_p-q),\quad\gamma=0.5\ \mathrm{s}^{-1}.
+ \dot q_{\rm ref}=\bar J^\dagger_\lambda SGe+N_q\,\gamma(q_p-q),\quad\gamma=0.5\ \mathrm{s}^{-1}.
 $$
 
-$V_r$ contains the right singular vectors above the relative rank threshold $10^{-6}$. This is an orthogonal **kinematic velocity projector**, not $I-\bar J^\#_\lambda\bar J$. The resulting velocity is bounded, integrated and tracked by joint PD as in path tracking. The torque- and velocity-level secondary gains are not equivalent parameters.
+$V_r$ contains the right singular vectors above the relative rank threshold $10^{-6}$. This is an orthogonal **kinematic velocity projector**, not $I-\bar J^\dagger_\lambda\bar J$. The resulting velocity is bounded, integrated and tracked by joint PD as in path tracking. The torque- and velocity-level secondary gains are not equivalent parameters.
 
 ### Matched posture results
 

@@ -65,7 +65,7 @@ c_{acc} &= \frac{1}{6}\sum_{i=1}^{6}
 c_{settle} &= \mathbf{1}[\lVert e_t\rVert_2<0.05]
  \frac{1}{6}\sum_{i=1}^{6}\left(\frac{v_{t,i}^{ref}}{v_i^{max}}\right)^2, \\
 c_{vel} &= \frac{1}{6}\sum_{i=1}^{6}
- \operatorname{ReLU}\!\left(\frac{v_{t,i}^{peak}}{v_i^{max}}-1\right)^2, \\
+ \mathrm{ReLU}\!\left(\frac{v_{t,i}^{peak}}{v_i^{max}}-1\right)^2, \\
 c_{clip} &= \frac{1}{6}\sum_{i=1}^{6}(a_{t,i}^{raw}-a_{t,i})^2, \\
 c_{proj} &= \frac{1}{6}\sum_{i=1}^{6}(\delta q_{t,i}^{proj})^2, \\
 c_{contact} &= \sum_b \mathbf{1}\!\left[\max_{k\in\text{control window}}\lVert F_{b,k}\rVert_2>1\ \mathrm{N}\right].
