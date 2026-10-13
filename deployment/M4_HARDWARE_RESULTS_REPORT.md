@@ -108,7 +108,9 @@ The selected Cartesian and joint trials had maximum absolute unslewed client tor
 
 ![Circle tracking position errors](hardware_control_audit/2026-10-12-m4-results/figures/circle-position-error.png)
 
-*Three-dimensional error to each applied timed reference during tracking; approach, settle, return and stop are excluded. Curves are displayed every 10 ms without averaging; tabulated metrics retain full-rate samples.*
+*Three-dimensional error to each applied timed reference during tracking. Approach, settle, return and stop are excluded; curves are displayed every 10 ms without averaging, while tabulated metrics retain full-rate samples.*
+
+Additional diagnostic: [aligned DLS K200 J1–J6 positions and reference reversals](hardware_control_audit/2026-10-12-m4-results/figures/circle-j1-j6.png). Red lines mark larger error peaks; green lines mark the corresponding joint-reference reversals.
 
 ### Lissajous follow-up with circle-selected gains
 
@@ -131,7 +133,9 @@ Sources: [Cartesian trial](/home/chen-lab/franka_ros2_ws/hardware_inventory/2026
 
 ![Lissajous tracking position errors](hardware_control_audit/2026-10-12-m4-results/figures/lissajous-position-error.png)
 
-*Three-dimensional error to the applied timed reference, displayed every 10 ms during the tracking phase.*
+*Three-dimensional error to the applied timed reference, displayed every 10 ms during tracking.*
+
+Additional diagnostic: [aligned DLS K200 J1–J6 positions and reference reversals](hardware_control_audit/2026-10-12-m4-results/figures/lissajous-j1-j6.png). Red lines mark larger error peaks; green lines mark the corresponding joint-reference reversals.
 
 <!-- ### Earlier completed path demonstrations
 

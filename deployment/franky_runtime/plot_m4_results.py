@@ -55,7 +55,8 @@ for ax,(label,run) in zip(axes,fixtures):
     else:
         start=json.loads((run/'start.json').read_text());c=np.array(start['flange_position_m']);c[2]-=.1
         theta=np.linspace(0,2*np.pi,600);ax.plot(c[1]+.1*np.cos(theta),c[2]+.1*np.sin(theta),'k--',lw=2,label='Target circle (r = 0.10 m)')
-    ax.set(xlabel='Base Y (m)',ylabel='Base Z (m)',title=label+' fixture');ax.set_aspect('equal');ax.legend(fontsize=8)
+    ax.set(xlabel='Base Y (m)',ylabel='Base Z (m)',title=label+' fixture');ax.set_aspect('equal')
+    ax.legend(fontsize=8,loc='upper center',bbox_to_anchor=(0.5,-0.18))
 save(fig,'fixture-paths',[p for _,p in fixtures])
 fig,axes=plt.subplots(2,2,figsize=(12,8))
 for col,(label,run) in enumerate(fixtures):

@@ -35,7 +35,7 @@ def plot(data_path):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     data=json.loads(data_path.read_text());out=data_path.parent
-    fig,axes=plt.subplots(1,3,figsize=(15,4))
+    fig,axes=plt.subplots(1,3,figsize=(15,5))
     shown_reference=set()
     for row in data['trials']:
         f=Path(row['run_dir'])/'m4-metrics.csv'
@@ -54,7 +54,8 @@ def plot(data_path):
     axes[0].set(xlabel='Base Y (m)',ylabel='Base Z (m)',title='Measured encoder-FK path');axes[0].axis('equal')
     axes[2].set(xlabel='Elapsed time (s)',ylabel='Joint excursion norm (rad)',title='Realized arm movement')
     axes[1].set(xlabel='Elapsed time (s)',ylabel='Position error (mm)',title='Applied-reference error')
-    if data['trials'] and len(data['trials'])<=12:axes[1].legend(fontsize=6)
+    if data['trials'] and len(data['trials'])<=12:
+        axes[1].legend(fontsize=6,loc='upper center',bbox_to_anchor=(0.5,-0.28))
     for a in axes:a.grid(alpha=.25)
     fig.tight_layout();fig.savefig(out/'paths-and-error.png',dpi=180);fig.savefig(out/'paths-and-error.pdf');plt.close(fig)
     fig,axes=plt.subplots(1,2,figsize=(12,max(4,len(data['groups'])*.45)))
